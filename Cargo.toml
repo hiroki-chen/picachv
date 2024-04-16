@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+  "picachv-api",
+  "picachv-core",
+  "picachv-error",
+  "picachv-monitor",
+]
+
+[workspace.dependencies]
+picachv-api = { path = "picachv-api", default-features = false }
+picachv-core = { path = "picachv-core", default-features = false }
+picachv-error = { path = "picachv-error", default-features = false }
+
+lazy_static = "1.4.0"
