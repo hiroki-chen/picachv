@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 ordered-float = "4.2.0"
 picachv-error = { workspace = true }
+polars-core = { workspace = true }
+polars-utils = { workspace = true }

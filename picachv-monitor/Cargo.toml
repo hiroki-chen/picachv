@@ -7,5 +7,6 @@ edition = "2021"
 
 [dependencies]
 picachv-error = { workspace = true }
+picachv-core = { workspace = true }
 
 lazy_static = "1.4.0"

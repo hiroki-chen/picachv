@@ -1,15 +1,13 @@
 [workspace]
 resolver = "2"
-members = [
-  "picachv-api",
-  "picachv-core",
-  "picachv-error",
-  "picachv-monitor",
-]
+members = ["picachv-api", "picachv-core", "picachv-error", "picachv-monitor"]
 
 [workspace.dependencies]
 picachv-api = { path = "picachv-api", default-features = false }
 picachv-core = { path = "picachv-core", default-features = false }
 picachv-error = { path = "picachv-error", default-features = false }
+
+polars-core = { version = "0.39.2", features = ["object"] }
+polars-utils = { version = "0.39.2" }
 
 lazy_static = "1.4.0"
