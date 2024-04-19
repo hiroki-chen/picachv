@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package PicachvMessages;
+
+enum FileType {
+  Csv = 0;
+  Parquet = 1;
+  Json = 2;
+  Avro = 3;
+}
+
+enum JoinType {
+  Inner = 0;
+  Left = 1;
+  Right = 2;
+  Outer = 3;
+}
+
+enum LogicalPlanType {
+  Select = 0;
+  Distinct = 1;
+  Projection = 2;
+  Aggregation = 3;
+  Join = 4;
+  Scan = 5;
+  Union = 6;
+  Other = 7;
+}
+
+enum LogicalBinaryOperator {
+  And = 0;
+  Or = 1;
+}
+
+enum ComparisonBinaryOperator {
+  Eq = 0;
+  Ne = 1;
+  Gt = 2;
+  Lt = 3;
+  Le = 4;
+  Ge = 5;
+}
+
+enum ArithmeticBinaryOperator {
+  Add = 0;
+  Sub = 1;
+  Mul = 2;
+  Div = 3;
+  Mod = 4;
+  Pow = 5;
+}
+
+message BinaryOperator {
+  oneof operator {
+    LogicalBinaryOperator logical_operator = 1;
+    ComparisonBinaryOperator comparison_operator = 2;
+    ArithmeticBinaryOperator arithmetic_operator = 3;
+  }
+}
+
+enum UnaryOperator {
+  Identity = 0;
+  Redact = 1;
+  Substitute = 2;
+  Not = 3;
+}
+
+enum GroupByMethod {
+  Min = 0;
+  NanMin = 1;
+  Max = 2;
+  NanMax = 3;
+  Median = 4;
+  Mean = 5;
+  First = 6;
+  Last = 7;
+  Sum = 8;
+}
+
+enum ExprType {
+  Agg = 0;
+  Column = 1;
+  Count = 2;
+  Alias = 3;
+  Wildcard = 4;
+  Filter = 5;
+  Binary = 6;
+  Unary = 7;
+}

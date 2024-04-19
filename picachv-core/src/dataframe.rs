@@ -1,7 +1,12 @@
+use std::{collections::HashMap, sync::Arc};
+
 use picachv_error::{PicachvError, PicachvResult};
 use polars_core::series::Series;
+use uuid::Uuid;
 
 use crate::policy::{Policy, PolicyLabel};
+
+pub type DataFrameRegistry = HashMap<Uuid, Arc<DataFrame>>;
 
 /// A column in a [`DataFrame`] that is guarded by a vector of policies.
 ///

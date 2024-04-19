@@ -1,13 +1,28 @@
 [workspace]
 resolver = "2"
-members = ["picachv-api", "picachv-core", "picachv-error", "picachv-monitor"]
+members = [
+  "picachv-api",
+  "picachv-core",
+  "picachv-error",
+  "picachv-monitor",
+  "picachv-message",
+]
 
 [workspace.dependencies]
 picachv-api = { path = "picachv-api", default-features = false }
 picachv-core = { path = "picachv-core", default-features = false }
 picachv-error = { path = "picachv-error", default-features = false }
+picachv-message = { path = "picachv-message", default-features = false }
 
 polars-core = { version = "0.39.2", features = ["object"] }
 polars-utils = { version = "0.39.2" }
 
 lazy_static = "1.4.0"
+num_enum = { version = "0.7.2" }
+ordered-float = "4.2.0"
+prost = { version = "0.12" }
+prost-types = { version = "0.12" }
+uuid = { version = "1.8.0", features = [
+  "v4",       # Lets you generate random UUIDs
+  "fast-rng", # Use a faster (but still sufficiently random) RNG
+] }

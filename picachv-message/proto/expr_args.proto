@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package PicachvMessages;
+
+import "const.proto";
+
+message MinExpr {
+    bytes input_uuid = 1;
+    bool propagate_nans = 2;
+}
+
+message MaxExpr {
+    bytes input_uuid = 1;
+    bool propagate_nans = 2;
+}
+
+message SumExpr {
+    bytes input_uuid = 1;
+}
+
+message MeanExpr {
+    bytes input_uuid = 1;
+}
+
+message FirstExpr {
+    bytes input_uuid = 1;
+}
+
+message LastExpr {
+    bytes input_uuid = 1;
+}
+
+message AggExpr {
+    oneof expr {
+        MinExpr min = 1;
+        MaxExpr max = 2;
+        SumExpr sum = 3;
+        MeanExpr mean = 4;
+        FirstExpr first = 5;
+        LastExpr last = 6;
+    }
+}
+
+message ColumnExpr {
+    uint64 column_id = 1;
+}
+
+message AliasExpr {
+    bytes input_uuid = 1;
+    string alias = 2;
+}
+
+message WildcardExpr {}
+
+message FilterExpr {
+    bytes input_uuid = 1;
+    bytes filter_uuid = 2;
+}
+
+message BinaryExpr {
+    bytes left_uuid = 1;
+    bytes right_uuid = 2;
+    BinaryOperator op = 3;
+}
+
+message UnaryExpr {
+    bytes input_uuid = 1;
+    UnaryOperator op = 2;
+}
+
+message ExprArgument {
+  oneof argument {
+    AggExpr agg = 1;
+    ColumnExpr column = 2;
+    AliasExpr alias = 3;
+    WildcardExpr wildcard = 4;
+    FilterExpr filter = 5;
+    BinaryExpr binary = 6;
+    UnaryExpr unary = 7;
+  }
+}

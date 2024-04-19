@@ -5,8 +5,15 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+doctest = false
+
 [dependencies]
-ordered-float = "4.2.0"
 picachv-error = { workspace = true }
 polars-core = { workspace = true }
 polars-utils = { workspace = true }
+picachv-message = { workspace = true }
+
+ordered-float = { workspace = true }
+uuid = { workspace = true }
+num_enum = { workspace = true }

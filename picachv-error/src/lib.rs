@@ -2,7 +2,78 @@ use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::ops::Deref;
+use std::sync::{Arc, Mutex};
 use std::{env, io};
+
+#[derive(Debug)]
+pub enum ErrorState {
+    NotYetEncountered { err: PicachvError },
+    AlreadyEncountered { prev_err_msg: String },
+}
+
+impl fmt::Display for ErrorState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ErrorState::NotYetEncountered { err } => write!(f, "NotYetEncountered({err})")?,
+            ErrorState::AlreadyEncountered { prev_err_msg } => {
+                write!(f, "AlreadyEncountered({prev_err_msg})")?
+            },
+        };
+
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct ErrorStateSync(Arc<Mutex<ErrorState>>);
+
+impl std::ops::Deref for ErrorStateSync {
+    type Target = Arc<Mutex<ErrorState>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for ErrorStateSync {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ErrorStateSync({})", &*self.0.lock().unwrap())
+    }
+}
+
+impl ErrorStateSync {
+    pub fn take(&self) -> PicachvError {
+        let mut curr_err = self.0.lock().unwrap();
+
+        match &*curr_err {
+            ErrorState::NotYetEncountered { err: polars_err } => {
+                // Need to finish using `polars_err` here so that NLL considers `err` dropped
+                let prev_err_msg = polars_err.to_string();
+                // Place AlreadyEncountered in `self` for future users of `self`
+                let prev_err = std::mem::replace(
+                    &mut *curr_err,
+                    ErrorState::AlreadyEncountered { prev_err_msg },
+                );
+                // Since we're in this branch, we know err was a NotYetEncountered
+                match prev_err {
+                    ErrorState::NotYetEncountered { err } => err,
+                    ErrorState::AlreadyEncountered { .. } => unreachable!(),
+                }
+            },
+            ErrorState::AlreadyEncountered { prev_err_msg } => {
+                picachv_err!(
+                    ComputeError: "LogicalPlan already failed with error: '{}'", prev_err_msg,
+                )
+            },
+        }
+    }
+}
+
+impl From<PicachvError> for ErrorStateSync {
+    fn from(err: PicachvError) -> Self {
+        Self(Arc::new(Mutex::new(ErrorState::NotYetEncountered { err })))
+    }
+}
 
 #[derive(Debug)]
 pub struct ErrString(Cow<'static, str>);
