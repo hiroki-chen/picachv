@@ -13,6 +13,7 @@ picachv-api = { path = "picachv-api", default-features = false }
 picachv-core = { path = "picachv-core", default-features = false }
 picachv-error = { path = "picachv-error", default-features = false }
 picachv-message = { path = "picachv-message", default-features = false }
+picachv-monitor = { path = "picachv-monitor", default-features = false }
 
 polars-core = { version = "0.39.2", features = ["object"] }
 polars-utils = { version = "0.39.2" }

@@ -58,9 +58,8 @@ message UnionArgument {
   bytes schema_uuid = 3;
 }
 
-/// A Rust `enum`-like message to represent the different types of logical
-/// plans.
-message LogicalPlanArgument {
+/// A Rust `enum`-like message to represent the different types of physical plans.
+message PlanArgument {
   oneof argument {
     SelectArgument select = 1;
     ProjectionArgument projection = 2;

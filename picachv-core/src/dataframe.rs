@@ -1,12 +1,12 @@
 use std::{collections::HashMap, sync::Arc};
 
 use picachv_error::{PicachvError, PicachvResult};
-use polars_core::series::Series;
+use polars_core::schema::SchemaRef;
 use uuid::Uuid;
 
 use crate::policy::{Policy, PolicyLabel};
 
-pub type DataFrameRegistry = HashMap<Uuid, Arc<DataFrame>>;
+pub type DataFrameRegistry = HashMap<Uuid, Arc<PolicyGuardedDataFrame>>;
 
 /// A column in a [`DataFrame`] that is guarded by a vector of policies.
 ///
@@ -14,53 +14,50 @@ pub type DataFrameRegistry = HashMap<Uuid, Arc<DataFrame>>;
 ///
 /// Some might think it is more efficient to store the policies within each data
 /// cell. However, this is not a good idea because it will make the data structure
-/// more complex and harder to maintain. Worse still, some traits that we must
-/// implement are private, which means if we really want to implement custom type
-/// that carries policy, then we need to fork `polars` and make a lot of changes.
+/// more complex and harder to maintain.
+///
+/// It is thus more efficient to keep policies as a separate vector and ensure that
+/// the column and the policies are in sync.
 pub struct PolicyGuardedColumn {
-    /// The original column which is a type-erased vector.
-    pub(crate) column: Series,
-    /// Policies for the column.
     pub(crate) policies: Vec<Policy<PolicyLabel>>,
-}
-
-impl PolicyGuardedColumn {
-    /// Checks the sanity of the column.
-    ///
-    /// This is very important as it ensures that the column and the policies are in sync.
-    pub fn sanity_check(&self) -> PicachvResult<()> {
-        match self.column.len() == self.policies.len() {
-            true => Ok(()),
-            false => Err(PicachvError::InvalidOperation(
-                "Column and policies are not in sync!".into(),
-            )),
-        }
-    }
 }
 
 /// A contiguous growable collection of `Series` that have the same length.
 ///
-/// This [`DataFrame`] is slightly modified to let the policy into the play: we just
-/// add [`polars_core::series::Series`] and policies to it.
-pub struct DataFrame {
+/// This [`PolicyGuardedDataFrame`] is just a conceptual wrapper around a vector of
+/// [`PolicyGuardedColumn`]s. It is not a real data structure; it does not contain
+/// any data. It is just a way to group columns together.
+pub struct PolicyGuardedDataFrame {
+    /// The schema
+    pub(crate) schema: SchemaRef,
+    /// Policies for the column.
     pub(crate) columns: Vec<PolicyGuardedColumn>,
 }
 
-impl DataFrame {
+impl PolicyGuardedDataFrame {
     pub fn sanity_check(&self) -> PicachvResult<()> {
-        self.columns.iter().map(|c| c.sanity_check()).collect()
+        if self.columns.len() != self.schema.len() {
+            return Err(PicachvError::InvalidOperation(
+                "The number of columns does not match the schema.".into(),
+            ));
+        }
+
+        Ok(())
     }
 
     /// Gets the names of all columns in this dataframe.
-    pub fn get_column_names(&self) -> Vec<&str> {
-        self.columns.iter().map(|s| s.column.name()).collect()
+    pub fn get_column_names(&self) -> Vec<String> {
+        self.schema
+            .iter_fields()
+            .map(|f| f.name().to_string())
+            .collect()
     }
 
     /// Get (height, width) of the [`DataFrame`].
     pub fn shape(&self) -> (usize, usize) {
         match self.columns.as_slice() {
             &[] => (0, 0),
-            v => (v[0].column.len(), v.len()),
+            v => (v[0].policies.len(), v.len()),
         }
     }
 }

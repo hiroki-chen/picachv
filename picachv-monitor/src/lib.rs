@@ -1,11 +1,10 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{Arc, OnceLock, RwLock},
 };
 
-use lazy_static::lazy_static;
 use picachv_core::{
-    dataframe::{DataFrame, DataFrameRegistry},
+    dataframe::{DataFrameRegistry, PolicyGuardedDataFrame},
     get_new_uuid, Arenas,
 };
 use picachv_error::{PicachvError, PicachvResult};
@@ -32,7 +31,7 @@ impl Context {
         }
     }
 
-    pub fn register_dataframe(&mut self, df: DataFrame) -> PicachvResult<Uuid> {
+    pub fn register_dataframe(&mut self, df: PolicyGuardedDataFrame) -> PicachvResult<Uuid> {
         let uuid = get_new_uuid();
         self.df_registry.insert(uuid, Arc::new(df));
 
@@ -69,6 +68,4 @@ impl PicachvMonitor {
     }
 }
 
-lazy_static! {
-    pub static ref MONITOR: PicachvMonitor = PicachvMonitor::new();
-}
+pub static MONITOR_INSTANCE: OnceLock<PicachvMonitor> = OnceLock::new();

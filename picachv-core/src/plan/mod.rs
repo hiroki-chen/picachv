@@ -8,73 +8,84 @@ use uuid::Uuid;
 
 use crate::{
     arena::Arena,
+    callback::Caller,
     constants::{JoinType, LogicalPlanType},
     expr::Expr,
 };
 
-pub type LogicalPlanArena = Arena<InternalLogicPlan>;
+pub type PlanArena = Arena<Plan>;
 
-/// This struct describes a high-level logical plan that the caller wants to perform on the
-/// raw data. We do not use the `LogicalPlan` shipped with polars because it contains too
+/// This struct describes a physical plan that the caller wants to perform on the
+/// raw data. We do not use the [`LogicalPlan`] shipped with polars because it contains too
 /// many unnecessary operations.
 ///
 /// # Note
 ///
 /// We only consider common and generic logical plans in this enum type and avoid adding
 /// too implementation- or architecture-specific operations.
+///
+/// We check if the physical plan conforms to the prescribed privacy policy. It is recommended
+/// to give the checker the *optimized* plan.
 #[derive(Clone)]
-pub enum InternalLogicPlan {
-    /// Select with *filter conditions* that work on a [`InternalLogicPlan`].
+pub enum Plan {
+    /// Select with *filter conditions* that work on a [`Plan`].
     Select {
-        input: Box<InternalLogicPlan>,
+        input: Box<Plan>,
         predicate: Expr,
+        cb: Caller,
     },
 
     /// The distinct expression.
     Distinct {
-        input: Box<InternalLogicPlan>,
+        input: Box<Plan>,
+        cb: Caller,
         // options: DistinctOptions,
     },
 
     /// Projection
     Projection {
-        input: Box<InternalLogicPlan>,
+        input: Box<Plan>,
         /// Column 'names' as we may apply some transformation on columns.
         expression: Vec<Expr>,
         schema: SchemaRef,
+        cb: Caller,
     },
 
     /// Aggregate and group by
     Aggregation {
-        input: Box<InternalLogicPlan>,
+        input: Box<Plan>,
         schema: SchemaRef,
         /// Group by `keys`.
         keys: Arc<Vec<Expr>>,
         aggs: Vec<Expr>,
         // apply: Option<Arc<dyn UserDefinedFunction>>,
         maintain_order: bool,
+        cb: Caller,
     },
 
     /// Join operation
     Join {
-        input_left: Box<InternalLogicPlan>,
-        input_right: Box<InternalLogicPlan>,
+        input_left: Box<Plan>,
+        input_right: Box<Plan>,
         schema: SchemaRef,
         left_on: Vec<Expr>,
         right_on: Vec<Expr>,
         options: JoinType,
+        cb: Caller,
     },
 
     Union {
-        input_left: Box<InternalLogicPlan>,
-        input_right: Box<InternalLogicPlan>,
+        input_left: Box<Plan>,
+        input_right: Box<Plan>,
         schema: SchemaRef,
+        cb: Caller,
     },
 
     /// Error that should be emitted later.
     Error {
-        input: Option<Box<InternalLogicPlan>>,
+        input: Option<Box<Plan>>,
         err: ErrorStateSync,
+        cb: Caller,
         // Should we add a span?
     },
 
@@ -85,22 +96,24 @@ pub enum InternalLogicPlan {
         output_schema: Option<SchemaRef>,
         projection: Option<Arc<Vec<String>>>,
         selection: Option<Expr>,
+        cb: Caller,
     },
 
     Other {
-        inputs: Vec<Box<InternalLogicPlan>>,
+        inputs: Vec<Box<Plan>>,
         schema: SchemaRef,
+        cb: Caller,
     },
 }
 
-impl fmt::Debug for InternalLogicPlan {
+impl fmt::Debug for Plan {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.format(f, 0)
     }
 }
 
-impl InternalLogicPlan {
-    /// Formats the current logical plan according to the given `indent`.
+impl Plan {
+    /// Formats the current physical plan according to the given `indent`.
     pub(crate) fn format(&self, f: &mut fmt::Formatter<'_>, indent: usize) -> fmt::Result {
         let sub_indent = indent + 4;
         match self {
@@ -116,7 +129,7 @@ impl InternalLogicPlan {
                 write!(f, "{:indent$} SELECT {expression:?} FROM", "")?;
                 input.format(f, sub_indent)
             },
-            Self::Distinct { input } => {
+            Self::Distinct { input, .. } => {
                 write!(f, "{:indent$}DISTINCT", "")?;
                 input.format(f, sub_indent)
             },
@@ -124,6 +137,7 @@ impl InternalLogicPlan {
                 input_left,
                 input_right,
                 schema,
+                ..
             } => {
                 write!(f, "{:indent$}UNION", "")?;
                 write!(f, "\n{:indent$}LEFT", "")?;
@@ -161,7 +175,7 @@ impl InternalLogicPlan {
                     selection,
                 )
             },
-            Self::Error { input, err } => {
+            Self::Error { input, err, .. } => {
                 write!(
                     f,
                     "Error occurred when constructing the logical plan: {err:?}\nThe previous output is {input:?}"
@@ -181,6 +195,7 @@ impl InternalLogicPlan {
                 left_on,
                 right_on,
                 options,
+                ..
             } => {
                 let fields = schema.iter_fields().collect::<Vec<_>>();
                 write!(f, "{:indent$}{options:?} JOIN:", "")?;
@@ -205,7 +220,7 @@ impl InternalLogicPlan {
         }
     }
 
-    /// Returns the schema of the current logical plan.
+    /// Returns the schema of the current physical plan.
     pub fn schema(&self) -> PicachvResult<SchemaRef> {
         match self {
             Self::Distinct { input, .. } | Self::Select { input, .. } => input.schema(),

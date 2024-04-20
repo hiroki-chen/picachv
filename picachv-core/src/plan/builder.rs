@@ -1,14 +1,16 @@
-use std::sync::Arc;
-
 use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::{expr_argument, logical_plan_argument};
+use picachv_message::{expr_argument, plan_argument};
 use uuid::Uuid;
 
-use crate::{expr::Expr, rwlock_unlock, Arenas};
+use crate::{
+    callback::{Callback, Caller},
+    expr::Expr,
+    rwlock_unlock, Arenas,
+};
 
-use super::InternalLogicPlan;
+use super::Plan;
 
-fn format_err(msg: &str, input: &InternalLogicPlan) -> String {
+fn format_err(msg: &str, input: &Plan) -> String {
     format!("{msg}\n\nError originated just after this operation:\n{input:?}")
 }
 
@@ -38,13 +40,14 @@ macro_rules! try_delayed {
     };
 }
 
-impl InternalLogicPlan {
+impl Plan {
     /// Build logical plan from the arguments.
     pub(crate) fn from_args(
         arenas: &Arenas,
-        arg: logical_plan_argument::Argument,
+        arg: plan_argument::Argument,
+        cb: Callback,
     ) -> PicachvResult<Self> {
-        use logical_plan_argument::Argument;
+        use plan_argument::Argument;
 
         let lp_arena = rwlock_unlock!(arenas.lp_arena, write);
         let schema_arena = rwlock_unlock!(arenas.schema_arena, write);
@@ -78,10 +81,11 @@ impl InternalLogicPlan {
                 let right = lp_arena.get(&right_uuid)?;
                 let schema = schema_arena.get(&schema_uuid)?;
 
-                Ok(InternalLogicPlan::Union {
+                Ok(Plan::Union {
                     input_left: Box::new(left.as_ref().clone()),
                     input_right: Box::new(right.as_ref().clone()),
                     schema: schema.clone(),
+                    cb: Caller::new(cb),
                 })
             },
             _ => todo!(),

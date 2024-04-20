@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package PicachvMessages;
+
+message AffectedRows {
+  message RowInformation {
+    // TODO.
+  }
+  repeated RowInformation info = 1;
+}

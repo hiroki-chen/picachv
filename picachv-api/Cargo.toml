@@ -12,6 +12,7 @@ crate_type = ["cdylib", "rlib"]
 pyo3 = { version = "0.21.1", optional = true }
 jni = { version = "0.21.1", optional = true }
 picachv-error = { workspace = true }
+picachv-monitor = { workspace = true }
 
 [features]
 default = ["java", "python"]
