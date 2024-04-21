@@ -4,11 +4,7 @@ use std::{
 };
 
 use picachv_core::{
-    callback::Caller,
-    dataframe::{DataFrameRegistry, PolicyGuardedDataFrame},
-    get_new_uuid,
-    plan::Plan,
-    rwlock_unlock, Arenas,
+    dataframe::PolicyGuardedDataFrame, expr::Expr, get_new_uuid, plan::Plan, rwlock_unlock, Arenas,
 };
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::{ExprArgument, PlanArgument};
@@ -19,8 +15,6 @@ use uuid::Uuid;
 pub struct Context {
     /// The context ID.
     id: Uuid,
-    /// The dataframes (w/o data) to be analyzed.
-    df_registry: DataFrameRegistry,
     /// A place for storing objects.
     arena: Arenas,
     /// The current plan root.
@@ -31,31 +25,23 @@ impl Context {
     pub fn new(id: Uuid) -> Self {
         Context {
             id,
-            df_registry: DataFrameRegistry::new(),
             arena: Arenas::new(),
             root: Uuid::default(),
         }
     }
 
     pub fn register_policy_dataframe(&mut self, df: PolicyGuardedDataFrame) -> PicachvResult<Uuid> {
-        let uuid = get_new_uuid();
-        self.df_registry.insert(uuid, Arc::new(df));
-
-        Ok(uuid)
+        let mut df_arena = rwlock_unlock!(self.arena.df_arena, write);
+        df_arena.insert(df)
     }
 
-    pub fn plan_from_args(&mut self, plan_arg: PlanArgument, cb: Caller) -> PicachvResult<Uuid> {
-        let mut lp_arena = rwlock_unlock!(self.arena.lp_arena, write);
-
+    pub fn plan_from_args(&mut self, plan_arg: PlanArgument) -> PicachvResult<Uuid> {
         let plan_arg = plan_arg.argument.ok_or(PicachvError::InvalidOperation(
             "The argument is empty.".into(),
         ))?;
 
-        println!("calling callback!");
-        cb.call()?;
-        println!("called callback!");
-
-        let plan = Plan::from_args(&self.arena, plan_arg, cb)?;
+        let plan = Plan::from_args(&self.arena, plan_arg)?;
+        let mut lp_arena = rwlock_unlock!(self.arena.lp_arena, write);
         let root = lp_arena.insert(plan)?;
         self.root = root;
 
@@ -63,14 +49,29 @@ impl Context {
     }
 
     pub fn expr_from_args(&mut self, expr_arg: ExprArgument) -> PicachvResult<Uuid> {
-        todo!()
+        let expr_arg = expr_arg.argument.ok_or(PicachvError::InvalidOperation(
+            "The argument is empty.".into(),
+        ))?;
+
+        let expr = Expr::from_args(&self.arena, expr_arg)?;
+        let mut expr_arena = rwlock_unlock!(self.arena.expr_arena, write);
+        let uuid = expr_arena.insert(expr)?;
+
+        Ok(uuid)
     }
 
-    pub fn execute(&mut self) -> PicachvResult<()> {
+    pub fn execute_prologue(&mut self, plan_uuid: Uuid) -> PicachvResult<()> {
         let lp_arena = rwlock_unlock!(self.arena.lp_arena, read);
-        let plan = lp_arena.get(&self.root)?;
+        let plan = lp_arena.get(&plan_uuid)?;
 
-        plan.execute()
+        plan.execute_prologue()
+    }
+
+    pub fn finalize(&self, df_uuid: Uuid) -> PicachvResult<()> {
+        let df_arena = rwlock_unlock!(self.arena.df_arena, read);
+        let df = df_arena.get(&df_uuid)?;
+
+        df.finalize()
     }
 
     pub fn id(&self) -> Uuid {
@@ -112,7 +113,9 @@ impl PicachvMonitor {
         Ok(uuid)
     }
 
-    pub fn build_plan(&self, ctx_id: Uuid, plan_arg: &[u8], cb: Caller) -> PicachvResult<Uuid> {
+    pub fn build_plan(&self, ctx_id: Uuid, plan_arg: &[u8]) -> PicachvResult<Uuid> {
+        log::debug!("build_plan");
+
         let mut ctx = rwlock_unlock!(self.ctx, write);
         let ctx = ctx
             .get_mut(&ctx_id)
@@ -121,10 +124,12 @@ impl PicachvMonitor {
         let plan_arg = PlanArgument::decode(plan_arg)
             .map_err(|e| PicachvError::InvalidOperation(e.to_string().into()))?;
 
-        ctx.plan_from_args(plan_arg, cb)
+        ctx.plan_from_args(plan_arg)
     }
 
     pub fn build_expr(&self, ctx_id: Uuid, expr_arg: &[u8]) -> PicachvResult<Uuid> {
+        log::debug!("build_expr");
+
         let mut ctx = rwlock_unlock!(self.ctx, write);
         let ctx = ctx
             .get_mut(&ctx_id)
@@ -135,13 +140,33 @@ impl PicachvMonitor {
         ctx.expr_from_args(expr_arg)
     }
 
-    pub fn execute(&self, ctx_id: Uuid) -> PicachvResult<()> {
+    pub fn execute_prologue(&self, ctx_id: Uuid, plan_uuid: Uuid) -> PicachvResult<()> {
+        log::debug!("execute_prologue");
+
         let mut ctx = rwlock_unlock!(self.ctx, write);
         let ctx = ctx
             .get_mut(&ctx_id)
             .ok_or_else(|| PicachvError::InvalidOperation("The context does not exist.".into()))?;
 
-        ctx.execute()
+        ctx.execute_prologue(plan_uuid)
+    }
+
+    pub fn execute_epilogue(&self, ctx_id: Uuid, side_effect: ()) -> PicachvResult<()> {
+        let mut ctx = rwlock_unlock!(self.ctx, write);
+        let ctx = ctx
+            .get_mut(&ctx_id)
+            .ok_or_else(|| PicachvError::InvalidOperation("The context does not exist.".into()))?;
+
+        Ok(())
+    }
+
+    pub fn finalize(&self, ctx_id: Uuid, df_uuid: Uuid) -> PicachvResult<()> {
+        let mut ctx = rwlock_unlock!(self.ctx, write);
+        let ctx = ctx
+            .get_mut(&ctx_id)
+            .ok_or_else(|| PicachvError::InvalidOperation("The context does not exist.".into()))?;
+
+        ctx.finalize(df_uuid)
     }
 }
 

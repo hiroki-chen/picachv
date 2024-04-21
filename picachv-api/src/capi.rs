@@ -1,35 +1,6 @@
-use picachv_core::callback::{Callable, Caller, BUF_SIZE};
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_monitor::{PicachvMonitor, MONITOR_INSTANCE};
 use uuid::Uuid;
-
-/// The callback function written in C so it remains opaque to the Rust code.
-type Callback = unsafe extern "C" fn(*mut u8, *mut usize) -> i32;
-
-struct CallbackWrapper {
-    cb: Callback,
-}
-
-impl Callable for CallbackWrapper {
-    fn call(&self) -> PicachvResult<Vec<u8>> {
-        let mut transformation_info = vec![0u8; BUF_SIZE];
-        let mut len = transformation_info.len();
-
-        let result = unsafe { (self.cb)(transformation_info.as_mut_ptr(), &mut len) };
-
-        if result != 0 {
-            return Err(PicachvError::InvalidOperation(
-                "The callback function failed.".into(),
-            ));
-        }
-
-        Ok(transformation_info[..len].to_vec())
-    }
-
-    fn box_clone(&self) -> Box<dyn Callable> {
-        Box::new(Self { cb: self.cb })
-    }
-}
 
 fn recover_uuid(uuid_ptr: *const u8, len: usize) -> PicachvResult<Uuid> {
     let uuid_bytes = unsafe { std::slice::from_raw_parts(uuid_ptr, len) };
@@ -57,7 +28,6 @@ pub extern "C" fn build_plan(
     build_args_size: usize,
     uuid_ptr: *mut u8,
     uuid_len: usize,
-    cb: Callback,
 ) -> i32 {
     if ctx_uuid_len != 16 || uuid_len != 16 {
         return 1;
@@ -68,14 +38,12 @@ pub extern "C" fn build_plan(
         Err(_) => return 1,
     };
 
-    println!("getting {ctx_uuid:?}");
-    let caller = Caller::new(CallbackWrapper { cb });
-
+    log::debug!("getting {ctx_uuid:?}");
     match MONITOR_INSTANCE.get() {
         Some(monitor) => {
             let arg = unsafe { std::slice::from_raw_parts(build_args, build_args_size) };
 
-            match monitor.build_plan(ctx_uuid, arg, caller) {
+            match monitor.build_plan(ctx_uuid, arg) {
                 Ok(uuid) => {
                     unsafe {
                         std::ptr::copy_nonoverlapping(uuid.as_bytes().as_ptr(), uuid_ptr, 16);
@@ -112,7 +80,7 @@ pub extern "C" fn open_new(uuid_ptr: *mut u8, len: usize) -> i32 {
                 unsafe {
                     std::ptr::copy_nonoverlapping(uuid_bytes.as_ptr(), uuid_ptr, uuid_bytes.len())
                 }
-                println!("returning {uuid:?}");
+                log::debug!("returning {uuid:?}");
                 0
             },
             Err(_) => 1,
@@ -122,18 +90,26 @@ pub extern "C" fn open_new(uuid_ptr: *mut u8, len: usize) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn execute(uuid_ptr: *mut u8, len: usize) -> i32 {
-    if len < 16 {
+pub extern "C" fn execute_prologue(
+    ctx_uuid_ptr: *const u8,
+    ctx_uuid_ptr_len: usize,
+    plan_uuid_ptr: *const u8,
+    plan_uuid_ptr_len: usize,
+) -> i32 {
+    if ctx_uuid_ptr_len < 16 {
         return 1;
     }
 
-    let uuid = match recover_uuid(uuid_ptr, len) {
-        Ok(uuid) => uuid,
-        Err(_) => return 1,
+    let (ctx_id, plan_id) = match (
+        recover_uuid(ctx_uuid_ptr, ctx_uuid_ptr_len),
+        recover_uuid(plan_uuid_ptr, plan_uuid_ptr_len),
+    ) {
+        (Ok(ctx_id), Ok(plan_id)) => (ctx_id, plan_id),
+        _ => return 1,
     };
 
     match MONITOR_INSTANCE.get() {
-        Some(monitor) => match monitor.execute(uuid) {
+        Some(monitor) => match monitor.execute_prologue(ctx_id, plan_id) {
             Ok(_) => 0,
             Err(_) => 1,
         },

@@ -4,11 +4,9 @@ use std::{borrow::Cow, fmt, sync::Arc};
 
 use picachv_error::{ErrorStateSync, PicachvResult};
 use polars_core::schema::SchemaRef;
-use uuid::Uuid;
 
 use crate::{
     arena::Arena,
-    callback::Caller,
     constants::{JoinType, LogicalPlanType},
     expr::Expr,
 };
@@ -29,16 +27,11 @@ pub type PlanArena = Arena<Plan>;
 #[derive(Clone)]
 pub enum Plan {
     /// Select with *filter conditions* that work on a [`Plan`].
-    Select {
-        input: Box<Plan>,
-        predicate: Expr,
-        cb: Caller,
-    },
+    Select { input: Box<Plan>, predicate: Expr },
 
     /// The distinct expression.
     Distinct {
         input: Box<Plan>,
-        cb: Caller,
         // options: DistinctOptions,
     },
 
@@ -48,7 +41,6 @@ pub enum Plan {
         /// Column 'names' as we may apply some transformation on columns.
         expression: Vec<Expr>,
         schema: SchemaRef,
-        cb: Caller,
     },
 
     /// Aggregate and group by
@@ -60,7 +52,6 @@ pub enum Plan {
         aggs: Vec<Expr>,
         // apply: Option<Arc<dyn UserDefinedFunction>>,
         maintain_order: bool,
-        cb: Caller,
     },
 
     /// Join operation
@@ -71,38 +62,32 @@ pub enum Plan {
         left_on: Vec<Expr>,
         right_on: Vec<Expr>,
         options: JoinType,
-        cb: Caller,
     },
 
     Union {
         input_left: Box<Plan>,
         input_right: Box<Plan>,
         schema: SchemaRef,
-        cb: Caller,
     },
 
     /// Error that should be emitted later.
     Error {
         input: Option<Box<Plan>>,
         err: ErrorStateSync,
-        cb: Caller,
         // Should we add a span?
     },
 
     DataFrameScan {
-        df: Uuid,
         schema: SchemaRef,
         // schema of the projected file
         output_schema: Option<SchemaRef>,
         projection: Option<Arc<Vec<String>>>,
         selection: Option<Expr>,
-        cb: Caller,
     },
 
     Other {
         inputs: Vec<Box<Plan>>,
         schema: SchemaRef,
-        cb: Caller,
     },
 }
 
@@ -113,23 +98,23 @@ impl fmt::Debug for Plan {
 }
 
 impl Plan {
-    pub(crate) fn callback(&self) -> &Caller {
-        match self {
-            Self::Select { cb, .. }
-            | Self::Distinct { cb, .. }
-            | Self::Projection { cb, .. }
-            | Self::Aggregation { cb, .. }
-            | Self::Join { cb, .. }
-            | Self::Union { cb, .. }
-            | Self::Error { cb, .. }
-            | Self::DataFrameScan { cb, .. }
-            | Self::Other { cb, .. } => cb,
-        }
-    }
+    // pub(crate) fn callback(&self) -> &Caller {
+    //     match self {
+    //         Self::Select { cb, .. }
+    //         | Self::Distinct { cb, .. }
+    //         | Self::Projection { cb, .. }
+    //         | Self::Aggregation { cb, .. }
+    //         | Self::Join { cb, .. }
+    //         | Self::Union { cb, .. }
+    //         | Self::Error { cb, .. }
+    //         | Self::DataFrameScan { cb, .. }
+    //         | Self::Other { cb, .. } => cb,
+    //     }
+    // }
 
-    pub fn call(&self) -> PicachvResult<Vec<u8>> {
-        self.callback().call()
-    }
+    // pub fn call(&self) -> PicachvResult<Vec<u8>> {
+    //     self.callback().call()
+    // }
 
     /// Formats the current physical plan according to the given `indent`.
     pub(crate) fn format(&self, f: &mut fmt::Formatter<'_>, indent: usize) -> fmt::Result {
@@ -266,8 +251,8 @@ impl Plan {
         }
     }
 
-    pub fn execute(&self) -> PicachvResult<()> {
-        println!("executing {:?}", self);
+    pub fn execute_prologue(&self) -> PicachvResult<()> {
+        log::debug!("executing {:?}", self);
 
         Ok(())
     }

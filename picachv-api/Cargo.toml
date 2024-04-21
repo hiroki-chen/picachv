@@ -12,8 +12,9 @@ crate_type = ["cdylib", "rlib"]
 picachv-error = { workspace = true }
 picachv-monitor = { workspace = true }
 picachv-core = { workspace = true }
-picachv-message = {workspace = true}
+picachv-message = { workspace = true }
 
+log = { workspace = true }
 pyo3 = { version = "0.21.1", optional = true }
 jni = { version = "0.21.1", optional = true }
 uuid = { workspace = true }

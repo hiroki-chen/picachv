@@ -15,6 +15,7 @@ polars-core = { workspace = true }
 polars-utils = { workspace = true }
 picachv-message = { workspace = true }
 
+log = { workspace = true }
 ordered-float = { workspace = true }
 uuid = { workspace = true }
 num_enum = { workspace = true }

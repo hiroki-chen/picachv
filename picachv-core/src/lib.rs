@@ -1,16 +1,14 @@
 use std::sync::{Arc, RwLock};
 
 use arena::Arena;
-use callback::Caller;
+use dataframe::PolicyGuardedDataFrame;
 use expr::{Expr, ExprArena};
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::{ExprArgument, PlanArgument};
 use plan::{Plan, PlanArena};
-use polars_core::schema::Schema;
 use uuid::Uuid;
 
 pub mod arena;
-pub mod callback;
 pub mod constants;
 pub mod dataframe;
 pub mod effects;
@@ -22,7 +20,7 @@ pub mod policy;
 pub struct Arenas {
     pub lp_arena: Arc<RwLock<PlanArena>>,
     pub expr_arena: Arc<RwLock<ExprArena>>,
-    pub schema_arena: Arc<RwLock<Arena<Schema>>>,
+    pub df_arena: Arc<RwLock<Arena<PolicyGuardedDataFrame>>>,
 }
 
 impl Arenas {
@@ -30,16 +28,16 @@ impl Arenas {
         Arenas {
             lp_arena: Arc::new(RwLock::new(PlanArena::new())),
             expr_arena: Arc::new(RwLock::new(ExprArena::new())),
-            schema_arena: Arc::new(RwLock::new(Arena::new())),
+            df_arena: Arc::new(RwLock::new(Arena::new())),
         }
     }
 
-    pub fn build_lp(&self, arg: PlanArgument, cb: Caller) -> PicachvResult<Uuid> {
+    pub fn build_plan(&self, arg: PlanArgument) -> PicachvResult<Uuid> {
         let arg = arg.argument.ok_or(PicachvError::InvalidOperation(
             "The argument is empty.".into(),
         ))?;
 
-        let lp = Plan::from_args(self, arg, cb)?;
+        let lp = Plan::from_args(self, arg)?;
 
         let mut lock = rwlock_unlock!(self.lp_arena, write);
         lock.insert(lp)

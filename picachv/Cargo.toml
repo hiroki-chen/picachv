@@ -1,15 +1,18 @@
 [package]
-name = "picachv-monitor"
+name = "picachv"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-picachv-error = { workspace = true }
+picachv-api = { workspace = true }
 picachv-core = { workspace = true }
+picachv-error = { workspace = true }
+picachv-monitor = { workspace = true }
 picachv-message = { workspace = true }
 
-log = { workspace = true }
-uuid = { workspace = true }
-prost = { workspace = true }
+[features]
+default = []
+python = ["picachv-api/python"]
+java = ["picachv-api/java"]

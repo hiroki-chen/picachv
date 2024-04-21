@@ -7,12 +7,6 @@
 
 using namespace PicachvMessages;
 
-int32_t test(uint8_t *buf, std::size_t buf_len) {
-  std::cout << "callback\n";
-
-  return 0;
-}
-
 int main(int argc, const char **argv) {
   SelectArgument arg;
 
@@ -36,7 +30,7 @@ int main(int argc, const char **argv) {
   uint8_t uuid[16] = {0};
   ret =
       build_plan(buf, sizeof(buf), (uint8_t *)parg.SerializeAsString().c_str(),
-                 parg.ByteSizeLong(), uuid, sizeof(uuid), test);
+                 parg.ByteSizeLong(), uuid, sizeof(uuid));
 
   std::cout << "ret is " << ret << "\n";
 

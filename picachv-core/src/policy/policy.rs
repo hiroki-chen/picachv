@@ -92,11 +92,11 @@ pub trait SetLike {
 }
 
 #[derive(Debug, Clone)]
-pub struct TransformOps(HashSet<TransformType>);
+pub struct TransformOps(pub HashSet<TransformType>);
 #[derive(Debug, Clone)]
-pub struct AggOps(HashSet<AggType>);
+pub struct AggOps(pub HashSet<AggType>);
 #[derive(Debug, Clone)]
-pub struct PrivacyOp(PrivacyScheme);
+pub struct PrivacyOp(pub PrivacyScheme);
 
 impl SetLike for TransformOps {
     fn is_subset(&self, other: &Self) -> bool {

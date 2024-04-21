@@ -15,8 +15,15 @@ message GetDataFromFileArgument {
   bytes schema_uuid = 3;
 }
 
+message GetDataInMemory {
+  bytes schema_uuid = 1;
+}
+
 message GetDataArgument {
-  oneof data_source { GetDataFromFileArgument from_file = 1; }
+  oneof data_source {
+    GetDataFromFileArgument from_file = 1;                
+    GetDataInMemory in_memory = 2;  
+  }
 }
 
 message SelectArgument {

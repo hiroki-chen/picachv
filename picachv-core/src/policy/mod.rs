@@ -1,3 +1,4 @@
+pub mod error;
 pub mod lattice;
 pub mod policy;
 pub mod types;
@@ -24,13 +25,17 @@ macro_rules! build_policy {
 
 #[cfg(test)]
 mod tests {
-    use crate::policy::PolicyLabel;
+    use std::collections::HashSet;
+
+    use crate::policy::{PolicyLabel, TransformOps, TransformType};
 
     #[test]
     fn test_build_policy() {
-        let policy = build_policy!(PolicyLabel::PolicyTop => PolicyLabel::PolicyBot);
+        let policy = build_policy!(PolicyLabel::PolicyTransform {
+            ops: TransformOps(HashSet::from_iter(vec![TransformType::Shift {by: 1}].into_iter()))
+        } => PolicyLabel::PolicyBot);
         assert!(policy.is_ok());
-        let policy = build_policy!(PolicyLabel::PolicyTop=> PolicyLabel::PolicyBot => PolicyLabel::PolicyTop);
+        let policy = build_policy!(PolicyLabel::PolicyTop => PolicyLabel::PolicyBot => PolicyLabel::PolicyTop);
         assert!(policy.is_err());
     }
 }

@@ -8,9 +8,10 @@ use super::Expr;
 
 impl Expr {
     /// Build expression from the arguments.
-    pub(crate) fn from_args(arenas: &Arenas, arg: expr_argument::Argument) -> PicachvResult<Self> {
+    pub fn from_args(arenas: &Arenas, arg: expr_argument::Argument) -> PicachvResult<Self> {
         use expr_argument::Argument;
 
+        log::debug!("Building expression from the arguments {arg:?}");
         let expr_arena = rwlock_unlock!(arenas.expr_arena, read);
         match arg {
             Argument::Column(expr) => Ok(Expr::Column(expr.column_id as _)),
@@ -33,9 +34,9 @@ impl Expr {
                     ))?;
 
                 Ok(Expr::BinaryExpr {
-                    left: Box::new(lhs.clone()),
+                    left: Box::new((*lhs).clone()),
                     op,
-                    right: Box::new(rhs.clone()),
+                    right: Box::new((*rhs).clone()),
                 })
             },
             // Argument::Filter(expr) => {

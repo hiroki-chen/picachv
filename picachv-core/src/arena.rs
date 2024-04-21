@@ -1,9 +1,9 @@
-use std::{collections::HashMap, fmt};
+use std::{collections::HashMap, fmt, sync::Arc};
 
 use picachv_error::{PicachvError, PicachvResult};
 use uuid::Uuid;
 
-pub type ArenaType<T> = HashMap<Uuid, T>;
+pub type ArenaType<T> = HashMap<Uuid, Arc<T>>;
 
 /// Stores a collection of objects looked up by UUID.
 #[derive(Clone, Debug)]
@@ -22,15 +22,15 @@ where
     pub fn insert(&mut self, plan: T) -> PicachvResult<Uuid> {
         let uuid = Uuid::new_v4();
 
-        self.inner.insert(uuid, plan);
+        self.inner.insert(uuid, Arc::new(plan));
         Ok(uuid)
     }
 
-    pub fn get(&self, uuid: &Uuid) -> PicachvResult<&T> {
+    pub fn get(&self, uuid: &Uuid) -> PicachvResult<Arc<T>> {
         match self.inner.get(uuid) {
-            Some(plan) => Ok(plan),
+            Some(plan) => Ok(plan.clone()),
             None => Err(PicachvError::InvalidOperation(
-                "The logical plan does not exist.".into(),
+                format!("The object {uuid} does not exist in the arena.").into(),
             )),
         }
     }

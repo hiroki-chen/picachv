@@ -1,8 +1,6 @@
 use std::fmt;
 
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::{binary_operator, BinaryOperator};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]

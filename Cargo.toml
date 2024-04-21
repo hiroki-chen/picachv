@@ -6,9 +6,8 @@ members = [
   "picachv-error",
   "picachv-monitor",
   "picachv-message",
+  "picachv",
 ]
-
-# TODO: Perhaps we will need a crate to export all the dependencies.
 
 [workspace.dependencies]
 picachv-api = { path = "picachv-api", default-features = false }
@@ -21,6 +20,7 @@ polars-core = { version = "0.39.2", features = ["object"] }
 polars-utils = { version = "0.39.2" }
 
 lazy_static = "1.4.0"
+log = "0.4.21"
 num_enum = { version = "0.7.2" }
 ordered-float = "4.2.0"
 prost = { version = "0.12" }
