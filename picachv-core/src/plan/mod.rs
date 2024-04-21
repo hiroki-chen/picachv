@@ -113,6 +113,24 @@ impl fmt::Debug for Plan {
 }
 
 impl Plan {
+    pub(crate) fn callback(&self) -> &Caller {
+        match self {
+            Self::Select { cb, .. }
+            | Self::Distinct { cb, .. }
+            | Self::Projection { cb, .. }
+            | Self::Aggregation { cb, .. }
+            | Self::Join { cb, .. }
+            | Self::Union { cb, .. }
+            | Self::Error { cb, .. }
+            | Self::DataFrameScan { cb, .. }
+            | Self::Other { cb, .. } => cb,
+        }
+    }
+
+    pub fn call(&self) -> PicachvResult<Vec<u8>> {
+        self.callback().call()
+    }
+
     /// Formats the current physical plan according to the given `indent`.
     pub(crate) fn format(&self, f: &mut fmt::Formatter<'_>, indent: usize) -> fmt::Result {
         let sub_indent = indent + 4;
@@ -246,5 +264,11 @@ impl Plan {
             Self::Other { .. } => LogicalPlanType::Other,
             Self::Error { .. } => LogicalPlanType::Other,
         }
+    }
+
+    pub fn execute(&self) -> PicachvResult<()> {
+        println!("executing {:?}", self);
+
+        Ok(())
     }
 }

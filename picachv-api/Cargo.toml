@@ -9,10 +9,14 @@ crate_type = ["cdylib", "rlib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-pyo3 = { version = "0.21.1", optional = true }
-jni = { version = "0.21.1", optional = true }
 picachv-error = { workspace = true }
 picachv-monitor = { workspace = true }
+picachv-core = { workspace = true }
+picachv-message = {workspace = true}
+
+pyo3 = { version = "0.21.1", optional = true }
+jni = { version = "0.21.1", optional = true }
+uuid = { workspace = true }
 
 [features]
 default = ["java", "python"]

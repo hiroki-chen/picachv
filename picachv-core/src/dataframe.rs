@@ -18,6 +18,13 @@ pub type DataFrameRegistry = HashMap<Uuid, Arc<PolicyGuardedDataFrame>>;
 ///
 /// It is thus more efficient to keep policies as a separate vector and ensure that
 /// the column and the policies are in sync.
+/// 
+/// # TODOs
+/// 
+/// - Sometimes the cell-level policies can be "sparse" which means there is plentiful
+///     space for us to optimize. For example, we can "fold" the policy and "expand" it
+///     whenever it is needed.
+/// - Perhaps we can even make the policy guarded data frame a bitmap or something.
 pub struct PolicyGuardedColumn {
     pub(crate) policies: Vec<Policy<PolicyLabel>>,
 }

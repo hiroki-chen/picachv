@@ -113,6 +113,8 @@ impl Display for ErrString {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PicachvError {
+    #[error("already done: {0}")]
+    Already(ErrString),
     #[error("not found: {0}")]
     ColumnNotFound(ErrString),
     #[error("{0}")]
@@ -147,6 +149,7 @@ impl PicachvError {
     pub fn wrap_msg(&self, func: &dyn Fn(&str) -> String) -> Self {
         use PicachvError::*;
         match self {
+            Already(msg) => Already(func(msg).into()),
             ColumnNotFound(msg) => ColumnNotFound(func(msg).into()),
             ComputeError(msg) => ComputeError(func(msg).into()),
             Duplicate(msg) => Duplicate(func(msg).into()),

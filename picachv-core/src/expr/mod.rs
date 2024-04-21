@@ -1,9 +1,10 @@
 use std::fmt;
 
-use crate::{
-    arena::Arena,
-    constants::{BinOperator, UnaryOperator},
-};
+use picachv_message::binary_operator;
+
+use crate::{arena::Arena, constants::UnaryOperator};
+
+pub mod builder;
 
 /// Stores the expressions.
 pub type ExprArena = Arena<Expr>;
@@ -41,7 +42,7 @@ pub enum AggExpr {
 pub enum Expr {
     /// Aggregation.
     Agg(AggExpr),
-    /// Select a vector of column names.
+    /// Select a column.
     Column(usize),
     /// Count expression.
     Count,
@@ -60,7 +61,7 @@ pub enum Expr {
     /// Binary operations
     BinaryExpr {
         left: Box<Expr>,
-        op: BinOperator,
+        op: binary_operator::Operator,
         right: Box<Expr>,
     },
     UnaryExpr {

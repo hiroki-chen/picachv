@@ -5,13 +5,13 @@ import "const.proto";
 package PicachvMessages;
 
 message GetDataFromFileArgument {
-  /// The path to the file.
+  // The path to the file.
   string path = 1;
-  /// The type of the file.
+  // The type of the file.
   FileType file_type = 2;
-  /// The schema of the file.
-  ///
-  /// Note that the caller must ensure that the schema itself is registered!
+  // The schema of the file.
+  //
+  // Note that the caller must ensure that the schema itself is registered!
   bytes schema_uuid = 3;
 }
 
@@ -20,24 +20,24 @@ message GetDataArgument {
 }
 
 message SelectArgument {
-  /// The uuid of the input.
+  // The uuid of the input.
   bytes input_uuid = 1;
-  /// The uuid of the predicate.
+  // The uuid of the predicate.
   bytes pred_uuid = 2;
 }
 
 message ProjectionArgument {
   bytes input_uuid = 1;
-  /// Column 'names' as we may apply some transformation on columns.
+  // Column 'names' as we may apply some transformation on columns.
   repeated bytes expression = 2;
-  /// The schema.
+  // The schema.
   bytes schema_uuid = 3;
 }
 
 message AggregateArgument {
   bytes input_uuid = 1;
   bytes schema_uuid = 2;
-  /// The uuid of the group by.
+  // The uuid of the group by.
   repeated bytes keys = 3;
   bytes aggs_uuid = 4;
   bool maintain_order = 5;
@@ -58,7 +58,7 @@ message UnionArgument {
   bytes schema_uuid = 3;
 }
 
-/// A Rust `enum`-like message to represent the different types of physical plans.
+// A Rust `enum`-like message to represent the different types of physical plans.
 message PlanArgument {
   oneof argument {
     SelectArgument select = 1;

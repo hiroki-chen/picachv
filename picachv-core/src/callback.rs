@@ -1,25 +1,31 @@
-const BUF_SIZE: usize = 1 << 16;
+use picachv_error::PicachvResult;
 
-/// The callback function written in C so it remains opaque to the Rust code.
-pub type Callback = unsafe extern "C" fn(affected_rows: *mut u8, affected_rows_len: *mut usize);
+pub const BUF_SIZE: usize = 1 << 16;
 
-#[derive(Clone)]
+pub trait Callable: Send + Sync {
+    fn call(&self) -> PicachvResult<Vec<u8>>;
+    fn box_clone(&self) -> Box<dyn Callable>;
+}
+
+/// The caller of the callback function.
 pub struct Caller {
-    cb: Box<Callback>,
+    pub(crate) cb: Box<dyn Callable>,
+}
+
+impl Clone for Caller {
+    fn clone(&self) -> Self {
+        Self {
+            cb: self.cb.box_clone(),
+        }
+    }
 }
 
 impl Caller {
-    pub fn new(f: Callback) -> Self {
+    pub fn new(f: impl Callable + 'static) -> Self {
         Self { cb: Box::new(f) }
     }
 
-    pub fn call(&self) -> Vec<u8> {
-        let mut len = 0usize;
-        let mut ar = vec![0u8; BUF_SIZE];
-
-        unsafe {
-            (self.cb)(ar.as_mut_ptr(), &mut len);
-        }
-        ar[..len].to_vec()
+    pub fn call(&self) -> PicachvResult<Vec<u8>> {
+        self.cb.call()
     }
 }

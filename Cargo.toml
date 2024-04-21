@@ -8,6 +8,8 @@ members = [
   "picachv-message",
 ]
 
+# TODO: Perhaps we will need a crate to export all the dependencies.
+
 [workspace.dependencies]
 picachv-api = { path = "picachv-api", default-features = false }
 picachv-core = { path = "picachv-core", default-features = false }

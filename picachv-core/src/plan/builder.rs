@@ -1,12 +1,10 @@
+use std::sync::Arc;
+
 use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::{expr_argument, plan_argument};
+use picachv_message::plan_argument;
 use uuid::Uuid;
 
-use crate::{
-    callback::{Callback, Caller},
-    expr::Expr,
-    rwlock_unlock, Arenas,
-};
+use crate::{callback::Caller, rwlock_unlock, Arenas};
 
 use super::Plan;
 
@@ -42,10 +40,10 @@ macro_rules! try_delayed {
 
 impl Plan {
     /// Build logical plan from the arguments.
-    pub(crate) fn from_args(
+    pub fn from_args(
         arenas: &Arenas,
         arg: plan_argument::Argument,
-        cb: Callback,
+        cb: Caller,
     ) -> PicachvResult<Self> {
         use plan_argument::Argument;
 
@@ -60,44 +58,26 @@ impl Plan {
             },
 
             Argument::Union(union_arg) => {
-                let (left_uuid, right_uuid, schema_uuid) = {
-                    let left_uuid: [u8; 16] = union_arg.left_uuid.try_into().map_err(|_| {
-                        PicachvError::InvalidOperation("The UUID is invalid.".into())
-                    })?;
-                    let right_uuid: [u8; 16] = union_arg.right_uuid.try_into().map_err(|_| {
-                        PicachvError::InvalidOperation("The UUID is invalid.".into())
-                    })?;
-                    let schema_uuid: [u8; 16] = union_arg.schema_uuid.try_into().map_err(|_| {
-                        PicachvError::InvalidOperation("The UUID is invalid.".into())
-                    })?;
-
-                    (
-                        Uuid::from_bytes(left_uuid),
-                        Uuid::from_bytes(right_uuid),
-                        Uuid::from_bytes(schema_uuid),
-                    )
-                };
+                let left_uuid = Uuid::from_slice_le(union_arg.left_uuid.as_slice())
+                    .map_err(|_| PicachvError::InvalidOperation("The UUID is invalid.".into()))?;
+                let right_uuid = Uuid::from_slice_le(union_arg.right_uuid.as_slice())
+                    .map_err(|_| PicachvError::InvalidOperation("The UUID is invalid.".into()))?;
+                let schema_uuid = Uuid::from_slice_le(union_arg.schema_uuid.as_slice())
+                    .map_err(|_| PicachvError::InvalidOperation("The UUID is invalid.".into()))?;
                 let left = lp_arena.get(&left_uuid)?;
                 let right = lp_arena.get(&right_uuid)?;
                 let schema = schema_arena.get(&schema_uuid)?;
 
                 Ok(Plan::Union {
-                    input_left: Box::new(left.as_ref().clone()),
-                    input_right: Box::new(right.as_ref().clone()),
-                    schema: schema.clone(),
-                    cb: Caller::new(cb),
+                    input_left: Box::new(left.clone()),
+                    input_right: Box::new(right.clone()),
+                    schema: Arc::new(schema.clone()),
+                    cb,
                 })
             },
-            _ => todo!(),
-        }
-    }
-}
-
-impl Expr {
-    /// Build expression from the arguments.
-    pub(crate) fn from_args(arenas: &Arenas, arg: expr_argument::Argument) -> PicachvResult<Self> {
-        match arg {
-            _ => todo!(),
+            _ => Err(PicachvError::InvalidOperation(
+                "The operation is not supported.".into(),
+            )),
         }
     }
 }

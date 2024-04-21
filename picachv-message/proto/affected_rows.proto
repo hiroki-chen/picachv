@@ -2,9 +2,35 @@ syntax = "proto3";
 
 package PicachvMessages;
 
-message AffectedRows {
-  message RowInformation {
-    // TODO.
+// This message is used to notify the monitor which rows are dropped.
+message FilterInformation {
+  // A boolean array that indicates which rows are dropped (0 dropped; 1 not
+  // dropped). The index is in correspondence with the original relation, i.e.,
+  // filter[idx] = 1 means the idx-th row is not dropped.
+  repeated bool filter = 1;
+}
+
+message JoinInformation {}
+
+message GroupByInformation {
+  // Tells the monitor which row is aggregated.
+  map<uint64, uint64> group_by = 1;
+}
+
+message ReorderInformation {
+  // The permutation of rows in case reorder occurs.
+  repeated uint64 perm = 1;
+}
+
+message TransformationInformation {
+  message Information {
+    oneof information {
+      FilterInformation filter = 1;
+      JoinInformation join = 2;
+      GroupByInformation group_by = 3;
+      ReorderInformation reorder = 4;
+    }
   }
-  repeated RowInformation info = 1;
+  // An array of information telling the monitor what has been done.
+  repeated Information trans_info = 1;
 }

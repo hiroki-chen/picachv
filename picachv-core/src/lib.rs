@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use arena::Arena;
-use callback::Callback;
+use callback::Caller;
 use expr::{Expr, ExprArena};
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::{ExprArgument, PlanArgument};
@@ -13,6 +13,7 @@ pub mod arena;
 pub mod callback;
 pub mod constants;
 pub mod dataframe;
+pub mod effects;
 pub mod expr;
 pub mod macros;
 pub mod plan;
@@ -33,7 +34,7 @@ impl Arenas {
         }
     }
 
-    pub fn build_lp(&self, arg: PlanArgument, cb: Callback) -> PicachvResult<Uuid> {
+    pub fn build_lp(&self, arg: PlanArgument, cb: Caller) -> PicachvResult<Uuid> {
         let arg = arg.argument.ok_or(PicachvError::InvalidOperation(
             "The argument is empty.".into(),
         ))?;

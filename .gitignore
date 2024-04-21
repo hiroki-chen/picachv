@@ -6,3 +6,11 @@ Cargo.lock
 .idea/
 .vscode/
 .vim
+
+# C
+*.out
+*.o
+*.so
+*.a
+*.exe
+build
