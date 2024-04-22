@@ -81,7 +81,7 @@ pub enum Plan {
         schema: SchemaRef,
         // schema of the projected file
         output_schema: Option<SchemaRef>,
-        projection: Option<Arc<Vec<String>>>,
+        projection: Option<Vec<usize>>,
         selection: Option<Expr>,
     },
 
@@ -251,9 +251,46 @@ impl Plan {
         }
     }
 
+    /// This is the function eventually called to check if a physical operator is
+    /// allowed to be executed. The caller is required to call this function *before*
+    /// executing the physical plan as though it was instrumented.
+    ///
+    /// # Example
+    ///
+    /// Consider for example you have the following C++ code snippet.
+    ///
+    /// ```c++
+    /// int main(int argc, const char **argv) {
+    ///     State state;
+    ///     Plan *const plan = build_plan();
+    ///     void *res = plan->execute(&state);
+    /// }
+    /// ```
+    ///
+    /// where
+    ///
+    /// ```c++
+    /// void *Plan::execute(State *state) const {
+    ///     if (!this->check(state)) {
+    ///         return nullptr;
+    ///     }
+    ///     return this->execute_impl(state);
+    /// }
+    /// ```
     pub fn execute_prologue(&self) -> PicachvResult<()> {
-        log::debug!("executing {:?}", self);
+        log::debug!("execute_prologue: checking {:?}", self);
 
-        Ok(())
+        match self {
+            Plan::Projection { expression, .. } => {
+                // Check for each expression, it is allowed?
+                expression
+                    .iter()
+                    .map(|e| e.check_policy())
+                    .collect::<PicachvResult<()>>()
+            },
+            Plan::Select { predicate, .. } => predicate.check_policy(),
+            Plan::Other { .. } => unimplemented!("Other"),
+            _ => Ok(()),
+        }
     }
 }

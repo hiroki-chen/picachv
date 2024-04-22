@@ -1,6 +1,6 @@
 use picachv_core::dataframe::PolicyGuardedDataFrame;
 use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::{ExprArgument, PlanArgument};
+use picachv_message::{ExprArgument, PlanArgument, TransformInfo};
 use picachv_monitor::{PicachvMonitor, MONITOR_INSTANCE};
 use uuid::Uuid;
 
@@ -45,4 +45,5 @@ impl_ctx_api!(build_plan, plan_from_args, ctx_id: Uuid, plan_arg: PlanArgument =
 impl_ctx_api!(build_expr, expr_from_args, ctx_id: Uuid, expr_arg: ExprArgument => Uuid);
 impl_ctx_api!(register_policy_dataframe, register_policy_dataframe, ctx_id: Uuid, df: PolicyGuardedDataFrame => Uuid);
 impl_ctx_api!(execute_prologue, execute_prologue, ctx_id: Uuid, plan_uuid: Uuid => ());
+impl_ctx_api!(execute_epilogue, execute_epilogue, ctx_id: Uuid, transform: TransformInfo => Uuid);
 impl_ctx_api!(finalize, finalize, ctx_id: Uuid, df_uuid: Uuid => ());

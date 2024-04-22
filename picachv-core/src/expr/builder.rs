@@ -1,5 +1,6 @@
 use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::expr_argument;
+use picachv_message::{column_expr::Column, expr_argument};
+use polars_core::schema::IndexOfSchema;
 use uuid::Uuid;
 
 use crate::{rwlock_unlock, Arenas};
@@ -14,7 +15,27 @@ impl Expr {
         log::debug!("Building expression from the arguments {arg:?}");
         let expr_arena = rwlock_unlock!(arenas.expr_arena, read);
         match arg {
-            Argument::Column(expr) => Ok(Expr::Column(expr.column_id as _)),
+            Argument::Column(expr) => match expr.column {
+                Some(column) => match column {
+                    Column::ColumnId(id) => Ok(Expr::Column(id as _)),
+                    Column::ColumnNameSpecifier(name) => {
+                        let df_arena = rwlock_unlock!(arenas.df_arena, read);
+                        let uuid = Uuid::from_slice_le(&name.df_uuid).map_err(|_| {
+                            PicachvError::InvalidOperation("The UUID is invalid.".into())
+                        })?;
+                        let res = df_arena.get(&uuid)?.schema.index_of(&name.column_name);
+                        match res {
+                            Some(pos) => Ok(Expr::Column(pos)),
+                            None => Err(PicachvError::InvalidOperation(
+                                "The column does not exist.".into(),
+                            )),
+                        }
+                    },
+                },
+                None => Err(PicachvError::InvalidOperation(
+                    "The column is empty.".into(),
+                )),
+            },
             Argument::Binary(expr) => {
                 let left_uuid = Uuid::from_slice_le(&expr.left_uuid)
                     .map_err(|_| PicachvError::InvalidOperation("The UUID is invalid.".into()))?;
@@ -34,11 +55,12 @@ impl Expr {
                     ))?;
 
                 Ok(Expr::BinaryExpr {
-                    left: Box::new((*lhs).clone()),
+                    left: Box::new((**lhs).clone()),
                     op,
-                    right: Box::new((*rhs).clone()),
+                    right: Box::new((**rhs).clone()),
                 })
             },
+            Argument::Literal(_) => Ok(Expr::Literal),
             // Argument::Filter(expr) => {
             //     let input_uuid = Uuid::from_slice_le(&expr.input_uuid)
             //         .map_err(|_| PicachvError::InvalidOperation("The UUID is invalid.".into()))?;
@@ -50,8 +72,8 @@ impl Expr {
             //     let filter = expr_arena.get(&filter_uuid)?;
 
             //     Ok(Expr::Filter {
-            //         input: Box::new(input.clone()),
-            //         filter: Box::new(filter.clone()),
+            //         input: Box::new((*input).clone()),
+            //         filter: Box::new((*filter).clone()),
             //     })
             // },
             _ => todo!(),

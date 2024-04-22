@@ -11,11 +11,12 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 picachv-error = { workspace = true }
+picachv-message = { workspace = true }
 polars-core = { workspace = true }
 polars-utils = { workspace = true }
-picachv-message = { workspace = true }
 
+tabled = { version = "0.15.0" }
 log = { workspace = true }
+num_enum = { workspace = true }
 ordered-float = { workspace = true }
 uuid = { workspace = true }
-num_enum = { workspace = true }

@@ -1,7 +1,9 @@
 include!("./picachv_messages.rs");
 
+pub mod utils;
+
 #[cfg(test)]
-mod test{
+mod test {
     use prost::Message;
 
     use super::*;
@@ -11,7 +13,7 @@ mod test{
         let agg_expr = AggExpr {
             expr: Some(agg_expr::Expr::Sum(SumExpr {
                 input_uuid: "123".into(),
-            }))
+            })),
         };
 
         let protobuf = agg_expr.encode_to_vec();

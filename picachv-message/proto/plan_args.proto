@@ -12,17 +12,21 @@ message GetDataFromFileArgument {
   // The schema of the file.
   //
   // Note that the caller must ensure that the schema itself is registered!
-  bytes schema_uuid = 3;
+  bytes df_uuid = 3;
 }
 
 message GetDataInMemory {
-  bytes schema_uuid = 1;
+  bytes df_uuid = 1;
+  // In case we will have the "selection pushdown" thing.
+  optional bytes pred = 2;
+  // In case we will have the "projection pushdown" thing.
+  repeated uint64 projected_list = 3;
 }
 
 message GetDataArgument {
   oneof data_source {
-    GetDataFromFileArgument from_file = 1;                
-    GetDataInMemory in_memory = 2;  
+    GetDataFromFileArgument from_file = 1;
+    GetDataInMemory in_memory = 2;
   }
 }
 
@@ -65,7 +69,8 @@ message UnionArgument {
   bytes schema_uuid = 3;
 }
 
-// A Rust `enum`-like message to represent the different types of physical plans.
+// A Rust `enum`-like message to represent the different types of physical
+// plans.
 message PlanArgument {
   oneof argument {
     SelectArgument select = 1;

@@ -26,9 +26,9 @@ pub struct Arenas {
 impl Arenas {
     pub fn new() -> Self {
         Arenas {
-            lp_arena: Arc::new(RwLock::new(PlanArena::new())),
-            expr_arena: Arc::new(RwLock::new(ExprArena::new())),
-            df_arena: Arc::new(RwLock::new(Arena::new())),
+            lp_arena: Arc::new(RwLock::new(PlanArena::new("plan_arena".into()))),
+            expr_arena: Arc::new(RwLock::new(ExprArena::new("expr_arena".into()))),
+            df_arena: Arc::new(RwLock::new(Arena::new("df_arena".into()))),
         }
     }
 

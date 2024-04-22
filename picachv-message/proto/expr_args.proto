@@ -5,67 +5,68 @@ package PicachvMessages;
 import "const.proto";
 
 message MinExpr {
-    bytes input_uuid = 1;
-    bool propagate_nans = 2;
+  bytes input_uuid = 1;
+  bool propagate_nans = 2;
 }
 
 message MaxExpr {
-    bytes input_uuid = 1;
-    bool propagate_nans = 2;
+  bytes input_uuid = 1;
+  bool propagate_nans = 2;
 }
 
-message SumExpr {
-    bytes input_uuid = 1;
-}
+message SumExpr { bytes input_uuid = 1; }
 
-message MeanExpr {
-    bytes input_uuid = 1;
-}
+message MeanExpr { bytes input_uuid = 1; }
 
-message FirstExpr {
-    bytes input_uuid = 1;
-}
+message FirstExpr { bytes input_uuid = 1; }
 
-message LastExpr {
-    bytes input_uuid = 1;
-}
+message LastExpr { bytes input_uuid = 1; }
 
 message AggExpr {
-    oneof expr {
-        MinExpr min = 1;
-        MaxExpr max = 2;
-        SumExpr sum = 3;
-        MeanExpr mean = 4;
-        FirstExpr first = 5;
-        LastExpr last = 6;
-    }
+  oneof expr {
+    MinExpr min = 1;
+    MaxExpr max = 2;
+    SumExpr sum = 3;
+    MeanExpr mean = 4;
+    FirstExpr first = 5;
+    LastExpr last = 6;
+  }
 }
 
 message ColumnExpr {
+  message ColumnNameSpecifier {
+    string column_name = 1;
+    bytes df_uuid = 2;
+  }
+  oneof column {
     uint64 column_id = 1;
+    // This can be problematic since it relies solely on the column name
+    ColumnNameSpecifier column_name_specifier = 2;
+  }
 }
 
 message AliasExpr {
-    bytes input_uuid = 1;
-    string alias = 2;
+  bytes input_uuid = 1;
+  string alias = 2;
 }
 
 message WildcardExpr {}
+message LiteralExpr {}
 
 message FilterExpr {
-    bytes input_uuid = 1;
-    bytes filter_uuid = 2;
+  bytes input_uuid = 1;
+  bytes filter_uuid = 2;
 }
 
 message BinaryExpr {
-    bytes left_uuid = 1;
-    bytes right_uuid = 2;
-    BinaryOperator op = 3;
+  bytes left_uuid = 1;
+  bytes right_uuid = 2;
+  BinaryOperator op = 3;
 }
 
 message UnaryExpr {
-    bytes input_uuid = 1;
-    UnaryOperator op = 2;
+  bytes input_uuid = 1;
+  UnaryOperator op = 2;
 }
 
 message ExprArgument {
@@ -77,5 +78,6 @@ message ExprArgument {
     FilterExpr filter = 5;
     BinaryExpr binary = 6;
     UnaryExpr unary = 7;
+    LiteralExpr literal = 8;
   }
 }

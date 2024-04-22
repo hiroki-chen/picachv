@@ -2,33 +2,44 @@ syntax = "proto3";
 
 package PicachvMessages;
 
+message DummyInformation {
+  bytes df_uuid = 1;
+}
+
 // This message is used to notify the monitor which rows are dropped.
 message FilterInformation {
+  bytes df_uuid = 1;
   // A boolean array that indicates which rows are dropped (0 dropped; 1 not
   // dropped). The index is in correspondence with the original relation, i.e.,
   // filter[idx] = 1 means the idx-th row is not dropped.
-  repeated bool filter = 1;
+  repeated bool filter = 2;
 }
 
-message JoinInformation {}
+message JoinInformation {
+  bytes df_uuid = 1;
+  // todo: other stuff not yet defined
+}
 
 message GroupByInformation {
+  bytes df_uuid = 1;
   // Tells the monitor which row is aggregated.
-  map<uint64, uint64> group_by = 1;
+  map<uint64, uint64> group_by = 2;
 }
 
 message ReorderInformation {
+  bytes df_uuid = 1;
   // The permutation of rows in case reorder occurs.
-  repeated uint64 perm = 1;
+  repeated uint64 perm = 2;
 }
 
-message TransformationInformation {
+message TransformInfo {
   message Information {
     oneof information {
       FilterInformation filter = 1;
       JoinInformation join = 2;
       GroupByInformation group_by = 3;
       ReorderInformation reorder = 4;
+      DummyInformation dummy = 5;
     }
   }
   // An array of information telling the monitor what has been done.

@@ -7,7 +7,9 @@ use picachv_core::{
     dataframe::PolicyGuardedDataFrame, expr::Expr, get_new_uuid, plan::Plan, rwlock_unlock, Arenas,
 };
 use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::{ExprArgument, PlanArgument};
+use picachv_message::{
+    transform_info::information::Information, ExprArgument, PlanArgument, TransformInfo,
+};
 use prost::Message;
 use uuid::Uuid;
 
@@ -18,7 +20,7 @@ pub struct Context {
     /// A place for storing objects.
     arena: Arenas,
     /// The current plan root.
-    root: Uuid,
+    root: Arc<RwLock<Uuid>>,
 }
 
 impl Context {
@@ -26,11 +28,11 @@ impl Context {
         Context {
             id,
             arena: Arenas::new(),
-            root: Uuid::default(),
+            root: Arc::new(RwLock::new(Uuid::default())),
         }
     }
 
-    pub fn register_policy_dataframe(&mut self, df: PolicyGuardedDataFrame) -> PicachvResult<Uuid> {
+    pub fn register_policy_dataframe(&self, df: PolicyGuardedDataFrame) -> PicachvResult<Uuid> {
         let mut df_arena = rwlock_unlock!(self.arena.df_arena, write);
         df_arena.insert(df)
     }
@@ -43,12 +45,12 @@ impl Context {
         let plan = Plan::from_args(&self.arena, plan_arg)?;
         let mut lp_arena = rwlock_unlock!(self.arena.lp_arena, write);
         let root = lp_arena.insert(plan)?;
-        self.root = root;
+        *rwlock_unlock!(self.root, write) = root;
 
         Ok(root)
     }
 
-    pub fn expr_from_args(&mut self, expr_arg: ExprArgument) -> PicachvResult<Uuid> {
+    pub fn expr_from_args(&self, expr_arg: ExprArgument) -> PicachvResult<Uuid> {
         let expr_arg = expr_arg.argument.ok_or(PicachvError::InvalidOperation(
             "The argument is empty.".into(),
         ))?;
@@ -60,17 +62,82 @@ impl Context {
         Ok(uuid)
     }
 
-    pub fn execute_prologue(&mut self, plan_uuid: Uuid) -> PicachvResult<()> {
+    pub fn execute_prologue(&self, plan_uuid: Uuid) -> PicachvResult<()> {
         let lp_arena = rwlock_unlock!(self.arena.lp_arena, read);
         let plan = lp_arena.get(&plan_uuid)?;
 
         plan.execute_prologue()
     }
 
-    pub fn finalize(&self, df_uuid: Uuid) -> PicachvResult<()> {
-        let df_arena = rwlock_unlock!(self.arena.df_arena, read);
-        let df = df_arena.get(&df_uuid)?;
+    /// This function will parse the `TransformInfo` and apply the corresponding transformation on
+    /// the invovled dataframes so that we can keep sync with the original dataframe since policies
+    /// are de-coupled with their data. After succesful application it returns the UUID of the new
+    /// dataframe allocated in the arena.
+    pub fn execute_epilogue(&self, transform: TransformInfo) -> PicachvResult<Uuid> {
+        let mut uuid = Uuid::default();
 
+        for ti in transform.trans_info.iter() {
+            match ti.information.as_ref() {
+                Some(ti) => match ti {
+                    Information::Dummy(dummy) => {
+                        let df_uuid = Uuid::from_slice_le(&dummy.df_uuid)
+                            .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
+                        // Just a sanity check to make sure the UUID is valid.
+                        rwlock_unlock!(self.arena.df_arena, read).get(&df_uuid)?;
+                        // We just re-use the UUID.
+                        uuid = df_uuid;
+                    },
+
+                    Information::Filter(pred) => {
+                        let df_uuid = Uuid::from_slice_le(&pred.df_uuid)
+                            .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
+                        let mut df_arena = rwlock_unlock!(self.arena.df_arena, write);
+                        let df = df_arena.get_mut(&df_uuid)?;
+
+                        // We then apply the transformation.
+                        //
+                        // We first check if we are holding a strong reference to the dataframe, if so
+                        // we can directly apply the transformation on the dataframe, otherwise we need
+                        // to clone the dataframe and apply the transformation on the cloned dataframe.
+                        // By doing so we can save the memory usage.
+                        let new_uuid = match Arc::get_mut(df) {
+                            Some(df) => {
+                                df.filter(&pred.filter)?;
+                                // We just re-use the UUID.
+                                df_uuid
+                            },
+                            None => {
+                                let mut df = (**df).clone();
+                                df.filter(&pred.filter)?;
+                                // We insert the new dataframe and this methods returns a new UUID.
+                                df_arena.insert(df)?
+                            },
+                        };
+
+                        uuid = new_uuid;
+                    },
+                    _ => todo!(),
+                },
+                None => {
+                    return Err(PicachvError::InvalidOperation(
+                        "The transformation information is empty.".into(),
+                    ))
+                },
+            }
+        }
+
+        Ok(uuid)
+    }
+
+    pub fn finalize(&self, df_uuid: Uuid) -> PicachvResult<()> {
+        let root = rwlock_unlock!(self.root, read);
+        let lp_arena = rwlock_unlock!(self.arena.lp_arena, read);
+        let df_arena = rwlock_unlock!(self.arena.df_arena, read);
+
+        let plan = lp_arena.get(&root)?;
+        log::debug!("Finalizing the plan {plan:?}");
+
+        let df = df_arena.get(&df_uuid)?;
         df.finalize()
     }
 
@@ -151,13 +218,17 @@ impl PicachvMonitor {
         ctx.execute_prologue(plan_uuid)
     }
 
-    pub fn execute_epilogue(&self, ctx_id: Uuid, side_effect: ()) -> PicachvResult<()> {
+    pub fn execute_epilogue(
+        &self,
+        ctx_id: Uuid,
+        side_effect: TransformInfo,
+    ) -> PicachvResult<Uuid> {
         let mut ctx = rwlock_unlock!(self.ctx, write);
         let ctx = ctx
             .get_mut(&ctx_id)
             .ok_or_else(|| PicachvError::InvalidOperation("The context does not exist.".into()))?;
 
-        Ok(())
+        ctx.execute_epilogue(side_effect)
     }
 
     pub fn finalize(&self, ctx_id: Uuid, df_uuid: Uuid) -> PicachvResult<()> {

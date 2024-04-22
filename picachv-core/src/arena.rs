@@ -12,6 +12,7 @@ where
     T: Clone + fmt::Debug,
 {
     pub(crate) inner: ArenaType<T>,
+    pub(crate) name: String,
 }
 
 impl<T> Arena<T>
@@ -26,19 +27,37 @@ where
         Ok(uuid)
     }
 
-    pub fn get(&self, uuid: &Uuid) -> PicachvResult<Arc<T>> {
+    pub fn get(&self, uuid: &Uuid) -> PicachvResult<&Arc<T>> {
         match self.inner.get(uuid) {
-            Some(plan) => Ok(plan.clone()),
+            Some(plan) => Ok(plan),
             None => Err(PicachvError::InvalidOperation(
-                format!("The object {uuid} does not exist in the arena.").into(),
+                format!(
+                    "The object {uuid} does not exist in the arena {}.",
+                    self.name
+                )
+                .into(),
+            )),
+        }
+    }
+
+    pub fn get_mut(&mut self, uuid: &Uuid) -> PicachvResult<&mut Arc<T>> {
+        match self.inner.get_mut(uuid) {
+            Some(plan) => Ok(plan),
+            None => Err(PicachvError::InvalidOperation(
+                format!(
+                    "The object {uuid} does not exist in the arena {}.",
+                    self.name
+                )
+                .into(),
             )),
         }
     }
 
     /// Returns the logical plan with the given `uuid`.
-    pub fn new() -> Self {
+    pub fn new(name: String) -> Self {
         Self {
             inner: HashMap::new(),
+            name,
         }
     }
 }

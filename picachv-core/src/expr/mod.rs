@@ -1,5 +1,6 @@
 use std::fmt;
 
+use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::binary_operator;
 
 use crate::{arena::Arena, constants::UnaryOperator};
@@ -68,8 +69,34 @@ pub enum Expr {
         arg: Box<Expr>,
         op: UnaryOperator,
     },
-    // TODO. dyn PolarsDataType is not object-safe.
-    // Literal(Box<dyn PolarsDataType>),
+    Literal,
+}
+
+impl Expr {
+    pub(crate) fn check_policy(&self) -> PicachvResult<()> {
+        log::debug!("check_policy: checking {self:?}");
+
+        match self {
+            Expr::Literal => Ok(()),
+            Expr::BinaryExpr { left, right, .. } => {
+                left.check_policy()?;
+                right.check_policy()
+            },
+            // This is truly interesting.
+            Expr::UnaryExpr { arg, op } => {
+                todo!()
+            },
+            Expr::Column(_) => Ok(()),
+            Expr::Alias { expr, .. } => expr.check_policy(),
+            Expr::Filter { input, filter } => {
+                input.check_policy()?;
+                filter.check_policy()
+            },
+            Expr::Agg(agg_expr) => todo!(),
+            // todo.
+            _ => Ok(()),
+        }
+    }
 }
 
 impl fmt::Debug for AggExpr {
@@ -121,6 +148,7 @@ impl fmt::Debug for Expr {
             } => write!(f, "{data:?} WHERE {filter:?}"),
             Self::BinaryExpr { left, op, right } => write!(f, "({left:?} {op:?} {right:?})"),
             Self::UnaryExpr { arg, op } => write!(f, "{op:?} {arg:?}"),
+            Self::Literal => write!(f, "LITERAL"),
         }
     }
 }

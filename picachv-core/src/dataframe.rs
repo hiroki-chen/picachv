@@ -1,7 +1,11 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt};
 
 use picachv_error::{PicachvError, PicachvResult};
 use polars_core::{df, schema::SchemaRef};
+use tabled::{
+    builder::Builder,
+    settings::{object::Rows, Alignment, Style},
+};
 
 use crate::{
     build_policy,
@@ -15,16 +19,19 @@ pub fn get_example_df() -> PolicyGuardedDataFrame {
     )
     .unwrap();
 
-    let policy = build_policy!(PolicyLabel::PolicyTransform {
-        ops: TransformOps(HashSet::from_iter(vec![TransformType::Shift {by: 1}].into_iter()))
-    } => PolicyLabel::PolicyBot)
-    .unwrap();
-    let col_a = PolicyGuardedColumn {
-        policies: vec![policy; 5],
-    };
-    let col_b = PolicyGuardedColumn {
-        policies: vec![Policy::PolicyClean; 5],
-    };
+    let mut p1 = vec![];
+    let mut p2 = vec![];
+    for i in 0..5 {
+        let policy1 = build_policy!(PolicyLabel::PolicyTransform {
+            ops: TransformOps(HashSet::from_iter(vec![TransformType::Shift {by: i}].into_iter()))
+        } => PolicyLabel::PolicyBot)
+        .unwrap();
+        let policy2 = Policy::PolicyClean;
+        p1.push(policy1);
+        p2.push(policy2);
+    }
+    let col_a = PolicyGuardedColumn { policies: p1 };
+    let col_b = PolicyGuardedColumn { policies: p2 };
 
     PolicyGuardedDataFrame {
         schema: df.schema().into(),
@@ -67,6 +74,37 @@ pub struct PolicyGuardedDataFrame {
     pub(crate) columns: Vec<PolicyGuardedColumn>,
 }
 
+impl fmt::Display for PolicyGuardedDataFrame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut builder = Builder::new();
+        let mut header = self
+            .schema
+            .iter_names()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>();
+        header.insert(0, "index".to_string());
+        builder.push_record(header);
+
+        for i in 0..self.shape().0 {
+            let mut row = vec![i.to_string()];
+            for j in 0..self.shape().1 {
+                row.push(format!("{}", self.columns[j].policies[i]));
+            }
+            builder.push_record(row);
+        }
+
+        write!(
+            f,
+            "{}",
+            builder
+                .build()
+                .with(Style::rounded())
+                .modify(Rows::new(1..), Alignment::left())
+                .to_string()
+        )
+    }
+}
+
 impl PolicyGuardedDataFrame {
     pub fn sanity_check(&self) -> PicachvResult<()> {
         if self.columns.len() != self.schema.len() {
@@ -82,13 +120,18 @@ impl PolicyGuardedDataFrame {
     ///
     /// todo: Describe in more detail.
     pub fn finalize(&self) -> PicachvResult<()> {
+        log::debug!("finalizing\n{self}");
+
         for c in self.columns.iter() {
             for p in c.policies.iter() {
                 match p {
                     Policy::PolicyClean => continue,
                     _ => {
                         return Err(PicachvError::InvalidOperation(
-                            "Possible policy braech detected. Abort early".into(),
+                            format!(
+                                "Possible policy breach detected; abort early.\n\nThe required policy is\n{self}",
+                            )
+                            .into(),
                         ))
                     },
                 }
@@ -112,5 +155,30 @@ impl PolicyGuardedDataFrame {
             &[] => (0, 0),
             v => (v[0].policies.len(), v.len()),
         }
+    }
+
+    /// Apply the filter.
+    pub fn filter(&mut self, pred: &[bool]) -> PicachvResult<()> {
+        if pred.len() != self.shape().0 {
+            return Err(PicachvError::InvalidOperation(
+                "The length of the predicate does not match the dataframe.".into(),
+            ));
+        }
+
+        let mut columns = vec![];
+        for c in self.columns.iter() {
+            let mut new_policies = vec![];
+            c.policies.iter().zip(pred.iter()).for_each(|(p, b)| {
+                if *b {
+                    new_policies.push(p.clone());
+                }
+            });
+            columns.push(PolicyGuardedColumn {
+                policies: new_policies,
+            });
+        }
+        self.columns = columns;
+
+        Ok(())
     }
 }

@@ -1,6 +1,4 @@
-use std::collections::HashSet;
-use std::hash::Hash;
-use std::ops::Range;
+use std::{collections::HashSet, fmt, hash::Hash, ops::Range};
 
 use ordered_float::OrderedFloat;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
@@ -54,20 +52,20 @@ impl Hash for AggType {
                 } else {
                     "count-nonnull".hash(state);
                 }
-            }
+            },
             GroupByMethod::Quantile(percentage, op) => {
                 "quantile".hash(state);
                 OrderedFloat(percentage).hash(state);
                 op.hash(state);
-            }
+            },
             GroupByMethod::Std(v) => {
                 "std".hash(state);
                 v.hash(state);
-            }
+            },
             GroupByMethod::Var(v) => {
                 "var".hash(state);
                 v.hash(state);
-            }
+            },
             GroupByMethod::Implode => "implode".hash(state),
         }
     }
@@ -135,7 +133,7 @@ impl SetLike for PrivacyOp {
         PrivacyOp(match (&self.0, &other.0) {
             (PrivacyScheme::DifferentialPrivacy(lhs), PrivacyScheme::DifferentialPrivacy(rhs)) => {
                 PrivacyScheme::DifferentialPrivacy(*lhs.min(rhs))
-            }
+            },
         })
     }
 
@@ -143,7 +141,7 @@ impl SetLike for PrivacyOp {
         PrivacyOp(match (&self.0, &other.0) {
             (PrivacyScheme::DifferentialPrivacy(lhs), PrivacyScheme::DifferentialPrivacy(rhs)) => {
                 PrivacyScheme::DifferentialPrivacy(*lhs.max(rhs))
-            }
+            },
         })
     }
 }
@@ -186,10 +184,10 @@ impl PolicyLabel {
             ) => rhs.is_subset(lhs),
             (PolicyLabel::PolicyAgg { ops: lhs }, PolicyLabel::PolicyAgg { ops: rhs }) => {
                 rhs.is_subset(lhs)
-            }
+            },
             (PolicyLabel::PolicyNoise { ops: lhs }, PolicyLabel::PolicyNoise { ops: rhs }) => {
                 rhs.is_subset(lhs)
-            }
+            },
             (lhs, rhs) => lhs == rhs,
         }
     }
@@ -207,6 +205,18 @@ impl PolicyLabel {
     }
 }
 
+impl fmt::Display for PolicyLabel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PolicyLabel::PolicyBot => write!(f, "⊥"),
+            PolicyLabel::PolicyTransform { ops } => write!(f, "Transform({:?})", ops),
+            PolicyLabel::PolicyAgg { ops } => write!(f, "Agg({:?})", ops),
+            PolicyLabel::PolicyNoise { ops } => write!(f, "Noise({:?})", ops),
+            PolicyLabel::PolicyTop => write!(f, "⊤"),
+        }
+    }
+}
+
 impl PartialEq for PolicyLabel {
     /// The implementation for the `policy_label_eq` function.
     fn eq(&self, other: &Self) -> bool {
@@ -219,10 +229,10 @@ impl PartialEq for PolicyLabel {
             ) => lhs.set_eq(rhs),
             (PolicyLabel::PolicyAgg { ops: lhs }, PolicyLabel::PolicyAgg { ops: rhs }) => {
                 lhs.set_eq(rhs)
-            }
+            },
             (PolicyLabel::PolicyNoise { ops: lhs }, PolicyLabel::PolicyNoise { ops: rhs }) => {
                 lhs.set_eq(rhs)
-            }
+            },
             _ => false,
         }
     }
@@ -248,7 +258,7 @@ impl Lattice for PolicyLabel {
                 PolicyLabel::PolicyAgg {
                     ops: lhs.intersection(rhs),
                 }
-            }
+            },
             (PolicyLabel::PolicyAgg { .. }, _) => other.clone(),
             (
                 PolicyLabel::PolicyNoise { .. },
@@ -260,7 +270,7 @@ impl Lattice for PolicyLabel {
                 PolicyLabel::PolicyNoise {
                     ops: lhs.intersection(rhs),
                 }
-            }
+            },
             (PolicyLabel::PolicyNoise { .. }, _) => other.clone(),
             (PolicyLabel::PolicyTop, _) => self.clone(),
         }
@@ -285,7 +295,7 @@ impl Lattice for PolicyLabel {
                 PolicyLabel::PolicyAgg {
                     ops: lhs.union(rhs),
                 }
-            }
+            },
             (PolicyLabel::PolicyAgg { .. }, _) => self.clone(),
             (
                 PolicyLabel::PolicyNoise { .. },
@@ -297,7 +307,7 @@ impl Lattice for PolicyLabel {
                 PolicyLabel::PolicyNoise {
                     ops: lhs.union(rhs),
                 }
-            }
+            },
             (PolicyLabel::PolicyNoise { .. }, _) => self.clone(),
             (PolicyLabel::PolicyTop, _) => other.clone(),
         }
@@ -418,7 +428,7 @@ where
                     label: lbl.clone(),
                     next: Box::new(p3),
                 })
-            }
+            },
         }
     }
 }
@@ -445,6 +455,17 @@ where
             (Ok(true), Ok(false)) => Some(std::cmp::Ordering::Less),
             (Ok(false), Ok(true)) => Some(std::cmp::Ordering::Greater),
             _ => None,
+        }
+    }
+}
+
+impl<T: fmt::Display + Lattice> fmt::Display for Policy<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Policy::PolicyClean => write!(f, "∅"),
+            Policy::PolicyDeclassify { label, next } => {
+                write!(f, "{label} ⇝ {next}")
+            },
         }
     }
 }
