@@ -1,14 +1,16 @@
-use std::{collections::HashSet, fmt, hash::Hash, ops::Range};
+use std::collections::HashSet;
+use std::fmt;
+use std::hash::Hash;
+use std::ops::Range;
 
 use ordered_float::OrderedFloat;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::constants::GroupByMethod;
-
 use super::lattice::Lattice;
 use super::types::DpParam;
+use crate::constants::GroupByMethod;
 
 /// Denotes the privacy schemes that should be applied to the result and/or the dataset.
 #[derive(Clone, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -443,6 +445,42 @@ where
                     next: Box::new(p3),
                 })
             },
+        }
+    }
+}
+
+impl Policy<PolicyLabel> {
+    /// Since this function is called only after we have decided that p_cur ⪯ p_f which means that
+    /// the current policy is less or equal to the operation we are about to apply, we can safely
+    /// assume that the operation is allowed. So, this function's logic is simple as there are
+    /// only two possible cases:
+    /// - The current policy is less stricter, then the new policy is the current policy.
+    /// - The current policy can be declassified, then the new policy is the declassified policy.
+    ///
+    ///   In other words, ℓ ⇝ p ⪯ ∘ (op) ==> p_new = p.
+    fn do_downgrade(self, by: &PolicyLabel) -> PicachvResult<Self> {
+        match &self {
+            // The current policy is less stricter.
+            Policy::PolicyClean => Ok(self),
+            Policy::PolicyDeclassify { label, next } => match label.can_declassify(by) {
+                true => Ok(next.as_ref().clone()),
+                false => Ok(self),
+            },
+        }
+    }
+
+    /// Checks and downgrades the policy by a given label.
+    pub fn downgrade(self, by: PolicyLabel) -> PicachvResult<Self> {
+        let p = Policy::PolicyDeclassify {
+            label: by.clone(),
+            next: Default::default(),
+        };
+        match self.le(&p) {
+            Ok(b) => {
+                picachv_ensure!(b, PrivacyError: "trying to downgrade by an operation that is not allowed");
+                self.do_downgrade(&by)
+            },
+            Err(e) => Err(e),
         }
     }
 }

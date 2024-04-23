@@ -1,11 +1,10 @@
 use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::{column_expr::Column, expr_argument};
-use polars_core::schema::IndexOfSchema;
+use picachv_message::column_expr::Column;
+use picachv_message::expr_argument;
 use uuid::Uuid;
 
-use crate::{rwlock_unlock, Arenas};
-
 use super::Expr;
+use crate::{rwlock_unlock, Arenas};
 
 impl Expr {
     /// Build expression from the arguments.
@@ -17,20 +16,10 @@ impl Expr {
         match arg {
             Argument::Column(expr) => match expr.column {
                 Some(column) => match column {
-                    Column::ColumnId(id) => Ok(Expr::Column(id as _)),
-                    Column::ColumnNameSpecifier(name) => {
-                        let df_arena = rwlock_unlock!(arenas.df_arena, read);
-                        let uuid = Uuid::from_slice_le(&name.df_uuid).map_err(|_| {
-                            PicachvError::InvalidOperation("The UUID is invalid.".into())
-                        })?;
-                        let res = df_arena.get(&uuid)?.schema.index_of(&name.column_name);
-                        match res {
-                            Some(pos) => Ok(Expr::Column(pos)),
-                            None => Err(PicachvError::InvalidOperation(
-                                "The column does not exist.".into(),
-                            )),
-                        }
-                    },
+                    Column::ColumnId(_) => Err(PicachvError::InvalidOperation(
+                        "The column ID is not supported.".into(),
+                    )),
+                    Column::ColumnNameSpecifier(name) => Ok(Expr::Column(name.column_name)),
                 },
                 None => Err(PicachvError::InvalidOperation(
                     "The column is empty.".into(),

@@ -1,3 +1,4 @@
+pub mod context;
 pub mod error;
 pub mod lattice;
 pub mod policy;
@@ -21,6 +22,18 @@ macro_rules! build_policy {
 
         policy
     }};
+}
+
+#[macro_export]
+macro_rules! build_unary_expr {
+    () => { $crate::policy::PolicyLabel::PolicyTransform {
+        ops: Default::default(),
+    } };
+    ($($ops:expr),*) => {
+        $crate::policy::PolicyLabel::PolicyTransform {
+            ops: $crate::policy::TransformOps(std::collections::HashSet::from_iter(vec![$($ops),*].into_iter())),
+        }
+    };
 }
 
 #[cfg(test)]

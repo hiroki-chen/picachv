@@ -1,18 +1,19 @@
 pub mod builder;
 
-use std::{borrow::Cow, fmt, sync::Arc};
+use std::borrow::Cow;
+use std::fmt;
+use std::sync::Arc;
 
-use picachv_error::{ErrorStateSync, PicachvResult};
+use picachv_error::{picachv_bail, picachv_ensure, ErrorStateSync, PicachvResult};
 use polars_core::schema::SchemaRef;
 use uuid::Uuid;
 
-use crate::{
-    arena::Arena,
-    constants::{JoinType, LogicalPlanType},
-    dataframe::PolicyGuardedDataFrame,
-    expr::Expr,
-    rwlock_unlock, Arenas,
-};
+use crate::arena::Arena;
+use crate::constants::{JoinType, LogicalPlanType};
+use crate::dataframe::PolicyGuardedDataFrame;
+use crate::expr::Expr;
+use crate::policy::context::ExpressionEvalContext;
+use crate::{rwlock_unlock, Arenas};
 
 pub type PlanArena = Arena<Plan>;
 
@@ -84,7 +85,7 @@ pub enum Plan {
         schema: SchemaRef,
         // schema of the projected file
         output_schema: Option<SchemaRef>,
-        projection: Option<Vec<usize>>,
+        projection: Option<Vec<String>>,
         selection: Option<Expr>,
     },
 
@@ -259,6 +260,8 @@ impl Plan {
         arena: &Arenas,
         active_df_uuid: Uuid,
         expression: &[Expr],
+        in_agg: bool,
+        keep_old: bool, // Whether we need to alter the dataframe in the arena.
     ) -> PicachvResult<Uuid> {
         let mut df_arena = rwlock_unlock!(arena.df_arena, write);
         let df = df_arena.get_mut(&active_df_uuid)?;
@@ -269,7 +272,10 @@ impl Plan {
         for row in rows.iter_mut() {
             for expr in expression {
                 log::debug!("Checking the policy for the expression {expr:?}");
-                expr.check_policy_in_row(row)?;
+
+                let mut ctx = ExpressionEvalContext::new(df.schema.clone(), row.clone(), in_agg);
+                expr.check_policy_in_row(&mut ctx)?;
+                *row = ctx.current_row;
             }
         }
 
@@ -281,7 +287,11 @@ impl Plan {
             let _ = std::mem::replace(df, new_df);
             Ok(active_df_uuid)
         } else {
-            df_arena.insert_arc(new_df)
+            if !keep_old {
+                df_arena.insert_arc(new_df)
+            } else {
+                Ok(active_df_uuid)
+            }
         }
     }
 
@@ -323,10 +333,10 @@ impl Plan {
         match self {
             // See the semantics for `apply_proj_in_relation`.
             Plan::Projection { expression, .. } => {
-                self.check_plan(arena, active_df_uuid, expression)
+                self.check_plan(arena, active_df_uuid, expression, false, false)
             },
             Plan::Select { predicate, .. } => {
-                self.check_plan(arena, active_df_uuid, &vec![predicate.clone()])
+                self.check_plan(arena, active_df_uuid, &vec![predicate.clone()], false, true)
             },
             Plan::Union {
                 input_left,
@@ -341,12 +351,46 @@ impl Plan {
                 input_left.execute_prologue(arena, active_df_uuid)?;
                 input_right.execute_prologue(arena, active_df_uuid)
             },
-            Plan::DataFrameScan { selection, .. } => match selection {
-                Some(s) => self.check_plan(arena, active_df_uuid, &vec![s.clone()]),
+            Plan::DataFrameScan {
+                selection,
+                projection,
+                ..
+            } => match selection {
+                Some(s) => {
+                    let uuid = if let Some(projection) = projection {
+                        early_projection(arena, active_df_uuid, projection)?
+                    } else {
+                        active_df_uuid
+                    };
+
+                    self.check_plan(arena, uuid, &vec![s.clone()], false, true)
+                },
                 None => Ok(active_df_uuid),
             },
             Plan::Other { .. } => unimplemented!("Other"),
             _ => Ok(active_df_uuid),
         }
+    }
+}
+
+/// This function is used to apply the projection on the dataframe.
+fn early_projection(
+    df_arena: &Arenas,
+    active_df_uuid: Uuid,
+    project_list: &[String],
+) -> PicachvResult<Uuid> {
+    let mut df_arena = rwlock_unlock!(df_arena.df_arena, write);
+    let df = df_arena.get_mut(&active_df_uuid)?;
+
+    match Arc::get_mut(df) {
+        Some(df) => {
+            df.early_projection(project_list)?;
+            Ok(active_df_uuid)
+        },
+        None => {
+            let mut df = (**df).clone();
+            df.early_projection(project_list)?;
+            df_arena.insert_arc(Arc::new(df))
+        },
     }
 }

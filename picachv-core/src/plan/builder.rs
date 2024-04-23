@@ -1,10 +1,10 @@
 use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::{get_data_argument::DataSource, plan_argument};
+use picachv_message::get_data_argument::DataSource;
+use picachv_message::plan_argument;
 use uuid::Uuid;
 
-use crate::{rwlock_unlock, Arenas};
-
 use super::Plan;
+use crate::{rwlock_unlock, Arenas};
 
 // fn format_err(msg: &str, input: &Plan) -> String {
 //     format!("{msg}\n\nError originated just after this operation:\n{input:?}")
@@ -80,11 +80,7 @@ impl Plan {
                         let projection = if memory.projected_list.is_empty() {
                             None
                         } else {
-                            let proj_list = memory
-                                .projected_list
-                                .into_iter()
-                                .map(|e| e as usize)
-                                .collect::<Vec<_>>();
+                            let proj_list = memory.projected_list.into_iter().collect::<Vec<_>>();
 
                             Some(proj_list)
                         };

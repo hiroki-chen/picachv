@@ -1,13 +1,12 @@
 use std::fmt;
 
-use picachv_error::{PicachvError, PicachvResult};
+use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::binary_operator;
 
-use crate::{
-    arena::Arena,
-    constants::UnaryOperator,
-    policy::{Policy, PolicyLabel},
-};
+use crate::arena::Arena;
+use crate::build_unary_expr;
+use crate::policy::context::ExpressionEvalContext;
+use crate::policy::{Policy, PolicyLabel, TransformType};
 
 pub mod builder;
 
@@ -48,7 +47,7 @@ pub enum Expr {
     /// Aggregation.
     Agg(AggExpr),
     /// Select a column.
-    Column(usize),
+    Column(String),
     /// Count expression.
     Count,
     /// Making alias.
@@ -71,49 +70,77 @@ pub enum Expr {
     },
     UnaryExpr {
         arg: Box<Expr>,
-        op: UnaryOperator,
+        op: TransformType,
     },
     Literal,
 }
 
 impl Expr {
+    pub(crate) fn check_policy_within_agg(
+        &self,
+        ctx: &mut ExpressionEvalContext,
+    ) -> PicachvResult<Policy<PolicyLabel>> {
+        picachv_ensure!(
+            ctx.in_agg,
+            ComputeError: "The expression is not in an aggregation context."
+        );
+        match self {
+            Expr::Agg(_) => Err(PicachvError::ComputeError(
+                "Aggregation within aggregation is not allowed.".into(),
+            )),
+
+            _ => todo!(),
+        }
+    }
+
     /// This function checks the policy enforcement for the expression type.
     ///
     /// The formalized part is described in `pcd-proof/theories/expression.v`.
     /// Note that since the check occurs at the tuple level!
     pub(crate) fn check_policy_in_row(
         &self,
-        current_row: &mut [Policy<PolicyLabel>],
-    ) -> PicachvResult<()> {
-        match self {
-            Expr::Literal => Ok(()),
-            Expr::BinaryExpr { left, right, .. } => {
-                left.check_policy_in_row(current_row)?;
-                right.check_policy_in_row(current_row)
-            },
-            // This is truly interesting.
-            //
-            // See `eval_unary_expression_in_cell`.
-            Expr::UnaryExpr { arg, op } => {
-                todo!()
-            },
-            Expr::Column(idx) => {
-                if *idx >= current_row.len() {
-                    Err(PicachvError::InvalidOperation(
-                        "The column index is out of bounds.".into(),
-                    ))
-                } else {
-                    Ok(())
-                }
-            },
-            Expr::Alias { expr, .. } => expr.check_policy_in_row(current_row),
-            Expr::Filter { input, filter } => {
-                input.check_policy_in_row(current_row)?;
-                filter.check_policy_in_row(current_row)
-            },
-            Expr::Agg(agg_expr) => todo!(),
-            // todo.
-            _ => Ok(()),
+        ctx: &mut ExpressionEvalContext,
+    ) -> PicachvResult<Policy<PolicyLabel>> {
+        if !ctx.in_agg {
+            match self {
+                // A literal expression is always allowed because it does not
+                // contain any sensitive information.
+                Expr::Literal => Ok(Default::default()),
+                Expr::BinaryExpr { left, right, .. } => {
+                    left.check_policy_in_row(ctx)?;
+                    right.check_policy_in_row(ctx)
+                },
+                // This is truly interesting.
+                //
+                // See `eval_unary_expression_in_cell`.
+                Expr::UnaryExpr { arg, op } => {
+                    let policy = arg.check_policy_in_row(ctx)?;
+                    policy.downgrade(build_unary_expr!(op.clone()))
+                },
+                Expr::Column(idx) => {
+                    let idx = ctx.schema.iter_names().position(|name| name == idx).ok_or(
+                        PicachvError::ComputeError("The column does not exist.".into()),
+                    )?;
+
+                    // For column expression this is an interesting undecidable case
+                    // where we cannot determine what operation it will be applied.
+                    //
+                    // We neverthelss approve this operation per evaluation semantics.
+                    //
+                    // See `EvalColumnNotAgg` in `expression.v`.
+                    Ok(ctx.current_row[idx].clone())
+                },
+                Expr::Alias { expr, .. } => expr.check_policy_in_row(ctx),
+                Expr::Filter { input, filter } => {
+                    input.check_policy_in_row(ctx)?;
+                    filter.check_policy_in_row(ctx)
+                },
+                Expr::Agg(agg_expr) => todo!(),
+                // todo.
+                _ => Ok(Default::default()),
+            }
+        } else {
+            self.check_policy_within_agg(ctx)
         }
     }
 }

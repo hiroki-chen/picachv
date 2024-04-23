@@ -1,17 +1,17 @@
-use std::{collections::HashSet, fmt};
+use std::collections::HashSet;
+use std::fmt;
+use std::sync::Arc;
 
 use picachv_error::{PicachvError, PicachvResult};
-use polars_core::{df, schema::SchemaRef};
+use polars_core::df;
+use polars_core::schema::{Schema, SchemaRef};
 use serde::{Deserialize, Serialize};
-use tabled::{
-    builder::Builder,
-    settings::{object::Rows, Alignment, Style},
-};
+use tabled::builder::Builder;
+use tabled::settings::object::Rows;
+use tabled::settings::{Alignment, Style};
 
-use crate::{
-    build_policy,
-    policy::{Policy, PolicyLabel, TransformOps, TransformType},
-};
+use crate::build_policy;
+use crate::policy::{Policy, PolicyLabel, TransformOps, TransformType};
 
 pub type Row = Vec<Policy<PolicyLabel>>;
 
@@ -59,6 +59,8 @@ pub fn get_example_df() -> PolicyGuardedDataFrame {
 ///     space for us to optimize. For example, we can "fold" the policy and "expand" it
 ///     whenever it is needed.
 /// - Perhaps we can even make the policy guarded data frame a bitmap or something.
+/// - In order to be consistent with the formal model, we should make it indexed by
+///   identifiers like UUIDs?
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PolicyGuardedColumn {
     pub(crate) policies: Vec<Policy<PolicyLabel>>,
@@ -133,6 +135,34 @@ impl PolicyGuardedDataFrame {
                 "The number of columns does not match the schema.".into(),
             ));
         }
+
+        Ok(())
+    }
+
+    pub(crate) fn early_projection(&mut self, project_list: &[String]) -> PicachvResult<()> {
+        let column_names = self.schema.iter_names().collect::<Vec<_>>();
+        let removed_index = column_names
+            .iter()
+            .enumerate()
+            .filter(
+                |(_, name)| !project_list.contains(&name.to_string()), /* This seems very stupid. */
+            )
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>();
+
+        self.columns = self
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !removed_index.contains(i))
+            .map(|(_, c)| c.clone())
+            .collect();
+        self.schema = Arc::new(Schema::from_iter(
+            column_names
+                .iter()
+                .filter(|name| project_list.contains(&name.to_string()))
+                .map(|name| self.schema.get_field(name).unwrap().clone()),
+        ));
 
         Ok(())
     }

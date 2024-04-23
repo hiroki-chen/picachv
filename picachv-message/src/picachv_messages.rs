@@ -429,8 +429,6 @@ pub mod column_expr {
     pub struct ColumnNameSpecifier {
         #[prost(string, tag = "1")]
         pub column_name: ::prost::alloc::string::String,
-        #[prost(bytes = "vec", tag = "2")]
-        pub df_uuid: ::prost::alloc::vec::Vec<u8>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
@@ -535,8 +533,8 @@ pub struct GetDataInMemory {
     #[prost(bytes = "vec", optional, tag = "2")]
     pub pred: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
     /// In case we will have the "projection pushdown" thing.
-    #[prost(uint64, repeated, tag = "3")]
-    pub projected_list: ::prost::alloc::vec::Vec<u64>,
+    #[prost(string, repeated, tag = "3")]
+    pub projected_list: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

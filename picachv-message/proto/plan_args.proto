@@ -20,7 +20,7 @@ message GetDataInMemory {
   // In case we will have the "selection pushdown" thing.
   optional bytes pred = 2;
   // In case we will have the "projection pushdown" thing.
-  repeated uint64 projected_list = 3;
+  repeated string projected_list = 3;
 }
 
 message GetDataArgument {
