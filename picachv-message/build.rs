@@ -10,7 +10,7 @@ fn main() {
         .map(|f| f.unwrap().path().to_str().unwrap().to_string())
         .collect::<Vec<String>>();
 
-    println!("cargo:warning={:?}", proto_files);
+    println!("cargo:warning=building protobuf files: {:?}", proto_files);
 
     if !proto_files.is_empty() {
         let mut config = Config::new();

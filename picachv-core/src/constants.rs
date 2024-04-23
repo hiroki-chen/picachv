@@ -1,6 +1,7 @@
 use std::fmt;
 
 use num_enum::{IntoPrimitive, TryFromPrimitive};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
@@ -15,7 +16,7 @@ pub enum LogicalPlanType {
     Other,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Hash, Serialize, Deserialize)]
 pub enum QuantileInterpolOptions {
     #[default]
     Nearest,
@@ -124,7 +125,7 @@ pub enum UnaryOperator {
     Not,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum GroupByMethod {
     Min,
     NanMin,

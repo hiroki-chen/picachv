@@ -62,11 +62,11 @@ impl Context {
         Ok(uuid)
     }
 
-    pub fn execute_prologue(&self, plan_uuid: Uuid) -> PicachvResult<()> {
+    pub fn execute_prologue(&self, plan_uuid: Uuid, df_uuid: Uuid) -> PicachvResult<Uuid> {
         let lp_arena = rwlock_unlock!(self.arena.lp_arena, read);
         let plan = lp_arena.get(&plan_uuid)?;
 
-        plan.execute_prologue()
+        plan.execute_prologue(&self.arena, df_uuid)
     }
 
     /// This function will parse the `TransformInfo` and apply the corresponding transformation on
@@ -207,7 +207,12 @@ impl PicachvMonitor {
         ctx.expr_from_args(expr_arg)
     }
 
-    pub fn execute_prologue(&self, ctx_id: Uuid, plan_uuid: Uuid) -> PicachvResult<()> {
+    pub fn execute_prologue(
+        &self,
+        ctx_id: Uuid,
+        plan_uuid: Uuid,
+        df_uuid: Uuid,
+    ) -> PicachvResult<Uuid> {
         log::debug!("execute_prologue");
 
         let mut ctx = rwlock_unlock!(self.ctx, write);
@@ -215,7 +220,7 @@ impl PicachvMonitor {
             .get_mut(&ctx_id)
             .ok_or_else(|| PicachvError::InvalidOperation("The context does not exist.".into()))?;
 
-        ctx.execute_prologue(plan_uuid)
+        ctx.execute_prologue(plan_uuid, df_uuid)
     }
 
     pub fn execute_epilogue(

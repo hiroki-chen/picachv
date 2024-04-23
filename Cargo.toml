@@ -16,13 +16,19 @@ picachv-error = { path = "picachv-error", default-features = false }
 picachv-message = { path = "picachv-message", default-features = false }
 picachv-monitor = { path = "picachv-monitor", default-features = false }
 
-polars-core = { version = "0.39.2", features = ["object"] }
+polars-core = { version = "0.39.2", features = [
+  "object",
+  "serde",
+  "serde-lazy",
+] }
 polars-utils = { version = "0.39.2" }
 
 lazy_static = "1.4.0"
 log = "0.4.21"
 num_enum = { version = "0.7.2" }
-ordered-float = "4.2.0"
+ordered-float = { version = "4.2.0", features = ["serde"] }
+serde = { version = "1.0.198", features = ["derive", "rc"] }
+serde_json = "1.0.116"
 prost = { version = "0.12" }
 prost-types = { version = "0.12" }
 uuid = { version = "1.8.0", features = [

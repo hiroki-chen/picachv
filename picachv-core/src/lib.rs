@@ -13,6 +13,7 @@ pub mod constants;
 pub mod dataframe;
 pub mod effects;
 pub mod expr;
+pub mod io;
 pub mod macros;
 pub mod plan;
 pub mod policy;

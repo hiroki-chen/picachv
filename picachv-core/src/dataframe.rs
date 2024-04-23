@@ -2,6 +2,7 @@ use std::{collections::HashSet, fmt};
 
 use picachv_error::{PicachvError, PicachvResult};
 use polars_core::{df, schema::SchemaRef};
+use serde::{Deserialize, Serialize};
 use tabled::{
     builder::Builder,
     settings::{object::Rows, Alignment, Style},
@@ -11,6 +12,8 @@ use crate::{
     build_policy,
     policy::{Policy, PolicyLabel, TransformOps, TransformType},
 };
+
+pub type Row = Vec<Policy<PolicyLabel>>;
 
 pub fn get_example_df() -> PolicyGuardedDataFrame {
     let df = df!(
@@ -56,7 +59,7 @@ pub fn get_example_df() -> PolicyGuardedDataFrame {
 ///     space for us to optimize. For example, we can "fold" the policy and "expand" it
 ///     whenever it is needed.
 /// - Perhaps we can even make the policy guarded data frame a bitmap or something.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PolicyGuardedColumn {
     pub(crate) policies: Vec<Policy<PolicyLabel>>,
 }
@@ -66,12 +69,30 @@ pub struct PolicyGuardedColumn {
 /// This [`PolicyGuardedDataFrame`] is just a conceptual wrapper around a vector of
 /// [`PolicyGuardedColumn`]s. It is not a real data structure; it does not contain
 /// any data. It is just a way to group columns together.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PolicyGuardedDataFrame {
     /// The schema
     pub(crate) schema: SchemaRef,
     /// Policies for the column.
     pub(crate) columns: Vec<PolicyGuardedColumn>,
+}
+
+impl From<Vec<Row>> for PolicyGuardedDataFrame {
+    fn from(value: Vec<Row>) -> Self {
+        let mut columns = vec![];
+        for i in 0..value[0].len() {
+            let mut policies = vec![];
+            for j in 0..value.len() {
+                policies.push(value[j][i].clone());
+            }
+            columns.push(PolicyGuardedColumn { policies });
+        }
+
+        PolicyGuardedDataFrame {
+            schema: SchemaRef::default(),
+            columns,
+        }
+    }
 }
 
 impl fmt::Display for PolicyGuardedDataFrame {
@@ -114,6 +135,21 @@ impl PolicyGuardedDataFrame {
         }
 
         Ok(())
+    }
+
+    /// Convert the [`PolicyGuardedDataFrame`] into a vector of rows.
+    pub fn into_rows(&self) -> Vec<Row> {
+        let shape = self.shape();
+
+        let mut rows = vec![];
+        for i in 0..shape.0 {
+            let mut row = vec![];
+            for j in 0..shape.1 {
+                row.push(self.columns[j].policies[i].clone());
+            }
+            rows.push(row);
+        }
+        rows
     }
 
     /// This checks if we can safely release this dataframe.

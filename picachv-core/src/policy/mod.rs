@@ -27,7 +27,7 @@ macro_rules! build_policy {
 mod tests {
     use std::collections::HashSet;
 
-    use crate::policy::{PolicyLabel, TransformOps, TransformType};
+    use crate::policy::{Policy, PolicyLabel, TransformOps, TransformType};
 
     #[test]
     fn test_build_policy() {
@@ -37,5 +37,16 @@ mod tests {
         assert!(policy.is_ok());
         let policy = build_policy!(PolicyLabel::PolicyTop => PolicyLabel::PolicyBot => PolicyLabel::PolicyTop);
         assert!(policy.is_err());
+    }
+
+    #[test]
+    fn test_serde_policy() {
+        let prev = build_policy!(PolicyLabel::PolicyTransform {
+            ops: TransformOps(HashSet::from_iter(vec![TransformType::Shift {by: 1}].into_iter()))
+        } => PolicyLabel::PolicyBot)
+        .unwrap();
+        let policy_str = serde_json::to_string(&prev).unwrap();
+        let cur: Policy<PolicyLabel> = serde_json::from_str(&policy_str).unwrap();
+        assert_eq!(prev, cur);
     }
 }

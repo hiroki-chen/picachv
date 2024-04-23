@@ -2,6 +2,8 @@ use std::{collections::HashSet, fmt, hash::Hash, ops::Range};
 
 use ordered_float::OrderedFloat;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 
 use crate::constants::GroupByMethod;
 
@@ -9,13 +11,13 @@ use super::lattice::Lattice;
 use super::types::DpParam;
 
 /// Denotes the privacy schemes that should be applied to the result and/or the dataset.
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum PrivacyScheme {
     /// Differential privacy with a given set of parameters (`epsilon`, `delta`).
     DifferentialPrivacy(DpParam),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TransformType {
     /// An identity transform.
     Identify,
@@ -29,7 +31,7 @@ pub enum TransformType {
     Shift { by: i64 },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AggType(GroupByMethod);
 
 impl Hash for AggType {
@@ -89,11 +91,11 @@ pub trait SetLike {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransformOps(pub HashSet<TransformType>);
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AggOps(pub HashSet<AggType>);
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrivacyOp(pub PrivacyScheme);
 
 impl SetLike for TransformOps {
@@ -147,7 +149,7 @@ impl SetLike for PrivacyOp {
 }
 
 /// The full-fledged policy label with downgrading operators attached.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum PolicyLabel {
     PolicyBot,
     PolicyTransform { ops: TransformOps },
@@ -157,10 +159,11 @@ pub enum PolicyLabel {
 }
 
 /// Denotes the policy that is applied to each individual cell.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum Policy<T>
 where
-    T: Lattice,
+    T: Lattice + Serialize,
 {
     /// No policy is applied.
     PolicyClean,
@@ -324,7 +327,7 @@ impl Lattice for PolicyLabel {
 
 impl<T> Default for Policy<T>
 where
-    T: Lattice,
+    T: Lattice + Serialize + DeserializeOwned,
 {
     fn default() -> Self {
         Self::PolicyClean
@@ -333,7 +336,7 @@ where
 
 impl<T> Policy<T>
 where
-    T: Lattice,
+    T: Lattice + Serialize + DeserializeOwned,
 {
     /// Constructs a new policy.
     pub fn new() -> Self {
@@ -342,7 +345,18 @@ where
 
     /// For a policy to be valid, it must be "downgrading".
     pub fn valid(&self) -> bool {
-        todo!()
+        match self {
+            Policy::PolicyClean => true,
+            Policy::PolicyDeclassify { label, next } => {
+                next.valid()
+                    && match next.as_ref() {
+                        Policy::PolicyClean => true,
+                        Policy::PolicyDeclassify {
+                            label: next_label, ..
+                        } => next_label.flowsto(label),
+                    }
+            },
+        }
     }
 
     /// Constructs the policy chain.
@@ -435,7 +449,7 @@ where
 
 impl<T> PartialEq for Policy<T>
 where
-    T: Lattice,
+    T: Lattice + Serialize + DeserializeOwned,
 {
     fn eq(&self, other: &Self) -> bool {
         match (self.le(other), other.le(self)) {
@@ -447,7 +461,7 @@ where
 
 impl<T> PartialOrd for Policy<T>
 where
-    T: Lattice,
+    T: Lattice + Serialize + DeserializeOwned,
 {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self.le(other), other.le(self)) {
@@ -459,7 +473,10 @@ where
     }
 }
 
-impl<T: fmt::Display + Lattice> fmt::Display for Policy<T> {
+impl<T> fmt::Display for Policy<T>
+where
+    T: fmt::Display + Lattice + Serialize + DeserializeOwned,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Policy::PolicyClean => write!(f, "∅"),

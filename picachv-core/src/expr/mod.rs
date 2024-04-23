@@ -3,7 +3,11 @@ use std::fmt;
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::binary_operator;
 
-use crate::{arena::Arena, constants::UnaryOperator};
+use crate::{
+    arena::Arena,
+    constants::UnaryOperator,
+    policy::{Policy, PolicyLabel},
+};
 
 pub mod builder;
 
@@ -73,24 +77,39 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub(crate) fn check_policy(&self) -> PicachvResult<()> {
-        log::debug!("check_policy: checking {self:?}");
-
+    /// This function checks the policy enforcement for the expression type.
+    ///
+    /// The formalized part is described in `pcd-proof/theories/expression.v`.
+    /// Note that since the check occurs at the tuple level!
+    pub(crate) fn check_policy_in_row(
+        &self,
+        current_row: &mut [Policy<PolicyLabel>],
+    ) -> PicachvResult<()> {
         match self {
             Expr::Literal => Ok(()),
             Expr::BinaryExpr { left, right, .. } => {
-                left.check_policy()?;
-                right.check_policy()
+                left.check_policy_in_row(current_row)?;
+                right.check_policy_in_row(current_row)
             },
             // This is truly interesting.
+            //
+            // See `eval_unary_expression_in_cell`.
             Expr::UnaryExpr { arg, op } => {
                 todo!()
             },
-            Expr::Column(_) => Ok(()),
-            Expr::Alias { expr, .. } => expr.check_policy(),
+            Expr::Column(idx) => {
+                if *idx >= current_row.len() {
+                    Err(PicachvError::InvalidOperation(
+                        "The column index is out of bounds.".into(),
+                    ))
+                } else {
+                    Ok(())
+                }
+            },
+            Expr::Alias { expr, .. } => expr.check_policy_in_row(current_row),
             Expr::Filter { input, filter } => {
-                input.check_policy()?;
-                filter.check_policy()
+                input.check_policy_in_row(current_row)?;
+                filter.check_policy_in_row(current_row)
             },
             Expr::Agg(agg_expr) => todo!(),
             // todo.

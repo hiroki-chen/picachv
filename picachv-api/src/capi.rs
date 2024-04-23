@@ -95,21 +95,24 @@ pub extern "C" fn execute_prologue(
     ctx_uuid_ptr_len: usize,
     plan_uuid_ptr: *const u8,
     plan_uuid_ptr_len: usize,
+    df_uuid_ptr: *const u8,
+    df_uuid_ptr_len: usize,
 ) -> i32 {
     if ctx_uuid_ptr_len < 16 {
         return 1;
     }
 
-    let (ctx_id, plan_id) = match (
+    let (ctx_id, plan_id, df_id) = match (
         recover_uuid(ctx_uuid_ptr, ctx_uuid_ptr_len),
         recover_uuid(plan_uuid_ptr, plan_uuid_ptr_len),
+        recover_uuid(df_uuid_ptr, df_uuid_ptr_len),
     ) {
-        (Ok(ctx_id), Ok(plan_id)) => (ctx_id, plan_id),
+        (Ok(ctx_id), Ok(plan_id), Ok(df_id)) => (ctx_id, plan_id, df_id),
         _ => return 1,
     };
 
     match MONITOR_INSTANCE.get() {
-        Some(monitor) => match monitor.execute_prologue(ctx_id, plan_id) {
+        Some(monitor) => match monitor.execute_prologue(ctx_id, plan_id, df_id) {
             Ok(_) => 0,
             Err(_) => 1,
         },

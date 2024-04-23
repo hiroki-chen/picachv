@@ -27,6 +27,13 @@ where
         Ok(uuid)
     }
 
+    pub fn insert_arc(&mut self, plan: Arc<T>) -> PicachvResult<Uuid> {
+        let uuid = Uuid::new_v4();
+
+        self.inner.insert(uuid, plan);
+        Ok(uuid)
+    }
+
     pub fn get(&self, uuid: &Uuid) -> PicachvResult<&Arc<T>> {
         match self.inner.get(uuid) {
             Some(plan) => Ok(plan),

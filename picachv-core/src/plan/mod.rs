@@ -4,11 +4,14 @@ use std::{borrow::Cow, fmt, sync::Arc};
 
 use picachv_error::{ErrorStateSync, PicachvResult};
 use polars_core::schema::SchemaRef;
+use uuid::Uuid;
 
 use crate::{
     arena::Arena,
     constants::{JoinType, LogicalPlanType},
+    dataframe::PolicyGuardedDataFrame,
     expr::Expr,
+    rwlock_unlock, Arenas,
 };
 
 pub type PlanArena = Arena<Plan>;
@@ -251,9 +254,46 @@ impl Plan {
         }
     }
 
+    fn check_plan(
+        &self,
+        arena: &Arenas,
+        active_df_uuid: Uuid,
+        expression: &[Expr],
+    ) -> PicachvResult<Uuid> {
+        let mut df_arena = rwlock_unlock!(arena.df_arena, write);
+        let df = df_arena.get_mut(&active_df_uuid)?;
+        let can_replace = Arc::strong_count(df) == 1;
+
+        let mut rows = df.into_rows();
+        // We need to check the policy for each row.
+        for row in rows.iter_mut() {
+            for expr in expression {
+                log::debug!("Checking the policy for the expression {expr:?}");
+                expr.check_policy_in_row(row)?;
+            }
+        }
+
+        let mut new_df = PolicyGuardedDataFrame::from(rows);
+        new_df.schema = df.schema.clone();
+        let new_df = Arc::new(new_df);
+
+        if can_replace {
+            let _ = std::mem::replace(df, new_df);
+            Ok(active_df_uuid)
+        } else {
+            df_arena.insert_arc(new_df)
+        }
+    }
+
     /// This is the function eventually called to check if a physical operator is
     /// allowed to be executed. The caller is required to call this function *before*
-    /// executing the physical plan as though it was instrumented.
+    /// executing the physical plan as though it was instrumented. This functios
+    /// returns the UUID (possibly updated) of the active dataframe that is being
+    /// processed.
+    ///
+    /// The argument `active_df_uuid` is the UUID of the active dataframe that is being
+    /// processed. This is used to check if the current physical plan is allowed to be
+    /// executed because expressions are evalauted at the tuple level.
     ///
     /// # Example
     ///
@@ -271,26 +311,42 @@ impl Plan {
     ///
     /// ```c++
     /// void *Plan::execute(State *state) const {
-    ///     if (!this->check(state)) {
+    ///     if (!this->check(state, this->active_df_uuid)) {
     ///         return nullptr;
     ///     }
     ///     return this->execute_impl(state);
     /// }
     /// ```
-    pub fn execute_prologue(&self) -> PicachvResult<()> {
+    pub fn execute_prologue(&self, arena: &Arenas, active_df_uuid: Uuid) -> PicachvResult<Uuid> {
         log::debug!("execute_prologue: checking {:?}", self);
 
         match self {
+            // See the semantics for `apply_proj_in_relation`.
             Plan::Projection { expression, .. } => {
-                // Check for each expression, it is allowed?
-                expression
-                    .iter()
-                    .map(|e| e.check_policy())
-                    .collect::<PicachvResult<()>>()
+                self.check_plan(arena, active_df_uuid, expression)
             },
-            Plan::Select { predicate, .. } => predicate.check_policy(),
+            Plan::Select { predicate, .. } => {
+                self.check_plan(arena, active_df_uuid, &vec![predicate.clone()])
+            },
+            Plan::Union {
+                input_left,
+                input_right,
+                ..
+            }
+            | Plan::Join {
+                input_left,
+                input_right,
+                ..
+            } => {
+                input_left.execute_prologue(arena, active_df_uuid)?;
+                input_right.execute_prologue(arena, active_df_uuid)
+            },
+            Plan::DataFrameScan { selection, .. } => match selection {
+                Some(s) => self.check_plan(arena, active_df_uuid, &vec![s.clone()]),
+                None => Ok(active_df_uuid),
+            },
             Plan::Other { .. } => unimplemented!("Other"),
-            _ => Ok(()),
+            _ => Ok(active_df_uuid),
         }
     }
 }

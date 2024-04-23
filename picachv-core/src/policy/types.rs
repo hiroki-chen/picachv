@@ -1,8 +1,9 @@
 use std::cmp::Ordering;
 
 use ordered_float::OrderedFloat;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Hash)]
+#[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize)]
 pub struct DpParam(OrderedFloat<f64>, Option<OrderedFloat<f64>>);
 
 impl DpParam {
