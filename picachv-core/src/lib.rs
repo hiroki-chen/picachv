@@ -17,6 +17,7 @@ pub mod io;
 pub mod macros;
 pub mod plan;
 pub mod policy;
+pub mod udf;
 
 pub struct Arenas {
     pub lp_arena: Arc<RwLock<PlanArena>>,

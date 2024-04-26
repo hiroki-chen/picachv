@@ -11,5 +11,6 @@ picachv-core = { workspace = true }
 picachv-message = { workspace = true }
 
 log = { workspace = true }
+readonly = "0.2.12"
 uuid = { workspace = true }
 prost = { workspace = true }

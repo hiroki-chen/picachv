@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::hash::Hash;
 use std::ops::Range;
+use std::time::Duration;
 
 use ordered_float::OrderedFloat;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
@@ -29,8 +30,10 @@ pub enum TransformType {
     Generalize { range: Range<usize> },
     /// Replace
     Replace,
-    /// Shift by days
-    Shift { by: i64 },
+    /// Shift by [`Duration`].
+    Shift { by: Duration },
+    /// User defined.
+    UserDefined { name: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

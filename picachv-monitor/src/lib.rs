@@ -1,19 +1,19 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard},
-};
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use picachv_core::{
-    dataframe::PolicyGuardedDataFrame, expr::Expr, get_new_uuid, plan::Plan, rwlock_unlock, Arenas,
-};
+use picachv_core::dataframe::PolicyGuardedDataFrame;
+use picachv_core::expr::Expr;
+use picachv_core::plan::Plan;
+use picachv_core::udf::Udf;
+use picachv_core::{get_new_uuid, rwlock_unlock, Arenas};
 use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::{
-    transform_info::information::Information, ExprArgument, PlanArgument, TransformInfo,
-};
+use picachv_message::transform_info::information::Information;
+use picachv_message::{ExprArgument, PlanArgument, TransformInfo};
 use prost::Message;
 use uuid::Uuid;
 
 /// An activate context for the data analysis.
+#[readonly::make]
 pub struct Context {
     /// The context ID.
     id: Uuid,
@@ -21,14 +21,18 @@ pub struct Context {
     arena: Arenas,
     /// The current plan root.
     root: Arc<RwLock<Uuid>>,
+    /// UDFs.
+    #[readonly]
+    udfs: HashMap<String, Udf>,
 }
 
 impl Context {
-    pub fn new(id: Uuid) -> Self {
+    pub fn new(id: Uuid, udfs: HashMap<String, Udf>) -> Self {
         Context {
             id,
             arena: Arenas::new(),
             root: Arc::new(RwLock::new(Uuid::default())),
+            udfs,
         }
     }
 
@@ -66,7 +70,7 @@ impl Context {
         let lp_arena = rwlock_unlock!(self.arena.lp_arena, read);
         let plan = lp_arena.get(&plan_uuid)?;
 
-        plan.execute_prologue(&self.arena, df_uuid)
+        plan.execute_prologue(&self.arena, df_uuid, &self.udfs)
     }
 
     /// This function will parse the `TransformInfo` and apply the corresponding transformation on
@@ -116,6 +120,28 @@ impl Context {
 
                         uuid = new_uuid;
                     },
+
+                    Information::Union(union_info) => {
+                        let mut df_arena = rwlock_unlock!(self.arena.df_arena, write);
+
+                        let involved_dfs = union_info
+                            .input_df_uuid
+                            .iter()
+                            .map(|uuid| {
+                                let uuid = Uuid::from_slice_le(uuid).map_err(|_| {
+                                    PicachvError::InvalidOperation("Invalid UUID.".into())
+                                })?;
+                                df_arena.get(&uuid)
+                            })
+                            .collect::<PicachvResult<Vec<_>>>()?;
+
+                        // We just union them all.
+                        let new_df = PolicyGuardedDataFrame::union(&involved_dfs)?;
+
+                        // Assign the new UUID.
+                        uuid = df_arena.insert(new_df)?;
+                    },
+
                     _ => todo!(),
                 },
                 None => {
@@ -149,14 +175,22 @@ impl Context {
 /// The definition of our policy monitor.
 pub struct PicachvMonitor {
     /// The context map.
-    pub(crate) ctx: RwLock<HashMap<Uuid, Context>>,
+    pub(crate) ctx: Arc<RwLock<HashMap<Uuid, Context>>>,
+    pub(crate) udfs: Arc<RwLock<HashMap<String, Udf>>>,
 }
 
 impl PicachvMonitor {
     pub fn new() -> Self {
         PicachvMonitor {
-            ctx: RwLock::new(HashMap::new()),
+            ctx: Arc::new(RwLock::new(HashMap::new())),
+            udfs: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    pub fn register_new_udf(&self, udf: Udf) -> PicachvResult<()> {
+        let mut udfs = rwlock_unlock!(self.udfs, write);
+        udfs.insert(udf.name().to_string(), udf);
+        Ok(())
     }
 
     pub fn get_ctx(&self) -> PicachvResult<RwLockReadGuard<HashMap<Uuid, Context>>> {
@@ -170,7 +204,8 @@ impl PicachvMonitor {
     /// Opens a new context.
     pub fn open_new(&self) -> PicachvResult<Uuid> {
         let uuid = get_new_uuid();
-        let ctx = Context::new(get_new_uuid());
+        let udfs = rwlock_unlock!(self.udfs, read).clone();
+        let ctx = Context::new(get_new_uuid(), udfs);
 
         self.ctx
             .write()
@@ -246,4 +281,4 @@ impl PicachvMonitor {
     }
 }
 
-pub static MONITOR_INSTANCE: OnceLock<PicachvMonitor> = OnceLock::new();
+pub static MONITOR_INSTANCE: OnceLock<Arc<PicachvMonitor>> = OnceLock::new();

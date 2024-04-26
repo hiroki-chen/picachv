@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
+use std::time::Duration;
 
-use picachv_error::{PicachvError, PicachvResult};
+use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use polars_core::df;
 use polars_core::schema::{Schema, SchemaRef};
 use serde::{Deserialize, Serialize};
@@ -26,7 +27,7 @@ pub fn get_example_df() -> PolicyGuardedDataFrame {
     let mut p2 = vec![];
     for i in 0..5 {
         let policy1 = build_policy!(PolicyLabel::PolicyTransform {
-            ops: TransformOps(HashSet::from_iter(vec![TransformType::Shift {by: i}].into_iter()))
+            ops: TransformOps(HashSet::from_iter(vec![TransformType::Shift {by: Duration::from_secs(i), }].into_iter()))
         } => PolicyLabel::PolicyBot)
         .unwrap();
         let policy2 = Policy::PolicyClean;
@@ -64,6 +65,12 @@ pub fn get_example_df() -> PolicyGuardedDataFrame {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PolicyGuardedColumn {
     pub(crate) policies: Vec<Policy<PolicyLabel>>,
+}
+
+impl PolicyGuardedColumn {
+    pub fn new(policies: Vec<Policy<PolicyLabel>>) -> Self {
+        PolicyGuardedColumn { policies }
+    }
 }
 
 /// A contiguous growable collection of `Series` that have the same length.
@@ -137,6 +144,40 @@ impl PolicyGuardedDataFrame {
         }
 
         Ok(())
+    }
+
+    pub fn union(inputs: &[&Arc<Self>]) -> PicachvResult<Self> {
+        // Ensures we are really doing unions.
+        picachv_ensure!(
+            !inputs.is_empty(),
+            ComputeError: "Doing union on an empty vector of dataframes is meaningless.",
+        );
+
+        // Ensures that the schemas are the same.
+        picachv_ensure!(
+            inputs.iter().all(|df| df.schema == inputs[0].schema) &&
+            inputs.iter().all(|df| df.columns.len() == inputs[0].columns.len()),
+            ComputeError: "The schemas of the inputs must be the same.",
+        );
+
+        // Do unions.
+        let mut columns = vec![];
+        for i in 0..inputs[0].columns.len() {
+            let mut policies = vec![];
+            for j in 0..inputs.len() {
+                policies.extend(inputs[j].columns[i].policies.clone());
+            }
+            columns.push(PolicyGuardedColumn { policies });
+        }
+
+        Ok(PolicyGuardedDataFrame {
+            schema: inputs[0].schema.clone(),
+            columns,
+        })
+    }
+
+    pub fn new(schema: SchemaRef, columns: Vec<PolicyGuardedColumn>) -> Self {
+        PolicyGuardedDataFrame { schema, columns }
     }
 
     pub(crate) fn early_projection(&mut self, project_list: &[String]) -> PicachvResult<()> {

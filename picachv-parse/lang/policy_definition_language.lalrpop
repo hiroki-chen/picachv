@@ -1,0 +1,100 @@
+//! This `lalrpop` file defines the syntax of the Policy Definition Language (PDL) which is used to
+//! generate a parser that can be used to convert human-readable policies into a Rust struct.
+
+use std::str::FromStr;
+
+grammar;
+
+
+// Match between keywords and identifiers.
+match {
+  r"(?i)(allow)",
+  r"(?i)(and)",
+  r"(?i)(or)",
+  r"(?i)(attribute)",
+  r"(?i)(deny)",
+  r"(?i)(scheme)",
+  r"(?i)(filter)",
+  r"(?i)(row)",
+  r"((?i)(dp))|((?i)(differential_privacy))",
+  r"((?i)(k_anon))|((?i)(k_anonymity))",
+  r"((?i)(t_closeness))|((?i)(t_close))",
+  r"((?i)(l_diversity))|((?i)(l_div))",
+  r"i8",
+  r"i16",
+  r"i32",
+  r"i64",
+  r"u8",
+  r"u16",
+  r"u32",
+  r"u64",
+  r"f32",
+  r"f64",
+  r"(bool)|(boolean)",
+  r"(str)|([sS]tring)",
+} else {
+  r"[a-zA-Z_][a-zA-Z0-9_]*" => Identifier,
+} else {
+  _,
+}
+
+#[inline]
+Comma<T>: Vec<T> = { // (1)
+  <mut v:(<T> ",")*> <e:T?> => match e { // (2)
+      None => v,
+      Some(e) => {
+          v.push(e);
+          v
+      }
+  }
+};
+
+pub Num: f64 = {
+    <f: Float> => f,
+    "(" <n: Num> ")" => n,
+}
+
+pub Keyword: String = {
+    <allow: Allow> => allow,
+    <attribute: Attribute> => attribute,
+    <deny: Deny> => deny,
+    <scheme: PrivacyScheme> => scheme,
+    <filter: Filter> => filter,
+    // Row-based control.
+    <row: Row> => row,
+}
+
+pub DataType: polars_core::datatypes::DataType = {
+    r"i8" => polars_core::datatypes::DataType::Int8,
+    r"i16" => polars_core::datatypes::DataType::Int16,
+    r"i32" => polars_core::datatypes::DataType::Int32,
+    r"i64" => polars_core::datatypes::DataType::Int64,
+    r"u8" => polars_core::datatypes::DataType::UInt8,
+    r"u16" => polars_core::datatypes::DataType::UInt16,
+    r"u32" => polars_core::datatypes::DataType::UInt32,
+    r"u64" => polars_core::datatypes::DataType::UInt64,
+    r"f32" => polars_core::datatypes::DataType::Float32,
+    r"f64" => polars_core::datatypes::DataType::Float64,
+    r"(bool)|(boolean)" => polars_core::datatypes::DataType::Boolean,
+    r"(str)|([sS]tring)" => polars_core::datatypes::DataType::String,
+}
+
+/// The attribute name list: Attribute(id_1, id_2, ...)
+pub AttributeNameList: Vec<String> = {
+    "(" <list: Comma<Identifier>> ")" => list.into_iter().map(|s| s.to_string()).collect(),
+    "(" <list: AttributeNameList> ")" => list.into_iter().map(|s| s.to_string()).collect(),
+}
+
+/// Numbers (floating by default)
+Float: f64 = <s:r"[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)"> => f64::from_str(s).unwrap();
+
+
+// Keywords.
+Allow: String = <s:r"(?i)(allow)"> => s.into();
+And: String = <s:r"(?i)(and)"> => s.into();
+Or: String = <s:r"(?i)(or)"> => s.into();
+Attribute: String = <s:r"(?i)(attribute)"> => s.into();
+Deny: String = <s:r"(?i)(deny)"> => s.into();
+PrivacyScheme: String = <s:r"(?i)(scheme)"> => s.into();
+Filter: String = <s:r"(?i)(filter)"> => s.into();
+Row: String = <s:r"(?i)(row)"> => s.into();

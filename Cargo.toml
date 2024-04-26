@@ -7,7 +7,7 @@ members = [
   "picachv-monitor",
   "picachv-message",
   "picachv",
-  "examples/polars-policy",
+  "examples/polars-policy", "picachv-parse", "examples/polars-playground",
 ]
 
 exclude = ["examples/cpp"]

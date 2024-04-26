@@ -27,7 +27,7 @@ macro_rules! impl_ctx_api {
 
 pub fn init_monitor() -> PicachvResult<()> {
     MONITOR_INSTANCE
-        .set(PicachvMonitor::new())
+        .set(PicachvMonitor::new().into())
         .map_err(|_| PicachvError::Already("Monitor initialized".into()))
 }
 

@@ -60,7 +60,7 @@ pub extern "C" fn build_plan(
 
 #[no_mangle]
 pub extern "C" fn init_monitor() -> i32 {
-    match MONITOR_INSTANCE.set(PicachvMonitor::new()) {
+    match MONITOR_INSTANCE.set(PicachvMonitor::new().into()) {
         Ok(_) => 0,
         // Already.
         Err(_) => 1,

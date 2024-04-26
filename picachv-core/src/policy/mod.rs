@@ -39,13 +39,14 @@ macro_rules! build_unary_expr {
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
+    use std::time::Duration;
 
     use crate::policy::{Policy, PolicyLabel, TransformOps, TransformType};
 
     #[test]
     fn test_build_policy() {
         let policy = build_policy!(PolicyLabel::PolicyTransform {
-            ops: TransformOps(HashSet::from_iter(vec![TransformType::Shift {by: 1}].into_iter()))
+            ops: TransformOps(HashSet::from_iter(vec![TransformType::Shift {by: Duration::new(5, 0) }].into_iter()))
         } => PolicyLabel::PolicyBot);
         assert!(policy.is_ok());
         let policy = build_policy!(PolicyLabel::PolicyTop => PolicyLabel::PolicyBot => PolicyLabel::PolicyTop);
@@ -55,7 +56,7 @@ mod tests {
     #[test]
     fn test_serde_policy() {
         let prev = build_policy!(PolicyLabel::PolicyTransform {
-            ops: TransformOps(HashSet::from_iter(vec![TransformType::Shift {by: 1}].into_iter()))
+            ops: TransformOps(HashSet::from_iter(vec![TransformType::Shift {by: Duration::new(5, 0) }].into_iter()))
         } => PolicyLabel::PolicyBot)
         .unwrap();
         let policy_str = serde_json::to_string(&prev).unwrap();

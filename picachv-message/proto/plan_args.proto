@@ -31,42 +31,20 @@ message GetDataArgument {
 }
 
 message SelectArgument {
-  // The uuid of the input.
-  bytes input_uuid = 1;
   // The uuid of the predicate.
-  bytes pred_uuid = 2;
+  bytes pred_uuid = 1;
 }
 
 message ProjectionArgument {
-  bytes input_uuid = 1;
   // Column 'names' as we may apply some transformation on columns.
-  repeated bytes expression = 2;
-  // The schema.
-  bytes schema_uuid = 3;
+  repeated bytes expression = 1;
 }
 
 message AggregateArgument {
-  bytes input_uuid = 1;
-  bytes schema_uuid = 2;
   // The uuid of the group by.
   repeated bytes keys = 3;
   bytes aggs_uuid = 4;
   bool maintain_order = 5;
-}
-
-message JoinArgument {
-  bytes left_uuid = 1;
-  bytes right_uuid = 2;
-  bytes schema_uuid = 3;
-  repeated bytes left_on = 4;
-  repeated bytes right_on = 5;
-  JoinType join_type = 6;
-}
-
-message UnionArgument {
-  bytes left_uuid = 1;
-  bytes right_uuid = 2;
-  bytes schema_uuid = 3;
 }
 
 // A Rust `enum`-like message to represent the different types of physical
@@ -76,8 +54,6 @@ message PlanArgument {
     SelectArgument select = 1;
     ProjectionArgument projection = 2;
     AggregateArgument aggregate = 3;
-    JoinArgument join = 4;
-    UnionArgument union = 5;
-    GetDataArgument get_data = 6;
+    GetDataArgument get_data = 4;
   }
 }

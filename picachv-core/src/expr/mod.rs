@@ -7,6 +7,7 @@ use crate::arena::Arena;
 use crate::build_unary_expr;
 use crate::policy::context::ExpressionEvalContext;
 use crate::policy::{Policy, PolicyLabel, TransformType};
+use crate::udf::Udf;
 
 pub mod builder;
 
@@ -73,6 +74,12 @@ pub enum Expr {
         op: TransformType,
     },
     Literal,
+    /// User-defined function.
+    UserDefinedTransform {
+        udf_desc: Udf,
+        // This only takes one argument.
+        args: Box<Expr>,
+    },
 }
 
 impl Expr {
@@ -107,8 +114,10 @@ impl Expr {
                 // contain any sensitive information.
                 Expr::Literal => Ok(Default::default()),
                 Expr::BinaryExpr { left, right, .. } => {
-                    left.check_policy_in_row(ctx)?;
-                    right.check_policy_in_row(ctx)
+                    let lhs = left.check_policy_in_row(ctx)?;
+                    let rhs = right.check_policy_in_row(ctx)?;
+
+                    lhs.join(&rhs)
                 },
                 // This is truly interesting.
                 //
@@ -195,6 +204,7 @@ impl fmt::Debug for Expr {
             Self::BinaryExpr { left, op, right } => write!(f, "({left:?} {op:?} {right:?})"),
             Self::UnaryExpr { arg, op } => write!(f, "{op:?} {arg:?}"),
             Self::Literal => write!(f, "LITERAL"),
+            Self::UserDefinedTransform { udf_desc, args } => write!(f, "{udf_desc:?}({args:?})"),
         }
     }
 }

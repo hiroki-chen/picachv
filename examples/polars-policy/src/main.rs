@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use polars::lazy::dataframe::PolicyGuardedDataFrame;
-use polars::lazy::dsl::{col, lit};
+use polars::lazy::dsl::{col, duration, lit, DurationArgs};
 use polars::lazy::io::JsonIO;
 use polars::lazy::native::{init_monitor, open_new, register_policy_dataframe};
 use polars::lazy::prelude::*;
@@ -45,11 +45,35 @@ fn example2(policy: &PolicyGuardedDataFrame) -> Result<DataFrame> {
     // SELECT a FROM df WHERE 1 < a
     let out = df
         .lazy()
-        .select([col("b")])
+        .select([col("b")
+            .dt()
+            .offset_by(duration(DurationArgs::new().with_seconds(lit(5))))])
         .filter(lit(1).lt(col("b")))
         .set_ctx_id(ctx_id);
-    // Error: invalid operation: Possible policy breach detected; abort early.
+    // OK.
     out.collect().map_err(|e| anyhow!(e))
+}
+
+fn example3(policy: &PolicyGuardedDataFrame) -> Result<DataFrame> {
+    let mut df1 = df! {
+        "a" => &[1, 2, 3, 4, 5],
+        "b" => &[5, 4, 3, 2, 1]
+    }?;
+    let mut df2 = df! {
+        "a" => &[1, 2, 3, 4, 5],
+        "b" => &[5, 4, 3, 2, 1]
+    }?;
+
+    let ctx_id = open_new()?;
+    let uuid1 = register_policy_dataframe(ctx_id, policy.clone())?;
+    let uuid2 = register_policy_dataframe(ctx_id, policy.clone())?;
+    df1.set_uuid(uuid1);
+    df2.set_uuid(uuid2);
+
+    concat([df1.lazy(), df2.lazy()], Default::default())?
+        .set_ctx_id(ctx_id)
+        .collect()
+        .map_err(|e| anyhow!(e))
 }
 
 fn main() -> Result<()> {
@@ -69,7 +93,11 @@ fn main() -> Result<()> {
     }
     match example2(&policy) {
         Ok(df) => log::info!("Result: {}", df),
-        Err(e) => log::error!("Error: {}", e),
+        Err(e) => unreachable!("Error: {}", e),
+    }
+    match example3(&policy) {
+        Ok(df) => log::info!("Result: {}", df),
+        Err(e) => unreachable!("Error: {}", e),
     }
 
     Ok(())

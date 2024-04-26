@@ -1,0 +1,12 @@
+[package]
+name = "picachv-parse"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lalrpop-util = "0.20.2"
+lalrpop = "0.20.2"
+polars-core = { workspace = true }
+
+[build-dependencies]
+lalrpop = "0.20.2"

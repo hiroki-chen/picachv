@@ -556,32 +556,20 @@ pub mod get_data_argument {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SelectArgument {
-    /// The uuid of the input.
-    #[prost(bytes = "vec", tag = "1")]
-    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
     /// The uuid of the predicate.
-    #[prost(bytes = "vec", tag = "2")]
+    #[prost(bytes = "vec", tag = "1")]
     pub pred_uuid: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ProjectionArgument {
-    #[prost(bytes = "vec", tag = "1")]
-    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
     /// Column 'names' as we may apply some transformation on columns.
-    #[prost(bytes = "vec", repeated, tag = "2")]
+    #[prost(bytes = "vec", repeated, tag = "1")]
     pub expression: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-    /// The schema.
-    #[prost(bytes = "vec", tag = "3")]
-    pub schema_uuid: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AggregateArgument {
-    #[prost(bytes = "vec", tag = "1")]
-    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
-    #[prost(bytes = "vec", tag = "2")]
-    pub schema_uuid: ::prost::alloc::vec::Vec<u8>,
     /// The uuid of the group by.
     #[prost(bytes = "vec", repeated, tag = "3")]
     pub keys: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
@@ -590,38 +578,12 @@ pub struct AggregateArgument {
     #[prost(bool, tag = "5")]
     pub maintain_order: bool,
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct JoinArgument {
-    #[prost(bytes = "vec", tag = "1")]
-    pub left_uuid: ::prost::alloc::vec::Vec<u8>,
-    #[prost(bytes = "vec", tag = "2")]
-    pub right_uuid: ::prost::alloc::vec::Vec<u8>,
-    #[prost(bytes = "vec", tag = "3")]
-    pub schema_uuid: ::prost::alloc::vec::Vec<u8>,
-    #[prost(bytes = "vec", repeated, tag = "4")]
-    pub left_on: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-    #[prost(bytes = "vec", repeated, tag = "5")]
-    pub right_on: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-    #[prost(enumeration = "JoinType", tag = "6")]
-    pub join_type: i32,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UnionArgument {
-    #[prost(bytes = "vec", tag = "1")]
-    pub left_uuid: ::prost::alloc::vec::Vec<u8>,
-    #[prost(bytes = "vec", tag = "2")]
-    pub right_uuid: ::prost::alloc::vec::Vec<u8>,
-    #[prost(bytes = "vec", tag = "3")]
-    pub schema_uuid: ::prost::alloc::vec::Vec<u8>,
-}
 /// A Rust `enum`-like message to represent the different types of physical
 /// plans.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PlanArgument {
-    #[prost(oneof = "plan_argument::Argument", tags = "1, 2, 3, 4, 5, 6")]
+    #[prost(oneof = "plan_argument::Argument", tags = "1, 2, 3, 4")]
     pub argument: ::core::option::Option<plan_argument::Argument>,
 }
 /// Nested message and enum types in `PlanArgument`.
@@ -636,10 +598,6 @@ pub mod plan_argument {
         #[prost(message, tag = "3")]
         Aggregate(super::AggregateArgument),
         #[prost(message, tag = "4")]
-        Join(super::JoinArgument),
-        #[prost(message, tag = "5")]
-        Union(super::UnionArgument),
-        #[prost(message, tag = "6")]
         GetData(super::GetDataArgument),
     }
 }
@@ -679,6 +637,13 @@ pub struct GroupByInformation {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UnionInformation {
+    /// How?
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub input_df_uuid: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReorderInformation {
     #[prost(bytes = "vec", tag = "1")]
     pub df_uuid: ::prost::alloc::vec::Vec<u8>,
@@ -698,7 +663,7 @@ pub mod transform_info {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Information {
-        #[prost(oneof = "information::Information", tags = "1, 2, 3, 4, 5")]
+        #[prost(oneof = "information::Information", tags = "1, 2, 3, 4, 5, 6")]
         pub information: ::core::option::Option<information::Information>,
     }
     /// Nested message and enum types in `Information`.
@@ -716,6 +681,8 @@ pub mod transform_info {
             Reorder(super::super::ReorderInformation),
             #[prost(message, tag = "5")]
             Dummy(super::super::DummyInformation),
+            #[prost(message, tag = "6")]
+            Union(super::super::UnionInformation),
         }
     }
 }

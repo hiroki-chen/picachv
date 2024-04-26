@@ -12,6 +12,10 @@ fn main() {
 
     println!("cargo:warning=building protobuf files: {:?}", proto_files);
 
+    for proto_file in proto_files.iter() {
+        println!("{}", format!("cargo:rerun-if-changed={}", proto_file));
+    }
+
     if !proto_files.is_empty() {
         let mut config = Config::new();
         config.out_dir("./src");

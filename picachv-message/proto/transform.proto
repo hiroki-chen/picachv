@@ -26,6 +26,11 @@ message GroupByInformation {
   map<uint64, uint64> group_by = 2;
 }
 
+message UnionInformation {
+  repeated bytes input_df_uuid = 1;
+  // How?
+}
+
 message ReorderInformation {
   bytes df_uuid = 1;
   // The permutation of rows in case reorder occurs.
@@ -40,6 +45,7 @@ message TransformInfo {
       GroupByInformation group_by = 3;
       ReorderInformation reorder = 4;
       DummyInformation dummy = 5;
+      UnionInformation union = 6;
     }
   }
   // An array of information telling the monitor what has been done.
