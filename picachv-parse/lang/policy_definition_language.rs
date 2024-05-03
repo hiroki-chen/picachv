@@ -1,5 +1,5 @@
 // auto-generated: "lalrpop 0.20.2"
-// sha3: b067037593e91904c7d573119210ad23a0ef57d77f5180c910cac4190f46b3e9
+// sha3: 5df69271a95caaa78ae37ab7978372552ea95a603a01cdda4c32058d0b04dada
 use std::str::FromStr;
 #[allow(unused_extern_crates)]
 extern crate lalrpop_util as __lalrpop_util;
@@ -28,7 +28,7 @@ mod __parse__AttributeNameList {
         Variant2(String),
         Variant3(Vec<String>),
         Variant4(Vec<&'input str>),
-        Variant5(polars_core::datatypes::DataType),
+        Variant5(arrow_schema::DataType),
         Variant6(f64),
         Variant7(core::option::Option<&'input str>),
     }
@@ -905,6 +905,17 @@ mod __parse__AttributeNameList {
             _ => __symbol_type_mismatch()
         }
     }
+    fn __pop_Variant5<
+      'input,
+    >(
+        __symbols: &mut alloc::vec::Vec<(usize,__Symbol<'input>,usize)>
+    ) -> (usize, arrow_schema::DataType, usize)
+     {
+        match __symbols.pop() {
+            Some((__l, __Symbol::Variant5(__v), __r)) => (__l, __v, __r),
+            _ => __symbol_type_mismatch()
+        }
+    }
     fn __pop_Variant7<
       'input,
     >(
@@ -924,17 +935,6 @@ mod __parse__AttributeNameList {
      {
         match __symbols.pop() {
             Some((__l, __Symbol::Variant6(__v), __r)) => (__l, __v, __r),
-            _ => __symbol_type_mismatch()
-        }
-    }
-    fn __pop_Variant5<
-      'input,
-    >(
-        __symbols: &mut alloc::vec::Vec<(usize,__Symbol<'input>,usize)>
-    ) -> (usize, polars_core::datatypes::DataType, usize)
-     {
-        match __symbols.pop() {
-            Some((__l, __Symbol::Variant5(__v), __r)) => (__l, __v, __r),
             _ => __symbol_type_mismatch()
         }
     }
@@ -1813,7 +1813,7 @@ mod __parse__DataType {
         Variant2(String),
         Variant3(Vec<String>),
         Variant4(Vec<&'input str>),
-        Variant5(polars_core::datatypes::DataType),
+        Variant5(arrow_schema::DataType),
         Variant6(f64),
         Variant7(core::option::Option<&'input str>),
     }
@@ -1956,7 +1956,7 @@ mod __parse__DataType {
         type Token = Token<'input>;
         type TokenIndex = usize;
         type Symbol = __Symbol<'input>;
-        type Success = polars_core::datatypes::DataType;
+        type Success = arrow_schema::DataType;
         type StateIndex = i8;
         type Action = i8;
         type ReduceIndex = i8;
@@ -2420,7 +2420,7 @@ mod __parse__DataType {
         >(
             &self,
             input: &'input str,
-        ) -> Result<polars_core::datatypes::DataType, __lalrpop_util::ParseError<usize, Token<'input>, &'static str>>
+        ) -> Result<arrow_schema::DataType, __lalrpop_util::ParseError<usize, Token<'input>, &'static str>>
         {
             let mut __tokens = self.builder.matcher(input);
             __state_machine::Parser::drive(
@@ -2474,7 +2474,7 @@ mod __parse__DataType {
         __states: &mut alloc::vec::Vec<i8>,
         __symbols: &mut alloc::vec::Vec<(usize,__Symbol<'input>,usize)>,
         _: core::marker::PhantomData<(&'input ())>,
-    ) -> Option<Result<polars_core::datatypes::DataType,__lalrpop_util::ParseError<usize, Token<'input>, &'static str>>>
+    ) -> Option<Result<arrow_schema::DataType,__lalrpop_util::ParseError<usize, Token<'input>, &'static str>>>
     {
         let (__pop_states, __nonterminal) = match __action {
             0 => {
@@ -2686,6 +2686,17 @@ mod __parse__DataType {
             _ => __symbol_type_mismatch()
         }
     }
+    fn __pop_Variant5<
+      'input,
+    >(
+        __symbols: &mut alloc::vec::Vec<(usize,__Symbol<'input>,usize)>
+    ) -> (usize, arrow_schema::DataType, usize)
+     {
+        match __symbols.pop() {
+            Some((__l, __Symbol::Variant5(__v), __r)) => (__l, __v, __r),
+            _ => __symbol_type_mismatch()
+        }
+    }
     fn __pop_Variant7<
       'input,
     >(
@@ -2705,17 +2716,6 @@ mod __parse__DataType {
      {
         match __symbols.pop() {
             Some((__l, __Symbol::Variant6(__v), __r)) => (__l, __v, __r),
-            _ => __symbol_type_mismatch()
-        }
-    }
-    fn __pop_Variant5<
-      'input,
-    >(
-        __symbols: &mut alloc::vec::Vec<(usize,__Symbol<'input>,usize)>
-    ) -> (usize, polars_core::datatypes::DataType, usize)
-     {
-        match __symbols.pop() {
-            Some((__l, __Symbol::Variant5(__v), __r)) => (__l, __v, __r),
             _ => __symbol_type_mismatch()
         }
     }
@@ -3594,7 +3594,7 @@ mod __parse__Keyword {
         Variant2(String),
         Variant3(Vec<String>),
         Variant4(Vec<&'input str>),
-        Variant5(polars_core::datatypes::DataType),
+        Variant5(arrow_schema::DataType),
         Variant6(f64),
         Variant7(core::option::Option<&'input str>),
     }
@@ -4473,6 +4473,17 @@ mod __parse__Keyword {
             _ => __symbol_type_mismatch()
         }
     }
+    fn __pop_Variant5<
+      'input,
+    >(
+        __symbols: &mut alloc::vec::Vec<(usize,__Symbol<'input>,usize)>
+    ) -> (usize, arrow_schema::DataType, usize)
+     {
+        match __symbols.pop() {
+            Some((__l, __Symbol::Variant5(__v), __r)) => (__l, __v, __r),
+            _ => __symbol_type_mismatch()
+        }
+    }
     fn __pop_Variant7<
       'input,
     >(
@@ -4492,17 +4503,6 @@ mod __parse__Keyword {
      {
         match __symbols.pop() {
             Some((__l, __Symbol::Variant6(__v), __r)) => (__l, __v, __r),
-            _ => __symbol_type_mismatch()
-        }
-    }
-    fn __pop_Variant5<
-      'input,
-    >(
-        __symbols: &mut alloc::vec::Vec<(usize,__Symbol<'input>,usize)>
-    ) -> (usize, polars_core::datatypes::DataType, usize)
-     {
-        match __symbols.pop() {
-            Some((__l, __Symbol::Variant5(__v), __r)) => (__l, __v, __r),
             _ => __symbol_type_mismatch()
         }
     }
@@ -5381,7 +5381,7 @@ mod __parse__Num {
         Variant2(String),
         Variant3(Vec<String>),
         Variant4(Vec<&'input str>),
-        Variant5(polars_core::datatypes::DataType),
+        Variant5(arrow_schema::DataType),
         Variant6(f64),
         Variant7(core::option::Option<&'input str>),
     }
@@ -6230,6 +6230,17 @@ mod __parse__Num {
             _ => __symbol_type_mismatch()
         }
     }
+    fn __pop_Variant5<
+      'input,
+    >(
+        __symbols: &mut alloc::vec::Vec<(usize,__Symbol<'input>,usize)>
+    ) -> (usize, arrow_schema::DataType, usize)
+     {
+        match __symbols.pop() {
+            Some((__l, __Symbol::Variant5(__v), __r)) => (__l, __v, __r),
+            _ => __symbol_type_mismatch()
+        }
+    }
     fn __pop_Variant7<
       'input,
     >(
@@ -6249,17 +6260,6 @@ mod __parse__Num {
      {
         match __symbols.pop() {
             Some((__l, __Symbol::Variant6(__v), __r)) => (__l, __v, __r),
-            _ => __symbol_type_mismatch()
-        }
-    }
-    fn __pop_Variant5<
-      'input,
-    >(
-        __symbols: &mut alloc::vec::Vec<(usize,__Symbol<'input>,usize)>
-    ) -> (usize, polars_core::datatypes::DataType, usize)
-     {
-        match __symbols.pop() {
-            Some((__l, __Symbol::Variant5(__v), __r)) => (__l, __v, __r),
             _ => __symbol_type_mismatch()
         }
     }
@@ -7195,8 +7195,8 @@ fn __action2<
     'input,
 >(
     input: &'input str,
-    (_, __0, _): (usize, polars_core::datatypes::DataType, usize),
-) -> polars_core::datatypes::DataType
+    (_, __0, _): (usize, arrow_schema::DataType, usize),
+) -> arrow_schema::DataType
 {
     __0
 }
@@ -7318,9 +7318,9 @@ fn __action12<
 >(
     input: &'input str,
     (_, __0, _): (usize, &'input str, usize),
-) -> polars_core::datatypes::DataType
+) -> arrow_schema::DataType
 {
-    polars_core::datatypes::DataType::Int8
+    arrow_schema::DataType::Int8
 }
 
 #[allow(unused_variables)]
@@ -7330,9 +7330,9 @@ fn __action13<
 >(
     input: &'input str,
     (_, __0, _): (usize, &'input str, usize),
-) -> polars_core::datatypes::DataType
+) -> arrow_schema::DataType
 {
-    polars_core::datatypes::DataType::Int16
+    arrow_schema::DataType::Int16
 }
 
 #[allow(unused_variables)]
@@ -7342,9 +7342,9 @@ fn __action14<
 >(
     input: &'input str,
     (_, __0, _): (usize, &'input str, usize),
-) -> polars_core::datatypes::DataType
+) -> arrow_schema::DataType
 {
-    polars_core::datatypes::DataType::Int32
+    arrow_schema::DataType::Int32
 }
 
 #[allow(unused_variables)]
@@ -7354,9 +7354,9 @@ fn __action15<
 >(
     input: &'input str,
     (_, __0, _): (usize, &'input str, usize),
-) -> polars_core::datatypes::DataType
+) -> arrow_schema::DataType
 {
-    polars_core::datatypes::DataType::Int64
+    arrow_schema::DataType::Int64
 }
 
 #[allow(unused_variables)]
@@ -7366,9 +7366,9 @@ fn __action16<
 >(
     input: &'input str,
     (_, __0, _): (usize, &'input str, usize),
-) -> polars_core::datatypes::DataType
+) -> arrow_schema::DataType
 {
-    polars_core::datatypes::DataType::UInt8
+    arrow_schema::DataType::UInt8
 }
 
 #[allow(unused_variables)]
@@ -7378,9 +7378,9 @@ fn __action17<
 >(
     input: &'input str,
     (_, __0, _): (usize, &'input str, usize),
-) -> polars_core::datatypes::DataType
+) -> arrow_schema::DataType
 {
-    polars_core::datatypes::DataType::UInt16
+    arrow_schema::DataType::UInt16
 }
 
 #[allow(unused_variables)]
@@ -7390,9 +7390,9 @@ fn __action18<
 >(
     input: &'input str,
     (_, __0, _): (usize, &'input str, usize),
-) -> polars_core::datatypes::DataType
+) -> arrow_schema::DataType
 {
-    polars_core::datatypes::DataType::UInt32
+    arrow_schema::DataType::UInt32
 }
 
 #[allow(unused_variables)]
@@ -7402,9 +7402,9 @@ fn __action19<
 >(
     input: &'input str,
     (_, __0, _): (usize, &'input str, usize),
-) -> polars_core::datatypes::DataType
+) -> arrow_schema::DataType
 {
-    polars_core::datatypes::DataType::UInt64
+    arrow_schema::DataType::UInt64
 }
 
 #[allow(unused_variables)]
@@ -7414,9 +7414,9 @@ fn __action20<
 >(
     input: &'input str,
     (_, __0, _): (usize, &'input str, usize),
-) -> polars_core::datatypes::DataType
+) -> arrow_schema::DataType
 {
-    polars_core::datatypes::DataType::Float32
+    arrow_schema::DataType::Float32
 }
 
 #[allow(unused_variables)]
@@ -7426,9 +7426,9 @@ fn __action21<
 >(
     input: &'input str,
     (_, __0, _): (usize, &'input str, usize),
-) -> polars_core::datatypes::DataType
+) -> arrow_schema::DataType
 {
-    polars_core::datatypes::DataType::Float64
+    arrow_schema::DataType::Float64
 }
 
 #[allow(unused_variables)]
@@ -7438,9 +7438,9 @@ fn __action22<
 >(
     input: &'input str,
     (_, __0, _): (usize, &'input str, usize),
-) -> polars_core::datatypes::DataType
+) -> arrow_schema::DataType
 {
-    polars_core::datatypes::DataType::Boolean
+    arrow_schema::DataType::Boolean
 }
 
 #[allow(unused_variables)]
@@ -7450,9 +7450,9 @@ fn __action23<
 >(
     input: &'input str,
     (_, __0, _): (usize, &'input str, usize),
-) -> polars_core::datatypes::DataType
+) -> arrow_schema::DataType
 {
-    polars_core::datatypes::DataType::String
+    arrow_schema::DataType::Utf8
 }
 
 #[allow(unused_variables)]

@@ -64,19 +64,19 @@ pub Keyword: String = {
     <row: Row> => row,
 }
 
-pub DataType: polars_core::datatypes::DataType = {
-    r"i8" => polars_core::datatypes::DataType::Int8,
-    r"i16" => polars_core::datatypes::DataType::Int16,
-    r"i32" => polars_core::datatypes::DataType::Int32,
-    r"i64" => polars_core::datatypes::DataType::Int64,
-    r"u8" => polars_core::datatypes::DataType::UInt8,
-    r"u16" => polars_core::datatypes::DataType::UInt16,
-    r"u32" => polars_core::datatypes::DataType::UInt32,
-    r"u64" => polars_core::datatypes::DataType::UInt64,
-    r"f32" => polars_core::datatypes::DataType::Float32,
-    r"f64" => polars_core::datatypes::DataType::Float64,
-    r"(bool)|(boolean)" => polars_core::datatypes::DataType::Boolean,
-    r"(str)|([sS]tring)" => polars_core::datatypes::DataType::String,
+pub DataType: arrow_schema::DataType = {
+    r"i8" => arrow_schema::DataType::Int8,
+    r"i16" => arrow_schema::DataType::Int16,
+    r"i32" => arrow_schema::DataType::Int32,
+    r"i64" => arrow_schema::DataType::Int64,
+    r"u8" => arrow_schema::DataType::UInt8,
+    r"u16" => arrow_schema::DataType::UInt16,
+    r"u32" => arrow_schema::DataType::UInt32,
+    r"u64" => arrow_schema::DataType::UInt64,
+    r"f32" => arrow_schema::DataType::Float32,
+    r"f64" => arrow_schema::DataType::Float64,
+    r"(bool)|(boolean)" => arrow_schema::DataType::Boolean,
+    r"(str)|([sS]tring)" => arrow_schema::DataType::Utf8,
 }
 
 /// The attribute name list: Attribute(id_1, id_2, ...)

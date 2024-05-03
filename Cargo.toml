@@ -19,6 +19,8 @@ picachv-error = { path = "picachv-error", default-features = false }
 picachv-message = { path = "picachv-message", default-features = false }
 picachv-monitor = { path = "picachv-monitor", default-features = false }
 
+arrow-array = "51.0.0"
+arrow-schema = { version = "51.0.0", features = ["serde"] }
 log = "0.4.21"
 num_enum = { version = "0.7.2" }
 ordered-float = { version = "4.2.0", features = ["serde"] }

@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+arrow-schema = {workspace = true }
+
 lalrpop-util = "0.20.2"
 lalrpop = "0.20.2"
 
