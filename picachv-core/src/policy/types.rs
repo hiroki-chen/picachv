@@ -1,4 +1,6 @@
 use std::cmp::Ordering;
+use std::hash::Hash;
+use std::time::Duration;
 
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
@@ -35,4 +37,22 @@ impl Ord for DpParam {
     fn cmp(&self, other: &Self) -> Ordering {
         self.partial_cmp(other).unwrap()
     }
+}
+
+/// A type that can represent any value.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AnyValue {
+    Boolean(bool),
+    String(String),
+    UInt8(u8),
+    UInt16(u16),
+    UInt32(u32),
+    UInt64(u64),
+    Int8(i8),
+    Int16(i16),
+    Int32(i32),
+    Int64(i64),
+    Float32(OrderedFloat<f32>),
+    Float64(OrderedFloat<f64>),
+    Duration(Duration),
 }

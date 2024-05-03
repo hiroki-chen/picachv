@@ -141,6 +141,8 @@ pub enum PicachvError {
     StringCacheMismatch(ErrString),
     #[error("field not found: {0}")]
     StructFieldNotFound(ErrString),
+    #[error("unimplemented: {0}")]
+    Unimplemented(ErrString),
 }
 
 pub type PicachvResult<T> = Result<T, PicachvError>;
@@ -163,6 +165,7 @@ impl PicachvError {
             ShapeMismatch(msg) => ShapeMismatch(func(msg).into()),
             StringCacheMismatch(msg) => StringCacheMismatch(func(msg).into()),
             StructFieldNotFound(msg) => StructFieldNotFound(func(msg).into()),
+            Unimplemented(msg) => Unimplemented(func(msg).into()),
         }
     }
 }

@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use polars_core::schema::SchemaRef;
+use arrow_schema::SchemaRef;
 
 use super::{Policy, PolicyLabel};
 use crate::udf::Udf;

@@ -1,12 +1,15 @@
 use std::fmt;
 
+use arrow_array::types::ArrowPrimitiveType;
+use arrow_array::ArrowNumericType;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::binary_operator;
 
 use crate::arena::Arena;
 use crate::build_unary_expr;
 use crate::policy::context::ExpressionEvalContext;
-use crate::policy::{Policy, PolicyLabel, TransformType};
+use crate::policy::types::AnyValue;
+use crate::policy::{policy_ok, Policy, PolicyLabel, TransformType};
 use crate::udf::Udf;
 
 pub mod builder;
@@ -75,10 +78,11 @@ pub enum Expr {
     },
     Literal,
     /// User-defined function.
-    UserDefinedTransform {
+    Apply {
         udf_desc: Udf,
         // This only takes one argument.
-        args: Box<Expr>,
+        args: Vec<Box<Expr>>,
+        values: Option<Vec<Vec<AnyValue>>>,
     },
 }
 
@@ -113,11 +117,39 @@ impl Expr {
                 // A literal expression is always allowed because it does not
                 // contain any sensitive information.
                 Expr::Literal => Ok(Default::default()),
-                Expr::BinaryExpr { left, right, .. } => {
+                // Deal with the UDF case.
+                Expr::Apply {
+                    udf_desc: Udf { name },
+                    args,
+                    values, // todo.
+                } => check_policy_in_row_apply(ctx, name, args),
+
+                Expr::BinaryExpr { left, right, op } => {
                     let lhs = left.check_policy_in_row(ctx)?;
                     let rhs = right.check_policy_in_row(ctx)?;
 
-                    lhs.join(&rhs)
+                    // These operators occur only in predicates. Skip them.
+                    if matches!(
+                        op,
+                        binary_operator::Operator::ComparisonOperator(_)
+                            | binary_operator::Operator::LogicalOperator(_)
+                    ) {
+                        return lhs.join(&rhs);
+                    }
+
+                    match (policy_ok(&lhs), policy_ok(&rhs)) {
+                        // lhs = ∎
+                        (true, _) => {
+                            todo!()
+                        },
+
+                        // rhs = ∎
+                        (_, true) => {
+                            todo!()
+                        },
+
+                        _ => lhs.join(&rhs),
+                    }
                 },
                 // This is truly interesting.
                 //
@@ -127,9 +159,9 @@ impl Expr {
                     policy.downgrade(build_unary_expr!(op.clone()))
                 },
                 Expr::Column(idx) => {
-                    let idx = ctx.schema.iter_names().position(|name| name == idx).ok_or(
-                        PicachvError::ComputeError("The column does not exist.".into()),
-                    )?;
+                    let idx = ctx.schema.index_of(idx).map_err(|_| {
+                        PicachvError::ComputeError("The column does not exist.".into())
+                    })?;
 
                     // For column expression this is an interesting undecidable case
                     // where we cannot determine what operation it will be applied.
@@ -204,7 +236,7 @@ impl fmt::Debug for Expr {
             Self::BinaryExpr { left, op, right } => write!(f, "({left:?} {op:?} {right:?})"),
             Self::UnaryExpr { arg, op } => write!(f, "{op:?} {arg:?}"),
             Self::Literal => write!(f, "LITERAL"),
-            Self::UserDefinedTransform { udf_desc, args } => write!(f, "{udf_desc:?}({args:?})"),
+            Self::Apply { udf_desc, args, .. } => write!(f, "{udf_desc:?}({args:?})"),
         }
     }
 }
@@ -216,3 +248,25 @@ impl fmt::Display for Expr {
 }
 
 impl ExprArena {}
+
+/// This function handles the UDF case.
+fn check_policy_in_row_apply(
+    ctx: &mut ExpressionEvalContext,
+    udf_name: &str,
+    args: &[Box<Expr>],
+) -> PicachvResult<Policy<PolicyLabel>> {
+    match args.len() {
+        // Because a UDF does not have any argument, it is safe since it does not de-
+        // pend on any sensitive information.
+        //
+        // There is also no closure in relational algebra, so we do not need to worry
+        // about the closure that may have its own context.
+        0 => Ok(Default::default()),
+        1 => {
+            let arg = args[0].check_policy_in_row(ctx)?;
+
+            todo!()
+        },
+        _ => Err(PicachvError::Unimplemented("UDF not implemented.".into())),
+    }
+}

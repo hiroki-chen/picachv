@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::fmt;
 use std::hash::Hash;
-use std::ops::Range;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use ordered_float::OrderedFloat;
@@ -10,8 +10,23 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use super::lattice::Lattice;
-use super::types::DpParam;
+use super::types::{AnyValue, DpParam};
 use crate::constants::GroupByMethod;
+
+pub const P_CLEAN: Policy<PolicyLabel> = Policy::PolicyClean;
+
+pub fn p_bot() -> &'static Policy<PolicyLabel> {
+    static POLICY: OnceLock<Policy<PolicyLabel>> = OnceLock::new();
+    POLICY.get_or_init(|| Policy::PolicyDeclassify {
+        label: PolicyLabel::PolicyBot,
+        next: Box::new(Policy::PolicyClean),
+    })
+}
+
+#[inline(always)]
+pub fn policy_ok(p: &Policy<PolicyLabel>) -> bool {
+    p == &P_CLEAN || p == p_bot()
+}
 
 /// Denotes the privacy schemes that should be applied to the result and/or the dataset.
 #[derive(Clone, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -21,19 +36,41 @@ pub enum PrivacyScheme {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum TransformType {
+pub enum UnaryTransformType {
     /// An identity transform.
-    Identify,
-    /// Redact
-    Redact { range: Range<usize> },
-    /// Generalize
-    Generalize { range: Range<usize> },
-    /// Replace
-    Replace,
-    /// Shift by [`Duration`].
-    Shift { by: Duration },
-    /// User defined.
-    UserDefined { name: String },
+    Identity,
+    /// Redact: completely hides the data.
+    Redact,
+    /// Length
+    Length,
+    /// Other custom types.
+    Others { name: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BinaryTransformType {
+    RedactBy {
+        /// The range to redact.
+        by: usize,
+    },
+    ShiftBy {
+        /// The range to shift.
+        by: Duration,
+    },
+    /// Other custom types.
+    Others {
+        name: String,
+        // What about the type??
+        arg: AnyValue,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TransformType {
+    Unary(UnaryTransformType),
+    Binary(BinaryTransformType),
+    // TODO: Not sure what it looks like.
+    Others,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

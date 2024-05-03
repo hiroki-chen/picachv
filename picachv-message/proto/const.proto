@@ -41,6 +41,7 @@ enum ComparisonBinaryOperator {
   Ge = 5;
 }
 
+// We only need to tell Picachv what we are trying to do currently.
 enum ArithmeticBinaryOperator {
   Add = 0;
   Sub = 1;
@@ -48,6 +49,7 @@ enum ArithmeticBinaryOperator {
   Div = 3;
   Mod = 4;
   Pow = 5;
+  ShiftBy = 6;
 }
 
 message BinaryOperator {

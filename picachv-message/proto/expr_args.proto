@@ -66,6 +66,12 @@ message UnaryExpr {
   UnaryOperator op = 2;
 }
 
+// Function application.
+message ApplyExpr {
+  repeated bytes input_uuids = 1;
+  string name = 2;
+}
+
 message ExprArgument {
   oneof argument {
     AggExpr agg = 1;
@@ -76,5 +82,6 @@ message ExprArgument {
     BinaryExpr binary = 6;
     UnaryExpr unary = 7;
     LiteralExpr literal = 8;
+    ApplyExpr apply = 9;
   }
 }

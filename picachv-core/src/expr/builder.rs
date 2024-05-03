@@ -1,9 +1,10 @@
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::column_expr::Column;
-use picachv_message::expr_argument;
+use picachv_message::{expr_argument, ApplyExpr};
 use uuid::Uuid;
 
 use super::Expr;
+use crate::udf::Udf;
 use crate::{rwlock_unlock, Arenas};
 
 impl Expr {
@@ -50,21 +51,25 @@ impl Expr {
                 })
             },
             Argument::Literal(_) => Ok(Expr::Literal),
-            // Argument::Filter(expr) => {
-            //     let input_uuid = Uuid::from_slice_le(&expr.input_uuid)
-            //         .map_err(|_| PicachvError::InvalidOperation("The UUID is invalid.".into()))?;
-            //     let filter_uuid = Uuid::from_slice_le(&expr.filter_uuid)
-            //         .map_err(|_| PicachvError::InvalidOperation("The UUID is invalid.".into()))?;
+            Argument::Apply(ApplyExpr { input_uuids, name }) => {
+                let args = input_uuids
+                    .into_iter()
+                    .map(|e| {
+                        let uuid = Uuid::from_slice_le(&e).map_err(|_| {
+                            PicachvError::InvalidOperation("The UUID is invalid.".into())
+                        })?;
+                        let expr = expr_arena.get(&uuid)?;
+                        Ok(Box::new((**expr).clone()))
+                    })
+                    .collect::<PicachvResult<Vec<_>>>()?;
 
-            //     // TODO: Do we really need `input`?
-            //     let input = expr_arena.get(&input_uuid)?;
-            //     let filter = expr_arena.get(&filter_uuid)?;
+                Ok(Expr::Apply {
+                    udf_desc: Udf { name },
+                    args,
+                    values: None, // must be reified later.
+                })
+            },
 
-            //     Ok(Expr::Filter {
-            //         input: Box::new((*input).clone()),
-            //         filter: Box::new((*filter).clone()),
-            //     })
-            // },
             _ => todo!(),
         }
     }

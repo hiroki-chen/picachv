@@ -1,31 +1,19 @@
+use polars::lazy::dsl::col;
 use polars::prelude::*;
 
 fn main() {
-    let df1 = df![
-        "a" => [1,2,3],
-        "b" => ["l", "m", "n"]
-    ]
-    .unwrap();
-    let df2 = df![
-        "a" => [4,2,3],
-        "b" => ["x", "y", "z"]
-    ]
+    let df = df! {
+        "a" => &[1, 2, 3, 4, 5],
+        "b" => &["2020-08-21", "2020-08-22", "2020-08-23", "2020-08-24", "2020-08-25"]
+    }
     .unwrap();
 
-    let df1 = df1.lazy();
-    let df2 = df2.lazy();
+    let out = df
+        .lazy()
+        .filter(lit(1).lt(col("a")))
+        .select([col("b").cast(DataType::Date).dt().offset_by(lit("5mo"))])
+        .collect()
+        .unwrap();
 
-    let actual = concat(
-        vec![df1.clone(), df2.clone()],
-        UnionArgs {
-            parallel: true,
-            rechunk: true,
-            to_supertypes: true,
-        },
-    )
-    .unwrap()
-    .collect()
-    .unwrap();
-
-    println!("{:?}", actual);
+    println!("{:?}", out);
 }

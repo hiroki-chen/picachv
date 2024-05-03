@@ -77,7 +77,11 @@ impl Context {
     /// the invovled dataframes so that we can keep sync with the original dataframe since policies
     /// are de-coupled with their data. After succesful application it returns the UUID of the new
     /// dataframe allocated in the arena.
-    pub fn execute_epilogue(&self, transform: TransformInfo) -> PicachvResult<Uuid> {
+    pub fn execute_epilogue(&self, df_uuid: Uuid, transform: TransformInfo) -> PicachvResult<Uuid> {
+        if transform.trans_info.is_empty() {
+            return Ok(df_uuid);
+        }
+
         let mut uuid = Uuid::default();
 
         for ti in transform.trans_info.iter() {
@@ -152,6 +156,7 @@ impl Context {
             }
         }
 
+        println!("execute_epilogue: uuid = {uuid}");
         Ok(uuid)
     }
 
@@ -165,6 +170,11 @@ impl Context {
 
         let df = df_arena.get(&df_uuid)?;
         df.finalize()
+    }
+
+    /// Reify an abstract value of the expression with the given values encoded in the bytes.
+    pub fn reify_expression(&self, expr_uuid: Uuid, values: &[u8]) -> PicachvResult<()> {
+        Ok(())
     }
 
     pub fn id(&self) -> Uuid {
@@ -261,6 +271,7 @@ impl PicachvMonitor {
     pub fn execute_epilogue(
         &self,
         ctx_id: Uuid,
+        df_uuid: Uuid,
         side_effect: TransformInfo,
     ) -> PicachvResult<Uuid> {
         let mut ctx = rwlock_unlock!(self.ctx, write);
@@ -268,7 +279,7 @@ impl PicachvMonitor {
             .get_mut(&ctx_id)
             .ok_or_else(|| PicachvError::InvalidOperation("The context does not exist.".into()))?;
 
-        ctx.execute_epilogue(side_effect)
+        ctx.execute_epilogue(df_uuid, side_effect)
     }
 
     pub fn finalize(&self, ctx_id: Uuid, df_uuid: Uuid) -> PicachvResult<()> {

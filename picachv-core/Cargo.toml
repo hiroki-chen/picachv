@@ -12,8 +12,6 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 picachv-error = { workspace = true }
 picachv-message = { workspace = true }
-polars-core = { workspace = true }
-polars-utils = { workspace = true }
 
 tabled = { version = "0.15.0" }
 log = { workspace = true }
@@ -22,6 +20,9 @@ ordered-float = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
+arrow-schema = { version = "51.0.0", features = ["serde"] }
+arrow-array = "51.0.0"
+typetag = "0.2.16"
 
 [features]
 default = ["arena_for_plan"]

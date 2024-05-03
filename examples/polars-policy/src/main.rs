@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use polars::lazy::dataframe::PolicyGuardedDataFrame;
-use polars::lazy::dsl::{col, duration, lit, DurationArgs};
+use polars::lazy::dsl::{col, lit};
 use polars::lazy::io::JsonIO;
 use polars::lazy::native::{init_monitor, open_new, register_policy_dataframe};
 use polars::lazy::prelude::*;
@@ -45,11 +45,10 @@ fn example2(policy: &PolicyGuardedDataFrame) -> Result<DataFrame> {
     // SELECT a FROM df WHERE 1 < a
     let out = df
         .lazy()
-        .select([col("b")
-            .dt()
-            .offset_by(duration(DurationArgs::new().with_seconds(lit(5))))])
         .filter(lit(1).lt(col("b")))
+        .select([col("b").cast(DataType::Date).dt().offset_by(lit("5s"))])
         .set_ctx_id(ctx_id);
+    println!("plan: {:?}", out.explain(true));
     // OK.
     out.collect().map_err(|e| anyhow!(e))
 }
@@ -95,10 +94,10 @@ fn main() -> Result<()> {
         Ok(df) => log::info!("Result: {}", df),
         Err(e) => unreachable!("Error: {}", e),
     }
-    match example3(&policy) {
-        Ok(df) => log::info!("Result: {}", df),
-        Err(e) => unreachable!("Error: {}", e),
-    }
+    // match example3(&policy) {
+    //     Ok(df) => log::info!("Result: {}", df),
+    //     Err(e) => unreachable!("Error: {}", e),
+    // }
 
     Ok(())
 }

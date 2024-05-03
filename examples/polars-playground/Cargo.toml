@@ -4,4 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-polars = { version = "0.39.2", features = ["lazy"] }
+polars = { version = "0.39.2", features = [
+  "lazy",
+  "temporal",    # We can use more data types.
+  "date_offset",
+] }

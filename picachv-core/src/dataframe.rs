@@ -1,47 +1,43 @@
-use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
+use arrow_schema::{Schema, SchemaRef};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
-use polars_core::df;
-use polars_core::schema::{Schema, SchemaRef};
 use serde::{Deserialize, Serialize};
 use tabled::builder::Builder;
 use tabled::settings::object::Rows;
 use tabled::settings::{Alignment, Style};
 
-use crate::build_policy;
-use crate::policy::{Policy, PolicyLabel, TransformOps, TransformType};
+use crate::policy::{Policy, PolicyLabel};
 
 pub type Row = Vec<Policy<PolicyLabel>>;
 
-pub fn get_example_df() -> PolicyGuardedDataFrame {
-    let df = df!(
-        "a" => &[1, 2, 3, 4, 5],
-        "b" => &[5, 4, 3, 2, 1],
-    )
-    .unwrap();
+// pub fn get_example_df() -> PolicyGuardedDataFrame {
+//     let df = df!(
+//         "a" => &[1, 2, 3, 4, 5],
+//         "b" => &[5, 4, 3, 2, 1],
+//     )
+//     .unwrap();
 
-    let mut p1 = vec![];
-    let mut p2 = vec![];
-    for i in 0..5 {
-        let policy1 = build_policy!(PolicyLabel::PolicyTransform {
-            ops: TransformOps(HashSet::from_iter(vec![TransformType::Shift {by: Duration::from_secs(i), }].into_iter()))
-        } => PolicyLabel::PolicyBot)
-        .unwrap();
-        let policy2 = Policy::PolicyClean;
-        p1.push(policy1);
-        p2.push(policy2);
-    }
-    let col_a = PolicyGuardedColumn { policies: p1 };
-    let col_b = PolicyGuardedColumn { policies: p2 };
+//     let mut p1 = vec![];
+//     let mut p2 = vec![];
+//     for i in 0..5 {
+//         let policy1 = build_policy!(PolicyLabel::PolicyTransform {
+//             ops: TransformOps(HashSet::from_iter(vec![TransformType::Binary(BinaryTransformType::ShiftBy {by: Duration::new(i, 0) })].into_iter()))
+//         } => PolicyLabel::PolicyBot)
+//         .unwrap();
+//         let policy2 = Policy::PolicyClean;
+//         p1.push(policy1);
+//         p2.push(policy2);
+//     }
+//     let col_a = PolicyGuardedColumn { policies: p1 };
+//     let col_b = PolicyGuardedColumn { policies: p2 };
 
-    PolicyGuardedDataFrame {
-        schema: df.schema().into(),
-        columns: vec![col_a, col_b],
-    }
-}
+//     PolicyGuardedDataFrame {
+//         schema: df.schema().into(),
+//         columns: vec![col_a, col_b],
+//     }
+// }
 
 /// A column in a [`DataFrame`] that is guarded by a vector of policies.
 ///
@@ -78,7 +74,7 @@ impl PolicyGuardedColumn {
 /// This [`PolicyGuardedDataFrame`] is just a conceptual wrapper around a vector of
 /// [`PolicyGuardedColumn`]s. It is not a real data structure; it does not contain
 /// any data. It is just a way to group columns together.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PolicyGuardedDataFrame {
     /// The schema
     pub(crate) schema: SchemaRef,
@@ -98,7 +94,7 @@ impl From<Vec<Row>> for PolicyGuardedDataFrame {
         }
 
         PolicyGuardedDataFrame {
-            schema: SchemaRef::default(),
+            schema: SchemaRef::new(Schema::empty()),
             columns,
         }
     }
@@ -109,8 +105,9 @@ impl fmt::Display for PolicyGuardedDataFrame {
         let mut builder = Builder::new();
         let mut header = self
             .schema
-            .iter_names()
-            .map(|e| e.to_string())
+            .all_fields()
+            .into_iter()
+            .map(|e| e.name().to_owned())
             .collect::<Vec<_>>();
         header.insert(0, "index".to_string());
         builder.push_record(header);
@@ -137,7 +134,7 @@ impl fmt::Display for PolicyGuardedDataFrame {
 
 impl PolicyGuardedDataFrame {
     pub fn sanity_check(&self) -> PicachvResult<()> {
-        if self.columns.len() != self.schema.len() {
+        if self.columns.len() != self.schema.fields().len() {
             return Err(PicachvError::InvalidOperation(
                 "The number of columns does not match the schema.".into(),
             ));
@@ -181,7 +178,12 @@ impl PolicyGuardedDataFrame {
     }
 
     pub(crate) fn early_projection(&mut self, project_list: &[String]) -> PicachvResult<()> {
-        let column_names = self.schema.iter_names().collect::<Vec<_>>();
+        let column_names = self
+            .schema
+            .all_fields()
+            .into_iter()
+            .map(|e| e.name().to_owned())
+            .collect::<Vec<_>>();
         let removed_index = column_names
             .iter()
             .enumerate()
@@ -198,12 +200,12 @@ impl PolicyGuardedDataFrame {
             .filter(|(i, _)| !removed_index.contains(i))
             .map(|(_, c)| c.clone())
             .collect();
-        self.schema = Arc::new(Schema::from_iter(
-            column_names
-                .iter()
-                .filter(|name| project_list.contains(&name.to_string()))
-                .map(|name| self.schema.get_field(name).unwrap().clone()),
-        ));
+        // self.schema = Arc::new(Schema::new(
+        //     column_names
+        //         .iter()
+        //         .filter(|name| project_list.contains(&name.to_string()))
+        //         .map(|name| self.schema.column_with_name(name).unwrap().clone()),
+        // ));
 
         Ok(())
     }
@@ -251,8 +253,9 @@ impl PolicyGuardedDataFrame {
     /// Gets the names of all columns in this dataframe.
     pub fn get_column_names(&self) -> Vec<String> {
         self.schema
-            .iter_fields()
-            .map(|f| f.name().to_string())
+            .all_fields()
+            .into_iter()
+            .map(|f| f.name().to_owned())
             .collect()
     }
 

@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
+use arrow_schema::SchemaRef;
 use picachv_error::PicachvResult;
-use polars_core::schema::SchemaRef;
 use uuid::Uuid;
 
 use crate::arena::Arena;
@@ -84,7 +84,7 @@ impl Plan {
                 selection,
                 ..
             } => {
-                let total_columns = schema.iter_fields().len();
+                let total_columns = schema.fields().len();
                 let mut n_columns = "*".to_string();
                 if let Some(columns) = projection {
                     n_columns = format!("{}", columns.len());
@@ -98,8 +98,9 @@ impl Plan {
                     "{:indent$}DF {:?}; PROJECT {}/{} COLUMNS; SELECTION: {:?}",
                     "",
                     schema
-                        .iter_fields()
-                        .map(|field| field.name.clone())
+                        .all_fields()
+                        .into_iter()
+                        .map(|field| field.name().to_owned())
                         .take(4)
                         .collect::<Vec<_>>(),
                     n_columns,
@@ -123,6 +124,11 @@ impl Plan {
         keep_old: bool, // Whether we need to alter the dataframe in the arena.
         udfs: &HashMap<String, Udf>,
     ) -> PicachvResult<Uuid> {
+        println!(
+            "check_plan: checking {:?} with active_df_uuid = {active_df_uuid}",
+            self
+        );
+
         let mut df_arena = rwlock_unlock!(arena.df_arena, write);
         let df = df_arena.get_mut(&active_df_uuid)?;
         let can_replace = Arc::strong_count(df) == 1;
@@ -194,7 +200,10 @@ impl Plan {
         active_df_uuid: Uuid,
         udfs: &HashMap<String, Udf>,
     ) -> PicachvResult<Uuid> {
-        log::debug!("execute_prologue: checking {:?}", self);
+        log::debug!(
+            "execute_prologue: checking {:?} with {active_df_uuid}",
+            self
+        );
 
         match self {
             // See the semantics for `apply_proj_in_relation`.

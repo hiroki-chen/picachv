@@ -190,6 +190,7 @@ impl ComparisonBinaryOperator {
         }
     }
 }
+/// We only need to tell Picachv what we are trying to do currently.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ArithmeticBinaryOperator {
@@ -199,6 +200,7 @@ pub enum ArithmeticBinaryOperator {
     Div = 3,
     Mod = 4,
     Pow = 5,
+    ShiftBy = 6,
 }
 impl ArithmeticBinaryOperator {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -213,6 +215,7 @@ impl ArithmeticBinaryOperator {
             ArithmeticBinaryOperator::Div => "Div",
             ArithmeticBinaryOperator::Mod => "Mod",
             ArithmeticBinaryOperator::Pow => "Pow",
+            ArithmeticBinaryOperator::ShiftBy => "ShiftBy",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -224,6 +227,7 @@ impl ArithmeticBinaryOperator {
             "Div" => Some(Self::Div),
             "Mod" => Some(Self::Mod),
             "Pow" => Some(Self::Pow),
+            "ShiftBy" => Some(Self::ShiftBy),
             _ => None,
         }
     }
@@ -480,10 +484,19 @@ pub struct UnaryExpr {
     #[prost(enumeration = "UnaryOperator", tag = "2")]
     pub op: i32,
 }
+/// Function application.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ApplyExpr {
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub input_uuids: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(string, tag = "2")]
+    pub name: ::prost::alloc::string::String,
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExprArgument {
-    #[prost(oneof = "expr_argument::Argument", tags = "1, 2, 3, 4, 5, 6, 7, 8")]
+    #[prost(oneof = "expr_argument::Argument", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9")]
     pub argument: ::core::option::Option<expr_argument::Argument>,
 }
 /// Nested message and enum types in `ExprArgument`.
@@ -507,6 +520,8 @@ pub mod expr_argument {
         Unary(super::UnaryExpr),
         #[prost(message, tag = "8")]
         Literal(super::LiteralExpr),
+        #[prost(message, tag = "9")]
+        Apply(super::ApplyExpr),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
