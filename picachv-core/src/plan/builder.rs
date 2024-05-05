@@ -29,22 +29,16 @@ impl Plan {
 
                         // Get the policy dataframe from the arena.
                         let df = df_arena.get(&df_uuid)?;
-                        let expr_arena = rwlock_unlock!(arenas.expr_arena, read);
                         let selection = memory
                             .pred
                             .as_ref()
                             .cloned()
                             .map(|pred| {
-                                let pred_uuid =
-                                    Uuid::from_slice_le(pred.as_slice()).map_err(|_| {
-                                        PicachvError::InvalidOperation(
-                                            "The UUID is invalid.".into(),
-                                        )
-                                    })?;
-                                expr_arena.get(&pred_uuid)
+                                Uuid::from_slice_le(pred.as_slice()).map_err(|_| {
+                                    PicachvError::InvalidOperation("The UUID is invalid.".into())
+                                })
                             })
-                            .transpose()?
-                            .map(|e| (**e).clone());
+                            .transpose()?;
 
                         let projection = if memory.projected_list.is_empty() {
                             None
@@ -66,8 +60,6 @@ impl Plan {
                 )),
             },
             Argument::Projection(proj_arg) => {
-                let expr_arena = rwlock_unlock!(arenas.expr_arena, read);
-
                 // For each expression in the list, we can get the expression from the arena
                 // by using the UUID since we have already stored the expression in the arena
                 // when the caller is constructing the physical expression and physical plan,
@@ -76,11 +68,9 @@ impl Plan {
                     .expression
                     .into_iter()
                     .map(|expr| {
-                        let expr_uuid = Uuid::from_slice_le(expr.as_slice()).map_err(|_| {
+                        Uuid::from_slice_le(expr.as_slice()).map_err(|_| {
                             PicachvError::InvalidOperation("The UUID is invalid.".into())
-                        })?;
-                        let expr = expr_arena.get(&expr_uuid)?;
-                        Ok((**expr).clone())
+                        })
                     })
                     .collect::<PicachvResult<Vec<_>>>()?;
 
@@ -90,13 +80,10 @@ impl Plan {
             },
 
             Argument::Select(select_arg) => {
-                let expr_arena = rwlock_unlock!(arenas.expr_arena, read);
                 let expr_uuid = Uuid::from_slice_le(select_arg.pred_uuid.as_slice())
                     .map_err(|_| PicachvError::InvalidOperation("The UUID is invalid.".into()))?;
-                let expr = expr_arena.get(&expr_uuid)?;
-
                 Ok(Plan::Select {
-                    predicate: (**expr).clone(),
+                    predicate: expr_uuid,
                 })
             },
 

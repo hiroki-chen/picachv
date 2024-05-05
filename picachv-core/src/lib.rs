@@ -1,6 +1,9 @@
 use std::sync::{Arc, RwLock};
 
 use arena::Arena;
+pub use arrow_array::{Array, RecordBatch};
+use arrow_ipc::reader::StreamReader;
+use arrow_ipc::writer::StreamWriter;
 use dataframe::PolicyGuardedDataFrame;
 use expr::{Expr, ExprArena};
 use picachv_error::{PicachvError, PicachvResult};
@@ -9,9 +12,9 @@ use plan::{Plan, PlanArena};
 use uuid::Uuid;
 
 pub mod arena;
+pub mod cast;
 pub mod constants;
 pub mod dataframe;
-pub mod effects;
 pub mod expr;
 pub mod io;
 pub mod macros;
@@ -59,6 +62,44 @@ impl Arenas {
 
 pub fn get_new_uuid() -> Uuid {
     Uuid::new_v4()
+}
+
+/// Encode a vector of type-erased arrays into bytes.
+pub fn arrays_into_bytes(arrays: Vec<Arc<dyn Array>>) -> PicachvResult<Vec<u8>> {
+    let arrays = arrays.into_iter().map(|e| ("", e)).collect::<Vec<_>>();
+    let rb = RecordBatch::try_from_iter(arrays).map_err(|e| {
+        PicachvError::InvalidOperation(format!("Failed to create record batch. {e}").into())
+    })?;
+
+    let mut ipc_writer = StreamWriter::try_new(vec![], &rb.schema()).map_err(|e| {
+        PicachvError::InvalidOperation(format!("Failed to create IPC writer. {e}").into())
+    })?;
+    ipc_writer.write(&rb).map_err(|e| {
+        PicachvError::InvalidOperation(format!("Failed to write record batch. {e}").into())
+    })?;
+    ipc_writer.finish().map_err(|e| {
+        PicachvError::InvalidOperation(format!("Failed to finish IPC writer. {e}").into())
+    })?;
+
+    Ok(ipc_writer.get_ref().to_vec())
+}
+
+/// Decode the bytes into the record batch.
+pub fn record_batch_from_bytes(value: &[u8]) -> PicachvResult<RecordBatch> {
+    let mut ipc_reader = StreamReader::try_new(value, None).map_err(|e| {
+        PicachvError::InvalidOperation(format!("Failed to create IPC reader. {e}").into())
+    })?;
+
+    let rb = ipc_reader
+        .next()
+        .transpose()
+        .map_err(|e| {
+            PicachvError::InvalidOperation(format!("Failed to read the record batch. {e}").into())
+        })?
+        .ok_or(PicachvError::InvalidOperation(
+            "The record batch is empty.".into(),
+        ))?;
+    Ok(rb)
 }
 
 #[cfg(test)]

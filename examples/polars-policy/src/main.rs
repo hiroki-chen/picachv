@@ -1,11 +1,47 @@
+use std::time::Duration;
+
 use anyhow::{anyhow, Result};
-use polars::lazy::dataframe::PolicyGuardedDataFrame;
+use polars::lazy::dataframe::{PolicyGuardedColumn, PolicyGuardedDataFrame};
 use polars::lazy::dsl::{col, lit};
 use polars::lazy::io::JsonIO;
 use polars::lazy::native::{init_monitor, open_new, register_policy_dataframe};
+use polars::lazy::policy::types::AnyValue;
+use polars::lazy::policy::{Policy, PolicyLabel, TransformOps};
 use polars::lazy::prelude::*;
-use polars::lazy::PicachvError;
+use polars::lazy::{build_policy, policy_binary_transform_label, PicachvError};
 use polars::prelude::*;
+
+fn get_example_df() -> PolicyGuardedDataFrame {
+    let df = df!(
+        "a" => &[1, 2, 3, 4, 5],
+        "b" => &[5, 4, 3, 2, 1],
+    )
+    .unwrap();
+
+    let mut p1 = vec![];
+    let mut p2 = vec![];
+    for i in 0..5 {
+        let policy1 = build_policy!(policy_binary_transform_label!(
+            "dt.offset_by".to_string(),
+            AnyValue::Duration(Duration::new(5, 0))
+        ))
+        .unwrap();
+        let policy2 = Policy::PolicyClean;
+        p1.push(policy1);
+        p2.push(policy2);
+    }
+    let col_a = PolicyGuardedColumn::new(p1);
+    let col_b = PolicyGuardedColumn::new(p2);
+
+    PolicyGuardedDataFrame::new(
+        df.schema()
+            .get_names()
+            .into_iter()
+            .map(|e| e.to_owned())
+            .collect::<Vec<_>>(),
+        vec![col_a, col_b],
+    )
+}
 
 fn example1(policy: &PolicyGuardedDataFrame) -> Result<DataFrame> {
     let mut df = df! {
@@ -46,7 +82,7 @@ fn example2(policy: &PolicyGuardedDataFrame) -> Result<DataFrame> {
     let out = df
         .lazy()
         .filter(lit(1).lt(col("b")))
-        .select([col("b").cast(DataType::Date).dt().offset_by(lit("5s"))])
+        .select([col("a").cast(DataType::Date).dt().offset_by(lit("5s"))])
         .set_ctx_id(ctx_id);
     println!("plan: {:?}", out.explain(true));
     // OK.
@@ -77,6 +113,8 @@ fn example3(policy: &PolicyGuardedDataFrame) -> Result<DataFrame> {
 
 fn main() -> Result<()> {
     env_logger::init();
+
+    get_example_df().to_json("./data/simple_policy.json")?;
 
     if let Err(e) = init_monitor() {
         match e {

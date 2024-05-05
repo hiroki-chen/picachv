@@ -1,7 +1,5 @@
-use jni::{
-    objects::{JByteArray, JClass},
-    JNIEnv,
-};
+use jni::objects::{JByteArray, JClass};
+use jni::JNIEnv;
 
 type Callback<'local> =
     unsafe extern "system" fn(JNIEnv<'local>, JClass<'local>, JByteArray) -> i32;

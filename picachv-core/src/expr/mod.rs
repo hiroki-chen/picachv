@@ -1,16 +1,19 @@
 use std::fmt;
+use std::time::Duration;
 
-use arrow_array::types::ArrowPrimitiveType;
-use arrow_array::ArrowNumericType;
+use arrow_array::{Array, Date32Array, Int32Array, LargeStringArray, RecordBatch};
+use arrow_schema::DataType;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::binary_operator;
 
 use crate::arena::Arena;
-use crate::build_unary_expr;
 use crate::policy::context::ExpressionEvalContext;
 use crate::policy::types::AnyValue;
-use crate::policy::{policy_ok, Policy, PolicyLabel, TransformType};
+use crate::policy::{
+    policy_ok, BinaryTransformType, Policy, PolicyLabel, TransformOps, TransformType,
+};
 use crate::udf::Udf;
+use crate::{build_unary_expr, cast, policy_binary_transform_label};
 
 pub mod builder;
 
@@ -71,6 +74,7 @@ pub enum Expr {
         left: Box<Expr>,
         op: binary_operator::Operator,
         right: Box<Expr>,
+        values: Option<Vec<Vec<AnyValue>>>,
     },
     UnaryExpr {
         arg: Box<Expr>,
@@ -82,11 +86,16 @@ pub enum Expr {
         udf_desc: Udf,
         // This only takes one argument.
         args: Vec<Box<Expr>>,
+        // A type-erased array of values reified by the caller.
         values: Option<Vec<Vec<AnyValue>>>,
     },
 }
 
 impl Expr {
+    pub fn needs_reify(&self) -> bool {
+        matches!(self, Self::Apply { .. })
+    }
+
     pub(crate) fn check_policy_within_agg(
         &self,
         ctx: &mut ExpressionEvalContext,
@@ -111,6 +120,7 @@ impl Expr {
     pub(crate) fn check_policy_in_row(
         &self,
         ctx: &mut ExpressionEvalContext,
+        idx: usize,
     ) -> PicachvResult<Policy<PolicyLabel>> {
         if !ctx.in_agg {
             match self {
@@ -122,11 +132,16 @@ impl Expr {
                     udf_desc: Udf { name },
                     args,
                     values, // todo.
-                } => check_policy_in_row_apply(ctx, name, args),
+                } => match values {
+                    Some(values) => check_policy_in_row_apply(ctx, name, args, values, idx),
+                    None => panic!("The values are not reified."),
+                },
 
-                Expr::BinaryExpr { left, right, op } => {
-                    let lhs = left.check_policy_in_row(ctx)?;
-                    let rhs = right.check_policy_in_row(ctx)?;
+                Expr::BinaryExpr {
+                    left, right, op, ..
+                } => {
+                    let lhs = left.check_policy_in_row(ctx, idx)?;
+                    let rhs = right.check_policy_in_row(ctx, idx)?;
 
                     // These operators occur only in predicates. Skip them.
                     if matches!(
@@ -155,13 +170,15 @@ impl Expr {
                 //
                 // See `eval_unary_expression_in_cell`.
                 Expr::UnaryExpr { arg, op } => {
-                    let policy = arg.check_policy_in_row(ctx)?;
+                    let policy = arg.check_policy_in_row(ctx, idx)?;
                     policy.downgrade(build_unary_expr!(op.clone()))
                 },
                 Expr::Column(idx) => {
-                    let idx = ctx.schema.index_of(idx).map_err(|_| {
-                        PicachvError::ComputeError("The column does not exist.".into())
-                    })?;
+                    let idx = ctx.schema.iter().position(|e| e == idx).ok_or(
+                        PicachvError::ComputeError("The column does not exist.".into()),
+                    )?;
+
+                    log::debug!("selected column: {}", ctx.current_row[idx]);
 
                     // For column expression this is an interesting undecidable case
                     // where we cannot determine what operation it will be applied.
@@ -171,10 +188,10 @@ impl Expr {
                     // See `EvalColumnNotAgg` in `expression.v`.
                     Ok(ctx.current_row[idx].clone())
                 },
-                Expr::Alias { expr, .. } => expr.check_policy_in_row(ctx),
+                Expr::Alias { expr, .. } => expr.check_policy_in_row(ctx, idx),
                 Expr::Filter { input, filter } => {
-                    input.check_policy_in_row(ctx)?;
-                    filter.check_policy_in_row(ctx)
+                    input.check_policy_in_row(ctx, idx)?;
+                    filter.check_policy_in_row(ctx, idx)
                 },
                 Expr::Agg(agg_expr) => todo!(),
                 // todo.
@@ -184,6 +201,65 @@ impl Expr {
             self.check_policy_within_agg(ctx)
         }
     }
+
+    pub fn reify(&mut self, values: RecordBatch) -> PicachvResult<()> {
+        log::debug!("reifying {values:?}");
+
+        let values_mut = match self {
+            Expr::Apply { values, .. } | Expr::BinaryExpr { values, .. } => values,
+            _ => picachv_bail!(ComputeError: "The expression does not need reification."),
+        };
+
+        // Convert the RecordBatch into a vector of AnyValue.
+        let values = convert_record_batch(values)?;
+        values_mut.replace(values);
+
+        Ok(())
+    }
+}
+
+fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<Vec<AnyValue>>> {
+    let mut rows = vec![];
+    let columns = rb.columns();
+
+    if columns.is_empty() {
+        return Ok(rows);
+    }
+
+    // Iterate over the rows.
+    for i in 0..rb.num_rows() {
+        let mut row = vec![];
+
+        // Iterate each column and convert it into AnyValue.
+        for j in 0..columns.len() {
+            match columns[j].data_type() {
+                // TODO: We can wrap this into a macro?
+                DataType::Int32 => {
+                    let array = columns[j].as_any().downcast_ref::<Int32Array>().unwrap();
+                    let value = array.value(i);
+                    row.push(AnyValue::Int32(value));
+                },
+                DataType::Date32 => {
+                    let array = columns[j].as_any().downcast_ref::<Date32Array>().unwrap();
+                    let value = array.value(i);
+                    row.push(AnyValue::Duration(Duration::from_secs(value as _)));
+                },
+                DataType::LargeUtf8 => {
+                    let array = columns[j]
+                        .as_any()
+                        .downcast_ref::<LargeStringArray>()
+                        .unwrap();
+                    let value = array.value(i);
+                    row.push(AnyValue::String(value.to_string()));
+                },
+                ty => picachv_bail!(InvalidOperation: "{ty} is not supported."),
+            }
+        }
+
+        rows.push(row);
+    }
+
+    Ok(rows)
 }
 
 impl fmt::Debug for AggExpr {
@@ -233,10 +309,16 @@ impl fmt::Debug for Expr {
                 input: data,
                 filter,
             } => write!(f, "{data:?} WHERE {filter:?}"),
-            Self::BinaryExpr { left, op, right } => write!(f, "({left:?} {op:?} {right:?})"),
+            Self::BinaryExpr {
+                left, op, right, ..
+            } => write!(f, "({left:?} {op:?} {right:?})"),
             Self::UnaryExpr { arg, op } => write!(f, "{op:?} {arg:?}"),
             Self::Literal => write!(f, "LITERAL"),
-            Self::Apply { udf_desc, args, .. } => write!(f, "{udf_desc:?}({args:?})"),
+            Self::Apply {
+                udf_desc,
+                args,
+                values,
+            } => write!(f, "{udf_desc:?}({args:?} + values {values:?})"),
         }
     }
 }
@@ -249,11 +331,58 @@ impl fmt::Display for Expr {
 
 impl ExprArena {}
 
+fn check_policy_binary(
+    lhs: &Policy<PolicyLabel>,
+    rhs: &Policy<PolicyLabel>,
+    op: BinaryTransformType,
+) -> PicachvResult<Policy<PolicyLabel>> {
+    todo!()
+}
+
+fn check_policy_binary_udf(
+    lhs: Policy<PolicyLabel>,
+    rhs: Policy<PolicyLabel>,
+    udf_name: &str,
+    values: &[AnyValue],
+) -> PicachvResult<Policy<PolicyLabel>> {
+    picachv_ensure!(
+        values.len() == 2,
+        ComputeError: "Checking policy for UDF requires two values."
+    );
+
+    log::debug!("lhs = {:?}, rhs = {:?}, udf_name = {:?}", lhs, rhs, udf_name);
+
+    match (policy_ok(&lhs), policy_ok(&rhs)) {
+        // lhs = ∎
+        (true, _) => {
+            todo!()
+        },
+
+        // rhs = ∎
+        (_, true) => match udf_name {
+            "dt.offset_by" => {
+                // We now construct the downgrading operation.
+                let rhs_value = cast::into_duration(values[1].clone())?;
+                let pf = policy_binary_transform_label!(udf_name.to_string(), rhs_value);
+
+                // Check if we can downgrade.
+                lhs.downgrade(pf)
+            },
+
+            _ => todo!(),
+        },
+
+        _ => lhs.join(&rhs),
+    }
+}
+
 /// This function handles the UDF case.
 fn check_policy_in_row_apply(
     ctx: &mut ExpressionEvalContext,
     udf_name: &str,
     args: &[Box<Expr>],
+    values: &[Vec<AnyValue>],
+    idx: usize,
 ) -> PicachvResult<Policy<PolicyLabel>> {
     match args.len() {
         // Because a UDF does not have any argument, it is safe since it does not de-
@@ -262,10 +391,18 @@ fn check_policy_in_row_apply(
         // There is also no closure in relational algebra, so we do not need to worry
         // about the closure that may have its own context.
         0 => Ok(Default::default()),
+        // The unary case.
         1 => {
-            let arg = args[0].check_policy_in_row(ctx)?;
+            let arg = args[0].check_policy_in_row(ctx, idx)?;
 
             todo!()
+        },
+        // The binary case.
+        2 => {
+            let lhs = args[0].check_policy_in_row(ctx, idx)?;
+            let rhs = args[1].check_policy_in_row(ctx, idx)?;
+
+            check_policy_binary_udf(lhs, rhs, udf_name, &values[idx])
         },
         _ => Err(PicachvError::Unimplemented("UDF not implemented.".into())),
     }

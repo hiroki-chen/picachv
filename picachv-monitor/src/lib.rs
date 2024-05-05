@@ -5,7 +5,7 @@ use picachv_core::dataframe::PolicyGuardedDataFrame;
 use picachv_core::expr::Expr;
 use picachv_core::plan::Plan;
 use picachv_core::udf::Udf;
-use picachv_core::{get_new_uuid, rwlock_unlock, Arenas};
+use picachv_core::{get_new_uuid, record_batch_from_bytes, rwlock_unlock, Arenas};
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::transform_info::information::Information;
 use picachv_message::{ExprArgument, PlanArgument, TransformInfo};
@@ -173,7 +173,32 @@ impl Context {
     }
 
     /// Reify an abstract value of the expression with the given values encoded in the bytes.
-    pub fn reify_expression(&self, expr_uuid: Uuid, values: &[u8]) -> PicachvResult<()> {
+    ///
+    /// The input values are just a serialized Arrow IPC data represented as record batches.
+    pub fn reify_expression(&self, expr_uuid: Uuid, value: &[u8]) -> PicachvResult<()> {
+        log::debug!("reify_expression: expression uuid = {expr_uuid} ");
+
+        let mut expr_arena = rwlock_unlock!(self.arena.expr_arena, write);
+        let expr = expr_arena.get_mut(&expr_uuid)?;
+        let expr = match Arc::get_mut(expr) {
+            Some(expr) => expr,
+            None => {
+                return Err(PicachvError::InvalidOperation(
+                    "The expression is immutable.".into(),
+                ))
+            },
+        };
+
+        if !expr.needs_reify() {
+            return Err(PicachvError::InvalidOperation(
+                "The expression does not need reify.".into(),
+            ));
+        }
+
+        // Convert values into the Arrow record batch.
+        let rb = record_batch_from_bytes(value)?;
+
+        expr.reify(rb)?;
         Ok(())
     }
 

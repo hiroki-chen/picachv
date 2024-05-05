@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use picachv_error::{PicachvError, PicachvResult};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 pub trait JsonIO: Serialize + DeserializeOwned {
     fn to_json<P: AsRef<Path>>(&self, path: P) -> PicachvResult<()>;

@@ -7,8 +7,6 @@
 
 use std::collections::HashMap;
 
-use arrow_schema::SchemaRef;
-
 use super::{Policy, PolicyLabel};
 use crate::udf::Udf;
 
@@ -20,7 +18,7 @@ use crate::udf::Udf;
 #[derive(Debug)]
 pub(crate) struct ExpressionEvalContext<'ctx> {
     /// The schema of the current expression.
-    pub(crate) schema: SchemaRef,
+    pub(crate) schema: Vec<String>,
     /// The current row where this expression is current being evaluated.
     pub(crate) current_row: Vec<Policy<PolicyLabel>>,
     /// Indicates whether the expression is in an aggregation context.
@@ -32,7 +30,7 @@ pub(crate) struct ExpressionEvalContext<'ctx> {
 
 impl<'ctx> ExpressionEvalContext<'ctx> {
     pub fn new(
-        schema: SchemaRef,
+        schema: Vec<String>,
         current_row: Vec<Policy<PolicyLabel>>,
         in_agg: bool,
         udfs: &'ctx HashMap<String, Udf>,

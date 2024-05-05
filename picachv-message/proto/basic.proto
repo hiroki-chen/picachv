@@ -2,6 +2,33 @@ syntax = "proto3";
 
 package PicachvMessages;
 
+// A value that incorporates any primitive data types.
+//
+// Note that there is no `u8`, `u16` type in protobuf so we use a tag to
+// differentiate between the different types.
+message PrimitiveValue {
+  message Duration {
+    int64 sec = 1;
+    int32 nsec = 2;
+  }
+
+  oneof value {
+    uint32 u8 = 1;
+    uint32 u16 = 2;
+    uint32 u32 = 3;
+    uint64 u64 = 4;
+    int32 i8 = 5;
+    int32 i16 = 6;
+    int32 i32 = 7;
+    int64 i64 = 8;
+    float f32 = 9;
+    double f64 = 10;
+    bool bool = 11;
+    string str = 12;
+    Duration duration = 13;
+  }
+}
+
 enum FileType {
   Csv = 0;
   Parquet = 1;

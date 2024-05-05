@@ -48,6 +48,7 @@ impl Expr {
                     left: Box::new((**lhs).clone()),
                     op,
                     right: Box::new((**rhs).clone()),
+                    values: None, // must be reified later.
                 })
             },
             Argument::Literal(_) => Ok(Expr::Literal),

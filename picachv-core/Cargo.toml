@@ -13,8 +13,9 @@ crate-type = ["cdylib", "rlib"]
 picachv-error = { workspace = true }
 picachv-message = { workspace = true }
 
-arrow-schema = { workspace = true }
+arrow-ipc = { workspace = true }
 arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
 tabled = { version = "0.15.0" }
 log = { workspace = true }
 num_enum = { workspace = true }
@@ -24,6 +25,7 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 
 typetag = "0.2.16"
+parse_duration = "2.1.1"
 
 [features]
 default = ["arena_for_plan"]

@@ -3,6 +3,8 @@ use std::hash::Hash;
 use std::time::Duration;
 
 use ordered_float::OrderedFloat;
+use picachv_error::{PicachvError, PicachvResult};
+use picachv_message::PrimitiveValue;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize)]
@@ -55,4 +57,31 @@ pub enum AnyValue {
     Float32(OrderedFloat<f32>),
     Float64(OrderedFloat<f64>),
     Duration(Duration),
+}
+
+impl TryFrom<PrimitiveValue> for AnyValue {
+    type Error = PicachvError;
+
+    fn try_from(value: PrimitiveValue) -> PicachvResult<Self> {
+        use picachv_message::primitive_value::Value;
+
+        match value.value {
+            Some(v) => Ok(match v {
+                Value::Bool(b) => Self::Boolean(b),
+                Value::I8(i) => Self::Int8(i as _),
+                Value::I16(i) => Self::Int16(i as _),
+                Value::I32(i) => Self::Int32(i),
+                Value::I64(i) => Self::Int64(i),
+                Value::U8(u) => Self::UInt8(u as _),
+                Value::U16(u) => Self::UInt16(u as _),
+                Value::U32(u) => Self::UInt32(u),
+                Value::U64(u) => Self::UInt64(u),
+                Value::F32(f) => Self::Float32(OrderedFloat(f as _)),
+                Value::F64(f) => Self::Float64(OrderedFloat(f)),
+                Value::Str(s) => Self::String(s),
+                Value::Duration(d) => Self::Duration(Duration::new(d.sec as _, d.nsec as _)),
+            }),
+            None => Err(PicachvError::ComputeError("The value is empty.".into())),
+        }
+    }
 }

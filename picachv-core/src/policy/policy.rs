@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::fmt;
 use std::hash::Hash;
 use std::sync::OnceLock;
-use std::time::Duration;
 
 use ordered_float::OrderedFloat;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
@@ -11,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use super::lattice::Lattice;
 use super::types::{AnyValue, DpParam};
+use crate::build_policy;
 use crate::constants::GroupByMethod;
 
 pub const P_CLEAN: Policy<PolicyLabel> = Policy::PolicyClean;
@@ -48,21 +48,10 @@ pub enum UnaryTransformType {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum BinaryTransformType {
-    RedactBy {
-        /// The range to redact.
-        by: usize,
-    },
-    ShiftBy {
-        /// The range to shift.
-        by: Duration,
-    },
-    /// Other custom types.
-    Others {
-        name: String,
-        // What about the type??
-        arg: AnyValue,
-    },
+pub struct BinaryTransformType {
+    pub name: String,
+    // What about the type??
+    pub arg: AnyValue,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -441,7 +430,7 @@ where
         picachv_ensure!(self.valid() && other.valid(),
             ComputeError: "trying to compare invalid policies");
 
-        Ok(match (self, other) {
+        let res = match (self, other) {
             (Policy::PolicyClean, _) => true,
             (
                 Policy::PolicyDeclassify {
@@ -454,7 +443,9 @@ where
                 },
             ) => l1.flowsto(l2) && n1.le(n2),
             _ => false,
-        })
+        };
+
+        Ok(res)
     }
 
     /// The implementation for the `policy_join` inductive relation.
@@ -511,10 +502,9 @@ impl Policy<PolicyLabel> {
 
     /// Checks and downgrades the policy by a given label.
     pub fn downgrade(self, by: PolicyLabel) -> PicachvResult<Self> {
-        let p = Policy::PolicyDeclassify {
-            label: by.clone(),
-            next: Default::default(),
-        };
+        let p = build_policy!(by.clone())?;
+        log::debug!("in downgrade: constructed policy: {p:?}")  ;
+
         match self.le(&p) {
             Ok(b) => {
                 picachv_ensure!(b, PrivacyError: "trying to downgrade by an operation that is not allowed");

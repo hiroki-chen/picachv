@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-import "const.proto";
+import "basic.proto";
 
 package PicachvMessages;
 

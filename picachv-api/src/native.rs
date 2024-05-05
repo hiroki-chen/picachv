@@ -47,3 +47,4 @@ impl_ctx_api!(register_policy_dataframe, register_policy_dataframe, ctx_id: Uuid
 impl_ctx_api!(execute_prologue, execute_prologue, ctx_id: Uuid, plan_uuid: Uuid, df_uuid: Uuid => Uuid);
 impl_ctx_api!(execute_epilogue, execute_epilogue, ctx_id: Uuid, df_uuid: Uuid, transform: TransformInfo => Uuid);
 impl_ctx_api!(finalize, finalize, ctx_id: Uuid, df_uuid: Uuid => ());
+impl_ctx_api!(reify_expression, reify_expression, ctx_id: Uuid, expr_uuid: Uuid, val: &[u8] => ());

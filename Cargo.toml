@@ -7,7 +7,7 @@ members = [
   "picachv-monitor",
   "picachv-message",
   "picachv",
-  "examples/polars-policy", "picachv-parse", "examples/polars-playground",
+  "examples/polars-policy", "picachv-parse", "examples/polars-playground", "examples/arrow-playground",
 ]
 
 exclude = ["examples/cpp"]
@@ -19,6 +19,7 @@ picachv-error = { path = "picachv-error", default-features = false }
 picachv-message = { path = "picachv-message", default-features = false }
 picachv-monitor = { path = "picachv-monitor", default-features = false }
 
+arrow-ipc = "51.0.0"
 arrow-array = "51.0.0"
 arrow-schema = { version = "51.0.0", features = ["serde"] }
 log = "0.4.21"

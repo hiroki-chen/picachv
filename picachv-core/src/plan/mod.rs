@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
-use arrow_schema::SchemaRef;
 use picachv_error::PicachvResult;
 use uuid::Uuid;
 
@@ -35,30 +34,32 @@ pub type PlanArena = Arena<Plan>;
 /// - In fact the boxed plan do not need to be recursively checked since the caller will call
 ///   the `execute_prologue` function for each plan node on its side. We keep it here for the
 ///   purpose of debugging.
+/// - We store UUIDs of each expression in the plan. This is because plans do not "own" expressions
+///   since we may need to update the expressions in the plan.
 #[derive(Clone)]
 pub enum Plan {
     /// Select with *filter conditions* that work on a [`Plan`].
-    Select { predicate: Expr },
+    Select { predicate: Uuid },
 
     /// Projection
     Projection {
         /// Column 'names' as we may apply some transformation on columns.
-        expression: Vec<Expr>,
+        expression: Vec<Uuid>,
     },
 
     /// Aggregate and group by
     Aggregation {
         /// Group by `keys`.
-        keys: Arc<Vec<Expr>>,
-        aggs: Vec<Expr>,
+        keys: Arc<Vec<Uuid>>,
+        aggs: Vec<Uuid>,
         // apply: Option<Arc<dyn UserDefinedFunction>>,
         maintain_order: bool,
     },
 
     DataFrameScan {
-        schema: SchemaRef,
+        schema: Vec<String>,
         projection: Option<Vec<String>>,
-        selection: Option<Expr>,
+        selection: Option<Uuid>,
     },
 }
 
@@ -84,7 +85,7 @@ impl Plan {
                 selection,
                 ..
             } => {
-                let total_columns = schema.fields().len();
+                let total_columns = schema.len();
                 let mut n_columns = "*".to_string();
                 if let Some(columns) = projection {
                     n_columns = format!("{}", columns.len());
@@ -97,12 +98,7 @@ impl Plan {
                     f,
                     "{:indent$}DF {:?}; PROJECT {}/{} COLUMNS; SELECTION: {:?}",
                     "",
-                    schema
-                        .all_fields()
-                        .into_iter()
-                        .map(|field| field.name().to_owned())
-                        .take(4)
-                        .collect::<Vec<_>>(),
+                    schema.iter().take(4).collect::<Vec<_>>(),
                     n_columns,
                     total_columns,
                     selection,
@@ -119,7 +115,7 @@ impl Plan {
         &self,
         arena: &Arenas,
         active_df_uuid: Uuid,
-        expression: &[Expr],
+        expression: &[Arc<Expr>],
         in_agg: bool,
         keep_old: bool, // Whether we need to alter the dataframe in the arena.
         udfs: &HashMap<String, Udf>,
@@ -135,13 +131,13 @@ impl Plan {
 
         let mut rows = df.into_rows();
         // We need to check the policy for each row.
-        for row in rows.iter_mut() {
+        for (idx, row) in rows.iter_mut().enumerate() {
             for expr in expression {
                 log::debug!("Checking the policy for the expression {expr:?}");
 
                 let mut ctx =
                     ExpressionEvalContext::new(df.schema.clone(), row.clone(), in_agg, udfs);
-                expr.check_policy_in_row(&mut ctx)?;
+                expr.check_policy_in_row(&mut ctx, idx)?;
                 *row = ctx.current_row;
             }
         }
@@ -208,16 +204,22 @@ impl Plan {
         match self {
             // See the semantics for `apply_proj_in_relation`.
             Plan::Projection { expression, .. } => {
-                self.check_plan(arena, active_df_uuid, expression, false, false, udfs)
+                let expr_arena = rwlock_unlock!(arena.expr_arena, read);
+                let expression = expression
+                    .into_iter()
+                    .map(|e| expr_arena.get(e).cloned())
+                    .collect::<PicachvResult<Vec<_>>>()?;
+
+                self.check_plan(arena, active_df_uuid, &expression, false, false, udfs)
             },
-            Plan::Select { predicate, .. } => self.check_plan(
-                arena,
-                active_df_uuid,
-                &vec![predicate.clone()],
-                false,
-                true,
-                udfs,
-            ),
+            Plan::Select { predicate, .. } => {
+                let predicate = {
+                    let expr_arena = rwlock_unlock!(arena.expr_arena, read);
+                    expr_arena.get(predicate)?.clone()
+                };
+
+                self.check_plan(arena, active_df_uuid, &[predicate], false, true, udfs)
+            },
             Plan::DataFrameScan {
                 selection,
                 projection,
@@ -230,7 +232,12 @@ impl Plan {
                         active_df_uuid
                     };
 
-                    self.check_plan(arena, uuid, &vec![s.clone()], false, true, udfs)
+                    let expr = {
+                        let expr_arena = rwlock_unlock!(arena.expr_arena, read);
+                        expr_arena.get(s)?.clone()
+                    };
+
+                    self.check_plan(arena, uuid, &[expr], false, true, udfs)
                 },
                 None => Ok(active_df_uuid),
             },

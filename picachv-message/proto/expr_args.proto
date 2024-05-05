@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package PicachvMessages;
 
-import "const.proto";
+import "basic.proto";
 
 message MinExpr {
   bytes input_uuid = 1;

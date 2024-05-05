@@ -1,7 +1,6 @@
 use std::fmt;
 use std::sync::Arc;
 
-use arrow_schema::{Schema, SchemaRef};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use serde::{Deserialize, Serialize};
 use tabled::builder::Builder;
@@ -77,7 +76,7 @@ impl PolicyGuardedColumn {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PolicyGuardedDataFrame {
     /// The schema
-    pub(crate) schema: SchemaRef,
+    pub(crate) schema: Vec<String>,
     /// Policies for the column.
     pub(crate) columns: Vec<PolicyGuardedColumn>,
 }
@@ -94,7 +93,7 @@ impl From<Vec<Row>> for PolicyGuardedDataFrame {
         }
 
         PolicyGuardedDataFrame {
-            schema: SchemaRef::new(Schema::empty()),
+            schema: Vec::new(),
             columns,
         }
     }
@@ -103,12 +102,7 @@ impl From<Vec<Row>> for PolicyGuardedDataFrame {
 impl fmt::Display for PolicyGuardedDataFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut builder = Builder::new();
-        let mut header = self
-            .schema
-            .all_fields()
-            .into_iter()
-            .map(|e| e.name().to_owned())
-            .collect::<Vec<_>>();
+        let mut header = self.schema.clone();
         header.insert(0, "index".to_string());
         builder.push_record(header);
 
@@ -134,7 +128,7 @@ impl fmt::Display for PolicyGuardedDataFrame {
 
 impl PolicyGuardedDataFrame {
     pub fn sanity_check(&self) -> PicachvResult<()> {
-        if self.columns.len() != self.schema.fields().len() {
+        if self.columns.len() != self.schema.len() {
             return Err(PicachvError::InvalidOperation(
                 "The number of columns does not match the schema.".into(),
             ));
@@ -173,39 +167,21 @@ impl PolicyGuardedDataFrame {
         })
     }
 
-    pub fn new(schema: SchemaRef, columns: Vec<PolicyGuardedColumn>) -> Self {
+    pub fn new(schema: Vec<String>, columns: Vec<PolicyGuardedColumn>) -> Self {
         PolicyGuardedDataFrame { schema, columns }
     }
 
     pub(crate) fn early_projection(&mut self, project_list: &[String]) -> PicachvResult<()> {
-        let column_names = self
-            .schema
-            .all_fields()
-            .into_iter()
-            .map(|e| e.name().to_owned())
-            .collect::<Vec<_>>();
-        let removed_index = column_names
-            .iter()
-            .enumerate()
-            .filter(
-                |(_, name)| !project_list.contains(&name.to_string()), /* This seems very stupid. */
-            )
-            .map(|(i, _)| i)
-            .collect::<Vec<_>>();
+        // First make sure if the project list contains valid columns.
+        for col in project_list.iter() {
+            picachv_ensure!(
+                self.schema.contains(col),
+                ComputeError: format!("The column {} is not in the schema.", col),
+            );
+        }
 
-        self.columns = self
-            .columns
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| !removed_index.contains(i))
-            .map(|(_, c)| c.clone())
-            .collect();
-        // self.schema = Arc::new(Schema::new(
-        //     column_names
-        //         .iter()
-        //         .filter(|name| project_list.contains(&name.to_string()))
-        //         .map(|name| self.schema.column_with_name(name).unwrap().clone()),
-        // ));
+        // Then we filter the columns.
+        self.schema.retain(|col| project_list.contains(col));
 
         Ok(())
     }
@@ -248,15 +224,6 @@ impl PolicyGuardedDataFrame {
         }
 
         Ok(())
-    }
-
-    /// Gets the names of all columns in this dataframe.
-    pub fn get_column_names(&self) -> Vec<String> {
-        self.schema
-            .all_fields()
-            .into_iter()
-            .map(|f| f.name().to_owned())
-            .collect()
     }
 
     /// Get (height, width) of the [`DataFrame`].
