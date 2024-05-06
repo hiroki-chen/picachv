@@ -2,6 +2,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
+use picachv_message::group_by_proxy::Groups;
 use serde::{Deserialize, Serialize};
 use tabled::builder::Builder;
 use tabled::settings::object::Rows;
@@ -135,6 +136,39 @@ impl PolicyGuardedDataFrame {
         }
 
         Ok(())
+    }
+
+    /// According to the `groups` struct, fetch the group of columns.
+    pub fn groups(&self, groups: &Groups) -> PicachvResult<Self> {
+        let mut col = vec![];
+        for i in 0..self.columns.len() {
+            let mut columns = vec![];
+
+            for g in groups.group.iter() {
+                columns.push(self.columns[i].policies[*g as usize].clone());
+            }
+
+            col.push(PolicyGuardedColumn { policies: columns });
+        }
+
+        Ok(PolicyGuardedDataFrame {
+            schema: self.schema.clone(),
+            columns: col,
+        })
+    }
+
+    pub fn row(&self, idx: usize) -> PicachvResult<Vec<Policy<PolicyLabel>>> {
+        picachv_ensure!(
+            idx < self.shape().0,
+            ComputeError: "The index is out of bound.",
+        );
+
+        let mut row = vec![];
+        for i in 0..self.shape().1 {
+            row.push(self.columns[i].policies[idx].clone());
+        }
+
+        Ok(row)
     }
 
     pub fn union(inputs: &[&Arc<Self>]) -> PicachvResult<Self> {

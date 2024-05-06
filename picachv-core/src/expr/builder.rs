@@ -1,6 +1,6 @@
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::column_expr::Column;
-use picachv_message::{expr_argument, ApplyExpr};
+use picachv_message::{agg_expr, expr_argument, AggExpr, ApplyExpr, SumExpr};
 use uuid::Uuid;
 
 use super::Expr;
@@ -69,6 +69,24 @@ impl Expr {
                     args,
                     values: None, // must be reified later.
                 })
+            },
+
+            Argument::Agg(AggExpr { expr }) => match expr {
+                Some(expr) => match expr {
+                    agg_expr::Expr::Sum(SumExpr { input_uuid }) => {
+                        let uuid = Uuid::from_slice_le(&input_uuid).map_err(|_| {
+                            PicachvError::InvalidOperation("The UUID is invalid.".into())
+                        })?;
+                        let expr = expr_arena.get(&uuid)?;
+                        Ok(Expr::Agg(crate::expr::AggExpr::Sum(Box::new(
+                            (**expr).clone(),
+                        ))))
+                    },
+                    _ => todo!(),
+                },
+                None => Err(PicachvError::InvalidOperation(
+                    "The expression is empty.".into(),
+                )),
             },
 
             _ => todo!(),

@@ -63,11 +63,15 @@ pub enum TransformType {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct AggType(GroupByMethod);
+pub struct AggType {
+    pub how: GroupByMethod,
+    /// The size of the group.
+    pub group_size: usize,
+}
 
 impl Hash for AggType {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self.0 {
+        match self.how {
             GroupByMethod::Median => "median".hash(state),
             GroupByMethod::Mean => "mean".hash(state),
             GroupByMethod::Sum => "sum".hash(state),
@@ -106,8 +110,9 @@ impl Hash for AggType {
 
 impl PartialOrd for AggType {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match &(self.0, other.0) {
-            _ => todo!("implement partial_cmp for AggType"),
+        match self.how == other.how {
+            true => self.group_size.partial_cmp(&other.group_size),
+            false => None,
         }
     }
 }
@@ -503,7 +508,7 @@ impl Policy<PolicyLabel> {
     /// Checks and downgrades the policy by a given label.
     pub fn downgrade(self, by: PolicyLabel) -> PicachvResult<Self> {
         let p = build_policy!(by.clone())?;
-        log::debug!("in downgrade: constructed policy: {p:?}")  ;
+        log::debug!("in downgrade: constructed policy: {p:?}");
 
         match self.le(&p) {
             Ok(b) => {

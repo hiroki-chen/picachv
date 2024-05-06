@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
@@ -6,7 +8,7 @@ use polars::lazy::dsl::{col, lit};
 use polars::lazy::io::JsonIO;
 use polars::lazy::native::{init_monitor, open_new, register_policy_dataframe};
 use polars::lazy::policy::types::AnyValue;
-use polars::lazy::policy::{Policy, PolicyLabel, TransformOps};
+use polars::lazy::policy::{Policy, TransformOps};
 use polars::lazy::prelude::*;
 use polars::lazy::{build_policy, policy_binary_transform_label, PicachvError};
 use polars::prelude::*;
@@ -60,6 +62,8 @@ fn example1(policy: &PolicyGuardedDataFrame) -> Result<DataFrame> {
         .lazy()
         .select([col("a"), col("b")])
         .filter(lit(1).lt(col("a")))
+        .group_by([col("b")])
+        .agg(vec![col("a").sum()])
         .set_ctx_id(ctx_id);
     // Error: invalid operation: Possible policy breach detected; abort early.
     // Because we do not apply the policy on the column "b".
@@ -68,7 +72,7 @@ fn example1(policy: &PolicyGuardedDataFrame) -> Result<DataFrame> {
 
 fn example2(policy: &PolicyGuardedDataFrame) -> Result<DataFrame> {
     let mut df = df! {
-        "a" => &[1, 2, 3, 4, 5],
+        "a" => &[2, 3, 2, 3, 2],
         "b" => &[5, 4, 3, 2, 1]
     }?;
 
@@ -82,7 +86,12 @@ fn example2(policy: &PolicyGuardedDataFrame) -> Result<DataFrame> {
     let out = df
         .lazy()
         .filter(lit(1).lt(col("b")))
-        .select([col("a").cast(DataType::Date).dt().offset_by(lit("5s"))])
+        .select([
+            col("a").cast(DataType::Date).dt().offset_by(lit("5s")),
+            col("b"),
+        ])
+        .group_by([col("a")])
+        .agg(vec![col("b").sum()])
         .set_ctx_id(ctx_id);
     println!("plan: {:?}", out.explain(true));
     // OK.
@@ -124,17 +133,17 @@ fn main() -> Result<()> {
     }
 
     let policy = PolicyGuardedDataFrame::from_json("./data/simple_policy.json")?;
-    match example1(&policy) {
-        Ok(_) => unreachable!("Should not occur!"),
-        Err(e) => log::error!("Error: {}", e),
-    }
+    // match example1(&policy) {
+    //     Ok(_) => unreachable!("Should not occur!"),
+    //     Err(e) => log::error!("Error: {}", e),
+    // }
     match example2(&policy) {
         Ok(df) => log::info!("Result: {}", df),
         Err(e) => unreachable!("Error: {}", e),
     }
     // match example3(&policy) {
-    //     Ok(df) => log::info!("Result: {}", df),
-    //     Err(e) => unreachable!("Error: {}", e),
+    //     Ok(df) => unreachable!("Result: {}", df),
+    //     Err(e) => log::error!("Error: {}", e),
     // }
 
     Ok(())

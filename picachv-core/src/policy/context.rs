@@ -7,7 +7,9 @@
 
 use std::collections::HashMap;
 
-use super::{Policy, PolicyLabel};
+use picachv_message::group_by_proxy::Groups;
+
+use crate::dataframe::PolicyGuardedDataFrame;
 use crate::udf::Udf;
 
 /// The `eval_env` type defined in the Coq file.
@@ -19,27 +21,27 @@ use crate::udf::Udf;
 pub(crate) struct ExpressionEvalContext<'ctx> {
     /// The schema of the current expression.
     pub(crate) schema: Vec<String>,
-    /// The current row where this expression is current being evaluated.
-    pub(crate) current_row: Vec<Policy<PolicyLabel>>,
+    /// The current activate data frame.
+    pub(crate) df: &'ctx PolicyGuardedDataFrame,
     /// Indicates whether the expression is in an aggregation context.
     pub(crate) in_agg: bool,
-    // TODO.
-    group_by: Vec<usize>,
+    /// The group by columns.
+    pub(crate) gb_proxy: Option<&'ctx Groups>,
     udfs: &'ctx HashMap<String, Udf>,
 }
 
 impl<'ctx> ExpressionEvalContext<'ctx> {
     pub fn new(
         schema: Vec<String>,
-        current_row: Vec<Policy<PolicyLabel>>,
+        df: &'ctx PolicyGuardedDataFrame,
         in_agg: bool,
         udfs: &'ctx HashMap<String, Udf>,
     ) -> Self {
         ExpressionEvalContext {
             schema,
-            current_row,
+            df,
             in_agg,
-            group_by: vec![],
+            gb_proxy: None,
             udfs,
         }
     }

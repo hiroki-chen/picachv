@@ -1,6 +1,6 @@
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::get_data_argument::DataSource;
-use picachv_message::plan_argument;
+use picachv_message::{plan_argument, AggregateArgument};
 use uuid::Uuid;
 
 use super::Plan;
@@ -87,9 +87,38 @@ impl Plan {
                 })
             },
 
-            _ => Err(PicachvError::InvalidOperation(
-                "The operation is not supported.".into(),
-            )),
+            Argument::Aggregate(AggregateArgument {
+                keys,
+                aggs_uuid,
+                maintain_order,
+                group_by_proxy,
+            }) => {
+                let keys = keys
+                    .into_iter()
+                    .map(|e| {
+                        Uuid::from_slice_le(e.as_slice()).map_err(|_| {
+                            PicachvError::InvalidOperation("The UUID is invalid.".into())
+                        })
+                    })
+                    .collect::<PicachvResult<Vec<_>>>()?;
+                let aggs = aggs_uuid
+                    .into_iter()
+                    .map(|e| {
+                        Uuid::from_slice_le(e.as_slice()).map_err(|_| {
+                            PicachvError::InvalidOperation("The UUID is invalid.".into())
+                        })
+                    })
+                    .collect::<PicachvResult<Vec<_>>>()?;
+
+                Ok(Plan::Aggregation {
+                    keys,
+                    aggs,
+                    maintain_order,
+                    gb_proxy: group_by_proxy.ok_or(PicachvError::InvalidOperation(
+                        "The group by proxy is empty.".into(),
+                    ))?,
+                })
+            },
         }
     }
 }

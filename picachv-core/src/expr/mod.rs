@@ -7,6 +7,7 @@ use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::binary_operator;
 
 use crate::arena::Arena;
+use crate::constants::GroupByMethod;
 use crate::policy::context::ExpressionEvalContext;
 use crate::policy::types::AnyValue;
 use crate::policy::{
@@ -46,6 +47,42 @@ pub enum AggExpr {
     AggGroups(Box<Expr>),
     Std(Box<Expr>, u8),
     Var(Box<Expr>, u8),
+}
+
+impl AggExpr {
+    pub fn extract_expr(&self) -> &Expr {
+        match self {
+            Self::Min { input, .. }
+            | Self::Max { input, .. }
+            | Self::Median(input)
+            | Self::NUnique(input)
+            | Self::First(input)
+            | Self::Last(input)
+            | Self::Mean(input)
+            | Self::Implode(input)
+            | Self::Count(input, _)
+            | Self::Quantile { expr: input, .. }
+            | Self::Sum(input)
+            | Self::AggGroups(input)
+            | Self::Std(input, _)
+            | Self::Var(input, _) => input,
+        }
+    }
+
+    pub fn as_groupby_method(&self) -> GroupByMethod {
+        match self {
+            Self::Min { .. } => GroupByMethod::Min,
+            Self::Max { .. } => GroupByMethod::Max,
+            Self::Median(_) => GroupByMethod::Median,
+            Self::NUnique(_) => GroupByMethod::NUnique,
+            Self::First(_) => GroupByMethod::First,
+            Self::Last(_) => GroupByMethod::Last,
+            Self::Mean(_) => GroupByMethod::Mean,
+            Self::Implode(_) => GroupByMethod::Implode,
+            Self::Sum(_) => GroupByMethod::Sum,
+            _ => unimplemented!(),
+        }
+    }
 }
 
 /// An expression type for describing a node in the query.
@@ -96,7 +133,8 @@ impl Expr {
         matches!(self, Self::Apply { .. })
     }
 
-    pub(crate) fn check_policy_within_agg(
+    /// Thus function enforces the policy for the aggregation expressions.
+    pub(crate) fn check_policy_agg(
         &self,
         ctx: &mut ExpressionEvalContext,
     ) -> PicachvResult<Policy<PolicyLabel>> {
@@ -104,16 +142,61 @@ impl Expr {
             ctx.in_agg,
             ComputeError: "The expression is not in an aggregation context."
         );
-        match self {
-            Expr::Agg(_) => Err(PicachvError::ComputeError(
-                "Aggregation within aggregation is not allowed.".into(),
-            )),
 
-            _ => todo!(),
-        }
+        let agg_expr = match self {
+            Expr::Agg(agg) => agg,
+            _ => {
+                // We must ensure that the expression being checked is an aggregation expression.
+                picachv_bail!(ComputeError: "The expression {self:?} is not an aggregation expression.")
+            },
+        };
+
+        let inner_expr = agg_expr.extract_expr();
+        // We first check the policy enforcement for the inner expression.
+        let inner = inner_expr.check_policy_in_group(ctx)?;
+        // We then apply the `fold` thing on `inner`.
+        fold_on_groups(&inner, GroupByMethod::Sum)
     }
 
-    /// This function checks the policy enforcement for the expression type.
+    /// This function checks the policy enforcement for the expression type in aggregation context.
+    pub(crate) fn check_policy_in_group(
+        &self,
+        ctx: &mut ExpressionEvalContext,
+    ) -> PicachvResult<Vec<Policy<PolicyLabel>>> {
+        let mut policies = vec![];
+
+        // Extract the groups as a sub-dataframe.
+        let groups = ctx.gb_proxy.ok_or(PicachvError::ComputeError(
+            "Group information not found, this is a fatal error.".into(),
+        ))?;
+        let groups = ctx.df.groups(groups)?;
+
+        match self {
+            Expr::Column(col) => {
+                let col = groups.schema.iter().position(|e| e == col).ok_or(
+                    PicachvError::ComputeError("The column does not exist.".into()),
+                )?;
+
+                for i in 0..groups.shape().0 {
+                    policies.push(
+                        groups.columns[col]
+                            .policies
+                            .get(i)
+                            .ok_or(PicachvError::ComputeError(
+                                "The column does not exist.".into(),
+                            ))?
+                            .clone(),
+                    )
+                }
+            },
+
+            _ => unimplemented!("{self:?} is not yet supported in aggregation context."),
+        }
+
+        Ok(policies)
+    }
+
+    /// This function checks the policy enforcement for the expression type (not within aggregation!).
     ///
     /// The formalized part is described in `pcd-proof/theories/expression.v`.
     /// Note that since the check occurs at the tuple level!
@@ -122,83 +205,83 @@ impl Expr {
         ctx: &mut ExpressionEvalContext,
         idx: usize,
     ) -> PicachvResult<Policy<PolicyLabel>> {
-        if !ctx.in_agg {
-            match self {
-                // A literal expression is always allowed because it does not
-                // contain any sensitive information.
-                Expr::Literal => Ok(Default::default()),
-                // Deal with the UDF case.
-                Expr::Apply {
-                    udf_desc: Udf { name },
-                    args,
-                    values, // todo.
-                } => match values {
-                    Some(values) => check_policy_in_row_apply(ctx, name, args, values, idx),
-                    None => panic!("The values are not reified."),
-                },
+        match self {
+            // A literal expression is always allowed because it does not
+            // contain any sensitive information.
+            Expr::Literal => Ok(Default::default()),
+            // Deal with the UDF case.
+            Expr::Apply {
+                udf_desc: Udf { name },
+                args,
+                values, // todo.
+            } => match values {
+                Some(values) => check_policy_in_row_apply(ctx, name, args, values, idx),
+                None => panic!("The values are not reified."),
+            },
 
-                Expr::BinaryExpr {
-                    left, right, op, ..
-                } => {
-                    let lhs = left.check_policy_in_row(ctx, idx)?;
-                    let rhs = right.check_policy_in_row(ctx, idx)?;
+            Expr::BinaryExpr {
+                left, right, op, ..
+            } => {
+                let lhs = left.check_policy_in_row(ctx, idx)?;
+                let rhs = right.check_policy_in_row(ctx, idx)?;
 
-                    // These operators occur only in predicates. Skip them.
-                    if matches!(
-                        op,
-                        binary_operator::Operator::ComparisonOperator(_)
-                            | binary_operator::Operator::LogicalOperator(_)
-                    ) {
-                        return lhs.join(&rhs);
-                    }
+                // These operators occur only in predicates. Skip them.
+                if matches!(
+                    op,
+                    binary_operator::Operator::ComparisonOperator(_)
+                        | binary_operator::Operator::LogicalOperator(_)
+                ) {
+                    return lhs.join(&rhs);
+                }
 
-                    match (policy_ok(&lhs), policy_ok(&rhs)) {
-                        // lhs = ∎
-                        (true, _) => {
-                            todo!()
-                        },
+                match (policy_ok(&lhs), policy_ok(&rhs)) {
+                    // lhs = ∎
+                    (true, _) => {
+                        todo!()
+                    },
 
-                        // rhs = ∎
-                        (_, true) => {
-                            todo!()
-                        },
+                    // rhs = ∎
+                    (_, true) => {
+                        todo!()
+                    },
 
-                        _ => lhs.join(&rhs),
-                    }
-                },
-                // This is truly interesting.
+                    _ => lhs.join(&rhs),
+                }
+            },
+            // This is truly interesting.
+            //
+            // See `eval_unary_expression_in_cell`.
+            Expr::UnaryExpr { arg, op } => {
+                let policy = arg.check_policy_in_row(ctx, idx)?;
+                policy.downgrade(build_unary_expr!(op.clone()))
+            },
+            Expr::Column(col) => {
+                let col =
+                    ctx.schema
+                        .iter()
+                        .position(|e| e == col)
+                        .ok_or(PicachvError::ComputeError(
+                            "The column does not exist.".into(),
+                        ))?;
+
+                // For column expression this is an interesting undecidable case
+                // where we cannot determine what operation it will be applied.
                 //
-                // See `eval_unary_expression_in_cell`.
-                Expr::UnaryExpr { arg, op } => {
-                    let policy = arg.check_policy_in_row(ctx, idx)?;
-                    policy.downgrade(build_unary_expr!(op.clone()))
-                },
-                Expr::Column(idx) => {
-                    let idx = ctx.schema.iter().position(|e| e == idx).ok_or(
-                        PicachvError::ComputeError("The column does not exist.".into()),
-                    )?;
-
-                    log::debug!("selected column: {}", ctx.current_row[idx]);
-
-                    // For column expression this is an interesting undecidable case
-                    // where we cannot determine what operation it will be applied.
-                    //
-                    // We neverthelss approve this operation per evaluation semantics.
-                    //
-                    // See `EvalColumnNotAgg` in `expression.v`.
-                    Ok(ctx.current_row[idx].clone())
-                },
-                Expr::Alias { expr, .. } => expr.check_policy_in_row(ctx, idx),
-                Expr::Filter { input, filter } => {
-                    input.check_policy_in_row(ctx, idx)?;
-                    filter.check_policy_in_row(ctx, idx)
-                },
-                Expr::Agg(agg_expr) => todo!(),
-                // todo.
-                _ => Ok(Default::default()),
-            }
-        } else {
-            self.check_policy_within_agg(ctx)
+                // We neverthelss approve this operation per evaluation semantics.
+                //
+                // See `EvalColumnNotAgg` in `expression.v`.
+                Ok(ctx.df.row(idx)?[col].clone())
+            },
+            Expr::Alias { expr, .. } => expr.check_policy_in_row(ctx, idx),
+            Expr::Filter { input, filter } => {
+                input.check_policy_in_row(ctx, idx)?;
+                filter.check_policy_in_row(ctx, idx)
+            },
+            Expr::Agg(_) => Err(PicachvError::ComputeError(
+                "Aggregation expression is not allowed in row context.".into(),
+            )),
+            // todo.
+            _ => Ok(Default::default()),
         }
     }
 
@@ -331,6 +414,16 @@ impl fmt::Display for Expr {
 
 impl ExprArena {}
 
+/// This functons folds the policies on the groups to check this operation is allowed.
+fn fold_on_groups(
+    groups: &[Policy<PolicyLabel>],
+    how: GroupByMethod,
+) -> PicachvResult<Policy<PolicyLabel>> {
+    // Construct the operator.
+
+    todo!()
+}
+
 fn check_policy_binary(
     lhs: &Policy<PolicyLabel>,
     rhs: &Policy<PolicyLabel>,
@@ -350,14 +443,27 @@ fn check_policy_binary_udf(
         ComputeError: "Checking policy for UDF requires two values."
     );
 
-    log::debug!("lhs = {:?}, rhs = {:?}, udf_name = {:?}", lhs, rhs, udf_name);
+    log::debug!(
+        "lhs = {:?}, rhs = {:?}, udf_name = {:?}",
+        lhs,
+        rhs,
+        udf_name
+    );
 
     match (policy_ok(&lhs), policy_ok(&rhs)) {
         // lhs = ∎
-        (true, _) => {
-            todo!()
-        },
+        (true, _) => match udf_name {
+            "dt.offset_by" => {
+                // We now construct the downgrading operation.
+                let lhs_value = cast::into_duration(values[0].clone())?;
+                let pf = policy_binary_transform_label!(udf_name.to_string(), lhs_value);
 
+                // Check if we can downgrade.
+                rhs.downgrade(pf)
+            },
+
+            _ => todo!(),
+        },
         // rhs = ∎
         (_, true) => match udf_name {
             "dt.offset_by" => {

@@ -42,9 +42,10 @@ message ProjectionArgument {
 
 message AggregateArgument {
   // The uuid of the group by.
-  repeated bytes keys = 3;
-  bytes aggs_uuid = 4;
-  bool maintain_order = 5;
+  repeated bytes keys = 1;
+  repeated bytes aggs_uuid = 2;
+  bool maintain_order = 3;
+  GroupByProxy group_by_proxy = 4;
 }
 
 // A Rust `enum`-like message to represent the different types of physical

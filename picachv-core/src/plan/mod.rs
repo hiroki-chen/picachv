@@ -6,16 +6,14 @@ use std::fmt;
 use std::sync::Arc;
 
 use picachv_error::PicachvResult;
+use picachv_message::GroupByProxy;
 use uuid::Uuid;
 
-use crate::arena::Arena;
-use crate::dataframe::PolicyGuardedDataFrame;
+use crate::dataframe::{PolicyGuardedColumn, PolicyGuardedDataFrame};
 use crate::expr::Expr;
 use crate::policy::context::ExpressionEvalContext;
 use crate::udf::Udf;
 use crate::{rwlock_unlock, Arenas};
-
-pub type PlanArena = Arena<Plan>;
 
 /// This struct describes a physical plan that the caller wants to perform on the
 /// raw data. We do not use the [`LogicalPlan`] shipped with polars because it contains too
@@ -50,10 +48,12 @@ pub enum Plan {
     /// Aggregate and group by
     Aggregation {
         /// Group by `keys`.
-        keys: Arc<Vec<Uuid>>,
+        keys: Vec<Uuid>,
         aggs: Vec<Uuid>,
         // apply: Option<Arc<dyn UserDefinedFunction>>,
         maintain_order: bool,
+        // An auxiliary data structure telling the monitor how data should be aggregated.
+        gb_proxy: GroupByProxy,
     },
 
     DataFrameScan {
@@ -111,53 +111,6 @@ impl Plan {
         }
     }
 
-    fn check_plan(
-        &self,
-        arena: &Arenas,
-        active_df_uuid: Uuid,
-        expression: &[Arc<Expr>],
-        in_agg: bool,
-        keep_old: bool, // Whether we need to alter the dataframe in the arena.
-        udfs: &HashMap<String, Udf>,
-    ) -> PicachvResult<Uuid> {
-        println!(
-            "check_plan: checking {:?} with active_df_uuid = {active_df_uuid}",
-            self
-        );
-
-        let mut df_arena = rwlock_unlock!(arena.df_arena, write);
-        let df = df_arena.get_mut(&active_df_uuid)?;
-        let can_replace = Arc::strong_count(df) == 1;
-
-        let mut rows = df.into_rows();
-        // We need to check the policy for each row.
-        for (idx, row) in rows.iter_mut().enumerate() {
-            for expr in expression {
-                log::debug!("Checking the policy for the expression {expr:?}");
-
-                let mut ctx =
-                    ExpressionEvalContext::new(df.schema.clone(), row.clone(), in_agg, udfs);
-                expr.check_policy_in_row(&mut ctx, idx)?;
-                *row = ctx.current_row;
-            }
-        }
-
-        let mut new_df = PolicyGuardedDataFrame::from(rows);
-        new_df.schema = df.schema.clone();
-        let new_df = Arc::new(new_df);
-
-        if can_replace {
-            let _ = std::mem::replace(df, new_df);
-            Ok(active_df_uuid)
-        } else {
-            if !keep_old {
-                df_arena.insert_arc(new_df)
-            } else {
-                Ok(active_df_uuid)
-            }
-        }
-    }
-
     /// This is the function eventually called to check if a physical operator is
     /// allowed to be executed. The caller is required to call this function *before*
     /// executing the physical plan as though it was instrumented. This functios
@@ -190,7 +143,7 @@ impl Plan {
     ///     return this->execute_impl(state);
     /// }
     /// ```
-    pub fn execute_prologue(
+    pub fn check_executor(
         &self,
         arena: &Arenas,
         active_df_uuid: Uuid,
@@ -210,7 +163,7 @@ impl Plan {
                     .map(|e| expr_arena.get(e).cloned())
                     .collect::<PicachvResult<Vec<_>>>()?;
 
-                self.check_plan(arena, active_df_uuid, &expression, false, false, udfs)
+                check_expressions(arena, active_df_uuid, &expression, false, udfs)
             },
             Plan::Select { predicate, .. } => {
                 let predicate = {
@@ -218,7 +171,9 @@ impl Plan {
                     expr_arena.get(predicate)?.clone()
                 };
 
-                self.check_plan(arena, active_df_uuid, &[predicate], false, true, udfs)
+                check_expressions(arena, active_df_uuid, &[predicate], true, udfs)?;
+
+                Ok(active_df_uuid)
             },
             Plan::DataFrameScan {
                 selection,
@@ -237,11 +192,45 @@ impl Plan {
                         expr_arena.get(s)?.clone()
                     };
 
-                    self.check_plan(arena, uuid, &[expr], false, true, udfs)
+                    check_expressions(arena, uuid, &[expr], true, udfs)?;
+
+                    Ok(active_df_uuid)
                 },
                 None => Ok(active_df_uuid),
             },
-            _ => Ok(active_df_uuid),
+
+            Plan::Aggregation {
+                keys,
+                aggs,
+                gb_proxy,
+                ..
+            } => {
+                let expr_arena = rwlock_unlock!(arena.expr_arena, read);
+                let keys = keys
+                    .into_iter()
+                    .map(|e| expr_arena.get(e).cloned())
+                    .collect::<PicachvResult<Vec<_>>>()?;
+                let aggs = aggs
+                    .into_iter()
+                    .map(|e| expr_arena.get(e).cloned())
+                    .collect::<PicachvResult<Vec<_>>>()?;
+
+                // There are two steps for the check:
+                //
+                // 1. We need to evaluate the group by things to make sure that the group by
+                //    does not violate any security policies.
+                // 2. We also need to "fold" on the group according to `gb_proxy` to make sure
+                //    that the aggregation does not violate any security policies.
+                //
+                // See the semantics for `eval_aggregate` as well as `eval_groupby_having` and
+                // `apply_fold_in_groups` in `semantics.v`.
+                let first_part = check_expressions(arena, active_df_uuid, &keys, true, udfs)?;
+                let second_part =
+                    check_expressions_agg(arena, active_df_uuid, &aggs, gb_proxy, udfs)?;
+
+                // Combine the two parts.
+                todo!()
+            },
         }
     }
 }
@@ -265,5 +254,71 @@ fn early_projection(
             df.early_projection(project_list)?;
             df_arena.insert_arc(Arc::new(df))
         },
+    }
+}
+
+fn check_expressions_agg(
+    arena: &Arenas,
+    active_df_uuid: Uuid,
+    expression: &[Arc<Expr>],
+    gb_proxy: &GroupByProxy,
+    udfs: &HashMap<String, Udf>,
+) -> PicachvResult<Uuid> {
+    let mut df_arena = rwlock_unlock!(arena.df_arena, write);
+    let df = df_arena.get_mut(&active_df_uuid)?;
+    let group_num = gb_proxy.first.len();
+
+    for group in 0..group_num {
+        let mut ctx = ExpressionEvalContext::new(df.schema.clone(), df, true, udfs);
+        ctx.gb_proxy = Some(&gb_proxy.groups[group]);
+
+        for expr in expression.into_iter() {
+            for idx in 0..df.shape().0 {
+                let updated_label = expr.check_policy_agg(&mut ctx)?;
+            }
+        }
+    }
+
+    todo!()
+}
+
+fn check_expressions(
+    arena: &Arenas,
+    active_df_uuid: Uuid,
+    expression: &[Arc<Expr>],
+    keep_old: bool, // Whether we need to alter the dataframe in the arena.
+    udfs: &HashMap<String, Udf>,
+) -> PicachvResult<Uuid> {
+    let mut df_arena = rwlock_unlock!(arena.df_arena, write);
+    let df = df_arena.get_mut(&active_df_uuid)?;
+    let can_replace = Arc::strong_count(df) == 1 && !keep_old;
+
+    let rows = df.shape().0;
+    let mut col = vec![];
+    let mut ctx = ExpressionEvalContext::new(df.schema.clone(), df, false, udfs);
+    for expr in expression.into_iter() {
+        let mut cur = vec![];
+        for idx in 0..rows {
+            let updated_label = expr.check_policy_in_row(&mut ctx, idx)?;
+            cur.push(updated_label);
+        }
+
+        col.push(PolicyGuardedColumn { policies: cur });
+    }
+
+    let new_df = Arc::new(PolicyGuardedDataFrame {
+        columns: col,
+        schema: df.schema.clone(),
+    });
+
+    if can_replace {
+        let _ = std::mem::replace(df, new_df);
+        Ok(active_df_uuid)
+    } else {
+        if !keep_old {
+            df_arena.insert_arc(new_df)
+        } else {
+            Ok(active_df_uuid)
+        }
     }
 }
