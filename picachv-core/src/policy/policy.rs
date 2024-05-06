@@ -494,19 +494,19 @@ impl Policy<PolicyLabel> {
     /// - The current policy can be declassified, then the new policy is the declassified policy.
     ///
     ///   In other words, ℓ ⇝ p ⪯ ∘ (op) ==> p_new = p.
-    fn do_downgrade(self, by: &PolicyLabel) -> PicachvResult<Self> {
+    fn do_downgrade(&self, by: &PolicyLabel) -> PicachvResult<Self> {
         match &self {
             // The current policy is less stricter.
-            Policy::PolicyClean => Ok(self),
+            Policy::PolicyClean => Ok(self.clone()),
             Policy::PolicyDeclassify { label, next } => match label.can_declassify(by) {
                 true => Ok(next.as_ref().clone()),
-                false => Ok(self),
+                false => Ok(self.clone()),
             },
         }
     }
 
     /// Checks and downgrades the policy by a given label.
-    pub fn downgrade(self, by: PolicyLabel) -> PicachvResult<Self> {
+    pub fn downgrade(&self, by: PolicyLabel) -> PicachvResult<Self> {
         let p = build_policy!(by.clone())?;
         log::debug!("in downgrade: constructed policy: {p:?}");
 

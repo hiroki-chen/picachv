@@ -22,10 +22,10 @@ where
     T: Clone + fmt::Debug,
 {
     /// Inserts a new object into the arena.
-    pub fn insert(&mut self, plan: T) -> PicachvResult<Uuid> {
+    pub fn insert(&mut self, object: T) -> PicachvResult<Uuid> {
         let uuid = Uuid::new_v4();
 
-        self.inner.insert(uuid, Arc::new(plan));
+        self.inner.insert(uuid, Arc::new(object));
         Ok(uuid)
     }
 

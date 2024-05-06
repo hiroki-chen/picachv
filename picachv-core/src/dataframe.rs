@@ -171,6 +171,26 @@ impl PolicyGuardedDataFrame {
         Ok(row)
     }
 
+    /// Stitch two dataframes (veritcally).
+    pub fn stitch(
+        lhs: &PolicyGuardedDataFrame,
+        rhs: &PolicyGuardedDataFrame,
+    ) -> PicachvResult<PolicyGuardedDataFrame> {
+        log::debug!("stitching\n{lhs}\n{rhs}");
+
+        picachv_ensure!(lhs.shape().0 == rhs.shape().0, ComputeError: "The number of rows must be the same.");
+
+        Ok(PolicyGuardedDataFrame {
+            columns: {
+                let mut lhs = lhs.columns.clone();
+                lhs.extend(rhs.columns.clone());
+
+                lhs
+            },
+            schema: Default::default(),
+        })
+    }
+
     pub fn union(inputs: &[&Arc<Self>]) -> PicachvResult<Self> {
         // Ensures we are really doing unions.
         picachv_ensure!(

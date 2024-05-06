@@ -5,13 +5,14 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
-use picachv_error::PicachvResult;
+use picachv_error::{picachv_bail, picachv_ensure, PicachvResult};
 use picachv_message::GroupByProxy;
 use uuid::Uuid;
 
 use crate::dataframe::{PolicyGuardedColumn, PolicyGuardedDataFrame};
-use crate::expr::Expr;
+use crate::expr::{fold_on_groups, Expr};
 use crate::policy::context::ExpressionEvalContext;
+use crate::policy::{Policy, PolicyLabel};
 use crate::udf::Udf;
 use crate::{rwlock_unlock, Arenas};
 
@@ -224,15 +225,54 @@ impl Plan {
                 //
                 // See the semantics for `eval_aggregate` as well as `eval_groupby_having` and
                 // `apply_fold_in_groups` in `semantics.v`.
-                let first_part = check_expressions(arena, active_df_uuid, &keys, true, udfs)?;
+                let first_part = {
+                    let df_arena = rwlock_unlock!(arena.df_arena, read);
+                    let df = df_arena.get(&active_df_uuid)?;
+                    let df = do_check_expressions(df, &keys, udfs)?;
+
+                    aggregate_keys(&df, gb_proxy)
+                }?;
+                // This is in fact `apply_fold_on_groups`, but for the sake of naming consistency
+                // we use `check_expressions_agg`.
                 let second_part =
                     check_expressions_agg(arena, active_df_uuid, &aggs, gb_proxy, udfs)?;
 
                 // Combine the two parts.
-                todo!()
+                let mut df_arena = rwlock_unlock!(arena.df_arena, write);
+                let second_part = df_arena.get(&second_part)?;
+                let new_df = PolicyGuardedDataFrame::stitch(&first_part, second_part)?;
+
+                df_arena.insert(new_df)
             },
         }
     }
+}
+
+fn aggregate_keys(
+    df: &PolicyGuardedDataFrame,
+    gb_proxy: &GroupByProxy,
+) -> PicachvResult<PolicyGuardedDataFrame> {
+    let mut columns = vec![];
+
+    for col_idx in 0..df.shape().1 {
+        let mut cur = vec![];
+        for group in gb_proxy.groups.iter() {
+            let mut policy = Policy::PolicyClean;
+
+            for idx in group.group.iter() {
+                let p = df.columns[col_idx].policies[*idx as usize].clone();
+                policy = policy.join(&p)?;
+            }
+
+            cur.push(policy);
+        }
+        columns.push(PolicyGuardedColumn { policies: cur });
+    }
+
+    Ok(PolicyGuardedDataFrame {
+        schema: df.schema.clone(),
+        columns,
+    })
 }
 
 /// This function is used to apply the projection on the dataframe.
@@ -257,42 +297,85 @@ fn early_projection(
     }
 }
 
+/// Thus function enforces the policy for the aggregation expressions.
+///
+/// Implements the semantic of `apply_fold_on_groups_once` in `semantics.v`.
+fn check_policy_agg(
+    expr: &Expr,
+    ctx: &mut ExpressionEvalContext,
+) -> PicachvResult<Policy<PolicyLabel>> {
+    picachv_ensure!(
+        ctx.in_agg,
+        ComputeError: "The expression is not in an aggregation context."
+    );
+
+    let agg_expr = match expr {
+        Expr::Agg(agg) => agg,
+        _ => {
+            // We must ensure that the expression being checked is an aggregation expression.
+            picachv_bail!(ComputeError: "The expression {expr:?} is not an aggregation expression.")
+        },
+    };
+
+    let inner_expr = agg_expr.extract_expr();
+    // We first check the policy enforcement for the inner expression.
+    let inner = inner_expr.check_policy_in_group(ctx)?;
+    // We then apply the `fold` thing on `inner`.
+    fold_on_groups(&inner, agg_expr.as_groupby_method())
+}
+
+/// Performs the aggregation on the dataframe; see `apply_fold_on_groups` in `semantics.v`.
+///
+/// The logic of this function is rather simple: it simply iterates all the groups as speci-
+/// fied by the `gb_proxy` and applies the aggregation functions on the groups.
 fn check_expressions_agg(
     arena: &Arenas,
     active_df_uuid: Uuid,
-    expression: &[Arc<Expr>],
+    agg_list: &[Arc<Expr>],
     gb_proxy: &GroupByProxy,
     udfs: &HashMap<String, Udf>,
 ) -> PicachvResult<Uuid> {
     let mut df_arena = rwlock_unlock!(arena.df_arena, write);
-    let df = df_arena.get_mut(&active_df_uuid)?;
+    let df = df_arena.get(&active_df_uuid)?;
     let group_num = gb_proxy.first.len();
 
-    for group in 0..group_num {
-        let mut ctx = ExpressionEvalContext::new(df.schema.clone(), df, true, udfs);
-        ctx.gb_proxy = Some(&gb_proxy.groups[group]);
+    let mut res = vec![];
+    // The semantic requires us to first iterate over the aggregate list.
+    for agg in agg_list.into_iter() {
+        let mut group_res = vec![];
+        // Then we need to iterate over the groups.
+        for group in 0..group_num {
+            let mut ctx = ExpressionEvalContext::new(df.schema.clone(), df, true, udfs);
+            ctx.gb_proxy = Some(&gb_proxy.groups[group]);
 
-        for expr in expression.into_iter() {
-            for idx in 0..df.shape().0 {
-                let updated_label = expr.check_policy_agg(&mut ctx)?;
-            }
+            // For each group we will get the result of the aggregation.
+            group_res.push(check_policy_agg(agg, &mut ctx)?);
         }
+
+        // Then for each expression, we add it to the result.
+        res.push(group_res);
     }
 
-    todo!()
+    log::debug!("check_expressions_agg: res = {res:?}");
+
+    // Let us now construct a new dataframe.
+    let df = PolicyGuardedDataFrame {
+        columns: res
+            .into_iter()
+            .map(|col| PolicyGuardedColumn { policies: col })
+            .collect(),
+        // We don't need the schema since it is anonymous.
+        schema: Default::default(),
+    };
+
+    df_arena.insert(df)
 }
 
-fn check_expressions(
-    arena: &Arenas,
-    active_df_uuid: Uuid,
+fn do_check_expressions(
+    df: &PolicyGuardedDataFrame,
     expression: &[Arc<Expr>],
-    keep_old: bool, // Whether we need to alter the dataframe in the arena.
     udfs: &HashMap<String, Udf>,
-) -> PicachvResult<Uuid> {
-    let mut df_arena = rwlock_unlock!(arena.df_arena, write);
-    let df = df_arena.get_mut(&active_df_uuid)?;
-    let can_replace = Arc::strong_count(df) == 1 && !keep_old;
-
+) -> PicachvResult<PolicyGuardedDataFrame> {
     let rows = df.shape().0;
     let mut col = vec![];
     let mut ctx = ExpressionEvalContext::new(df.schema.clone(), df, false, udfs);
@@ -306,10 +389,24 @@ fn check_expressions(
         col.push(PolicyGuardedColumn { policies: cur });
     }
 
-    let new_df = Arc::new(PolicyGuardedDataFrame {
+    Ok(PolicyGuardedDataFrame {
         columns: col,
         schema: df.schema.clone(),
-    });
+    })
+}
+
+fn check_expressions(
+    arena: &Arenas,
+    active_df_uuid: Uuid,
+    expression: &[Arc<Expr>],
+    keep_old: bool, // Whether we need to alter the dataframe in the arena.
+    udfs: &HashMap<String, Udf>,
+) -> PicachvResult<Uuid> {
+    let mut df_arena = rwlock_unlock!(arena.df_arena, write);
+    let df = df_arena.get_mut(&active_df_uuid)?;
+    let can_replace = Arc::strong_count(df) == 1 && !keep_old;
+
+    let new_df = Arc::new(do_check_expressions(df, expression, udfs)?);
 
     if can_replace {
         let _ = std::mem::replace(df, new_df);

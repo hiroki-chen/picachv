@@ -1,5 +1,5 @@
-use std::fmt;
 use std::time::Duration;
+use std::{fmt, vec};
 
 use arrow_array::{Array, Date32Array, Int32Array, LargeStringArray, RecordBatch};
 use arrow_schema::DataType;
@@ -10,11 +10,9 @@ use crate::arena::Arena;
 use crate::constants::GroupByMethod;
 use crate::policy::context::ExpressionEvalContext;
 use crate::policy::types::AnyValue;
-use crate::policy::{
-    policy_ok, BinaryTransformType, Policy, PolicyLabel, TransformOps, TransformType,
-};
+use crate::policy::{policy_ok, BinaryTransformType, Policy, PolicyLabel, TransformType};
 use crate::udf::Udf;
-use crate::{build_unary_expr, cast, policy_binary_transform_label};
+use crate::{build_unary_expr, cast, policy_agg_label, policy_binary_transform_label};
 
 pub mod builder;
 
@@ -133,32 +131,9 @@ impl Expr {
         matches!(self, Self::Apply { .. })
     }
 
-    /// Thus function enforces the policy for the aggregation expressions.
-    pub(crate) fn check_policy_agg(
-        &self,
-        ctx: &mut ExpressionEvalContext,
-    ) -> PicachvResult<Policy<PolicyLabel>> {
-        picachv_ensure!(
-            ctx.in_agg,
-            ComputeError: "The expression is not in an aggregation context."
-        );
-
-        let agg_expr = match self {
-            Expr::Agg(agg) => agg,
-            _ => {
-                // We must ensure that the expression being checked is an aggregation expression.
-                picachv_bail!(ComputeError: "The expression {self:?} is not an aggregation expression.")
-            },
-        };
-
-        let inner_expr = agg_expr.extract_expr();
-        // We first check the policy enforcement for the inner expression.
-        let inner = inner_expr.check_policy_in_group(ctx)?;
-        // We then apply the `fold` thing on `inner`.
-        fold_on_groups(&inner, GroupByMethod::Sum)
-    }
-
     /// This function checks the policy enforcement for the expression type in aggregation context.
+    ///
+    /// `eval_expr` in `expression.v`.
     pub(crate) fn check_policy_in_group(
         &self,
         ctx: &mut ExpressionEvalContext,
@@ -414,16 +389,6 @@ impl fmt::Display for Expr {
 
 impl ExprArena {}
 
-/// This functons folds the policies on the groups to check this operation is allowed.
-fn fold_on_groups(
-    groups: &[Policy<PolicyLabel>],
-    how: GroupByMethod,
-) -> PicachvResult<Policy<PolicyLabel>> {
-    // Construct the operator.
-
-    todo!()
-}
-
 fn check_policy_binary(
     lhs: &Policy<PolicyLabel>,
     rhs: &Policy<PolicyLabel>,
@@ -512,4 +477,25 @@ fn check_policy_in_row_apply(
         },
         _ => Err(PicachvError::Unimplemented("UDF not implemented.".into())),
     }
+}
+
+/// This functons folds the policies on the groups to check this operation is allowed.
+///
+/// See `eval_agg` in `expression.v`.
+pub(crate) fn fold_on_groups(
+    groups: &[Policy<PolicyLabel>],
+    how: GroupByMethod,
+) -> PicachvResult<Policy<PolicyLabel>> {
+    // Construct the operator.
+    let pf = policy_agg_label!(how, groups.len());
+    let mut p_output = Policy::PolicyClean;
+
+    for p_cur in groups.into_iter() {
+        let p_after = p_cur.downgrade(pf.clone())?;
+        if p_output.le(&p_after)? {
+            p_output = p_after;
+        }
+    }
+
+    Ok(p_output)
 }
