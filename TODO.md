@@ -14,7 +14,9 @@ in proxy_to_arg: gb GroupsIdx { sorted: false, first: [2, 0, 1, 3], all: [UnitVe
 [ ] Add an optional feature for `polars` so that we can do the comparsion.
 [x] Reify expressions for aggregates.
   - [x] Seems we need to modify the design of the `Expr` struct; it cannot "own" the expression and it must be a weak reference?
+
 [ ] The order of the column is wrong. So that the policy labels are tracked wrongly.
+[ ] Add group size checking.
 ## Integration with DuckDB
 
 [ ] Design and implement all the FFI APIs for C/C++ family.
