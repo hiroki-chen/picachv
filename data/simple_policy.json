@@ -1,1 +1,146 @@
-{"schema":["a","b"],"columns":[{"policies":[{"type":"PolicyDeclassify","label":{"PolicyTransform":{"ops":[{"Binary":{"name":"dt.offset_by","arg":{"Duration":{"secs":5,"nanos":0}}}}]}},"next":{"type":"PolicyClean"}},{"type":"PolicyDeclassify","label":{"PolicyTransform":{"ops":[{"Binary":{"name":"dt.offset_by","arg":{"Duration":{"secs":5,"nanos":0}}}}]}},"next":{"type":"PolicyClean"}},{"type":"PolicyDeclassify","label":{"PolicyTransform":{"ops":[{"Binary":{"name":"dt.offset_by","arg":{"Duration":{"secs":5,"nanos":0}}}}]}},"next":{"type":"PolicyClean"}},{"type":"PolicyDeclassify","label":{"PolicyTransform":{"ops":[{"Binary":{"name":"dt.offset_by","arg":{"Duration":{"secs":5,"nanos":0}}}}]}},"next":{"type":"PolicyClean"}},{"type":"PolicyDeclassify","label":{"PolicyTransform":{"ops":[{"Binary":{"name":"dt.offset_by","arg":{"Duration":{"secs":5,"nanos":0}}}}]}},"next":{"type":"PolicyClean"}}]},{"policies":[{"type":"PolicyClean"},{"type":"PolicyClean"},{"type":"PolicyClean"},{"type":"PolicyClean"},{"type":"PolicyClean"}]}]}
+{
+  "schema": [
+    "a",
+    "b"
+  ],
+  "columns": [
+    {
+      "policies": [
+        {
+          "type": "PolicyDeclassify",
+          "label": {
+            "PolicyTransform": {
+              "ops": [
+                {
+                  "Binary": {
+                    "name": "dt.offset_by",
+                    "arg": {
+                      "Duration": {
+                        "secs": 5,
+                        "nanos": 0
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "next": {
+            "type": "PolicyClean"
+          }
+        },
+        {
+          "type": "PolicyDeclassify",
+          "label": {
+            "PolicyTransform": {
+              "ops": [
+                {
+                  "Binary": {
+                    "name": "dt.offset_by",
+                    "arg": {
+                      "Duration": {
+                        "secs": 5,
+                        "nanos": 0
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "next": {
+            "type": "PolicyClean"
+          }
+        },
+        {
+          "type": "PolicyDeclassify",
+          "label": {
+            "PolicyTransform": {
+              "ops": [
+                {
+                  "Binary": {
+                    "name": "dt.offset_by",
+                    "arg": {
+                      "Duration": {
+                        "secs": 5,
+                        "nanos": 0
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "next": {
+            "type": "PolicyClean"
+          }
+        },
+        {
+          "type": "PolicyDeclassify",
+          "label": {
+            "PolicyTransform": {
+              "ops": [
+                {
+                  "Binary": {
+                    "name": "dt.offset_by",
+                    "arg": {
+                      "Duration": {
+                        "secs": 5,
+                        "nanos": 0
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "next": {
+            "type": "PolicyClean"
+          }
+        },
+        {
+          "type": "PolicyDeclassify",
+          "label": {
+            "PolicyTransform": {
+              "ops": [
+                {
+                  "Binary": {
+                    "name": "dt.offset_by",
+                    "arg": {
+                      "Duration": {
+                        "secs": 5,
+                        "nanos": 0
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "next": {
+            "type": "PolicyClean"
+          }
+        }
+      ]
+    },
+    {
+      "policies": [
+        {
+          "type": "PolicyClean"
+        },
+        {
+          "type": "PolicyClean"
+        },
+        {
+          "type": "PolicyClean"
+        },
+        {
+          "type": "PolicyClean"
+        },
+        {
+          "type": "PolicyClean"
+        }
+      ]
+    }
+  ]
+}

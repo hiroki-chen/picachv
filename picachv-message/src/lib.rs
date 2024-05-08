@@ -21,9 +21,8 @@ mod test {
     #[test]
     fn test_message() {
         let agg_expr = AggExpr {
-            expr: Some(agg_expr::Expr::Sum(SumExpr {
-                input_uuid: "123".into(),
-            })),
+            input_uuid: b"123".into(),
+            method: 1,
         };
 
         let protobuf = agg_expr.encode_to_vec();

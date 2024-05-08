@@ -47,8 +47,10 @@ impl Context {
         ))?;
 
         let expr = Expr::from_args(&self.arena, expr_arg)?;
+        log::debug!("expr_from_args: expr = {expr:?}");
         let mut expr_arena = rwlock_unlock!(self.arena.expr_arena, write);
         let uuid = expr_arena.insert(expr)?;
+        log::debug!("expr_from_args: uuid = {uuid}");
 
         Ok(uuid)
     }

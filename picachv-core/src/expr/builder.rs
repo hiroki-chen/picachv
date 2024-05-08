@@ -1,6 +1,6 @@
-use picachv_error::{PicachvError, PicachvResult};
+use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::column_expr::Column;
-use picachv_message::{agg_expr, expr_argument, AggExpr, ApplyExpr, SumExpr};
+use picachv_message::{expr_argument, AggExpr, ApplyExpr};
 use uuid::Uuid;
 
 use super::Expr;
@@ -32,8 +32,13 @@ impl Expr {
                 let right_uuid = Uuid::from_slice_le(&expr.right_uuid)
                     .map_err(|_| PicachvError::InvalidOperation("The UUID is invalid.".into()))?;
 
-                let lhs = expr_arena.get(&left_uuid)?;
-                let rhs = expr_arena.get(&right_uuid)?;
+                picachv_ensure!(
+                    expr_arena.contains_key(&left_uuid) &&
+                    expr_arena.contains_key(&right_uuid),
+
+                    InvalidOperation: "The UUID is invalid."
+                );
+
                 let op = expr
                     .op
                     .ok_or(PicachvError::InvalidOperation(
@@ -45,9 +50,9 @@ impl Expr {
                     ))?;
 
                 Ok(Expr::BinaryExpr {
-                    left: Box::new((**lhs).clone()),
+                    left: left_uuid,
                     op,
-                    right: Box::new((**rhs).clone()),
+                    right: right_uuid,
                     values: None, // must be reified later.
                 })
             },
@@ -55,14 +60,19 @@ impl Expr {
             Argument::Apply(ApplyExpr { input_uuids, name }) => {
                 let args = input_uuids
                     .into_iter()
-                    .map(|e| {
-                        let uuid = Uuid::from_slice_le(&e).map_err(|_| {
+                    .map(|uuid| {
+                        Uuid::from_slice_le(&uuid).map_err(|_| {
                             PicachvError::InvalidOperation("The UUID is invalid.".into())
-                        })?;
-                        let expr = expr_arena.get(&uuid)?;
-                        Ok(Box::new((**expr).clone()))
+                        })
                     })
                     .collect::<PicachvResult<Vec<_>>>()?;
+
+                for uuid in &args {
+                    picachv_ensure!(
+                        expr_arena.contains_key(uuid),
+                        InvalidOperation: "The UUID is invalid."
+                    );
+                }
 
                 Ok(Expr::Apply {
                     udf_desc: Udf { name },
@@ -71,22 +81,25 @@ impl Expr {
                 })
             },
 
-            Argument::Agg(AggExpr { expr }) => match expr {
-                Some(expr) => match expr {
-                    agg_expr::Expr::Sum(SumExpr { input_uuid }) => {
-                        let uuid = Uuid::from_slice_le(&input_uuid).map_err(|_| {
-                            PicachvError::InvalidOperation("The UUID is invalid.".into())
-                        })?;
-                        let expr = expr_arena.get(&uuid)?;
-                        Ok(Expr::Agg(crate::expr::AggExpr::Sum(Box::new(
-                            (**expr).clone(),
-                        ))))
+            Argument::Agg(AggExpr { input_uuid, method }) => {
+                let uuid = Uuid::from_slice_le(&input_uuid)
+                    .map_err(|_| PicachvError::InvalidOperation("The UUID is invalid.".into()))?;
+
+                picachv_ensure!(
+                    expr_arena.contains_key(&uuid),
+                    InvalidOperation: "The UUID is invalid."
+                );
+
+                match picachv_message::GroupByMethod::try_from(method) {
+                    Ok(how) => match how {
+                        picachv_message::GroupByMethod::Sum => Ok(Expr::Agg {
+                            expr: crate::expr::AggExpr::Sum(uuid),
+                            values: None,
+                        }),
+                        _ => todo!(),
                     },
-                    _ => todo!(),
-                },
-                None => Err(PicachvError::InvalidOperation(
-                    "The expression is empty.".into(),
-                )),
+                    Err(e) => picachv_bail!(ComputeError: "{e}"),
+                }
             },
 
             _ => todo!(),

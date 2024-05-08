@@ -3,8 +3,8 @@
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupByProxy {
     /// The vectors of indexes that are used to group the data.
-    #[prost(uint32, repeated, tag = "1")]
-    pub first: ::prost::alloc::vec::Vec<u32>,
+    #[prost(uint64, repeated, tag = "1")]
+    pub first: ::prost::alloc::vec::Vec<u64>,
     #[prost(message, repeated, tag = "2")]
     pub groups: ::prost::alloc::vec::Vec<group_by_proxy::Groups>,
 }
@@ -14,8 +14,8 @@ pub mod group_by_proxy {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Groups {
-        #[prost(uint32, repeated, tag = "1")]
-        pub group: ::prost::alloc::vec::Vec<u32>,
+        #[prost(uint64, repeated, tag = "1")]
+        pub group: ::prost::alloc::vec::Vec<u64>,
     }
 }
 /// A value that incorporates any primitive data types.
@@ -430,68 +430,11 @@ impl ExprType {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct MinExpr {
-    #[prost(bytes = "vec", tag = "1")]
-    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
-    #[prost(bool, tag = "2")]
-    pub propagate_nans: bool,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct MaxExpr {
-    #[prost(bytes = "vec", tag = "1")]
-    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
-    #[prost(bool, tag = "2")]
-    pub propagate_nans: bool,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SumExpr {
-    #[prost(bytes = "vec", tag = "1")]
-    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct MeanExpr {
-    #[prost(bytes = "vec", tag = "1")]
-    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct FirstExpr {
-    #[prost(bytes = "vec", tag = "1")]
-    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct LastExpr {
-    #[prost(bytes = "vec", tag = "1")]
-    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AggExpr {
-    #[prost(oneof = "agg_expr::Expr", tags = "1, 2, 3, 4, 5, 6")]
-    pub expr: ::core::option::Option<agg_expr::Expr>,
-}
-/// Nested message and enum types in `AggExpr`.
-pub mod agg_expr {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Expr {
-        #[prost(message, tag = "1")]
-        Min(super::MinExpr),
-        #[prost(message, tag = "2")]
-        Max(super::MaxExpr),
-        #[prost(message, tag = "3")]
-        Sum(super::SumExpr),
-        #[prost(message, tag = "4")]
-        Mean(super::MeanExpr),
-        #[prost(message, tag = "5")]
-        First(super::FirstExpr),
-        #[prost(message, tag = "6")]
-        Last(super::LastExpr),
-    }
+    #[prost(bytes = "vec", tag = "1")]
+    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
+    #[prost(enumeration = "GroupByMethod", tag = "2")]
+    pub method: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -667,6 +610,8 @@ pub struct AggregateArgument {
     pub maintain_order: bool,
     #[prost(message, optional, tag = "4")]
     pub group_by_proxy: ::core::option::Option<GroupByProxy>,
+    #[prost(string, repeated, tag = "5")]
+    pub output_schema: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 /// A Rust `enum`-like message to represent the different types of physical
 /// plans.

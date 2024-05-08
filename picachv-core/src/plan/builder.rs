@@ -92,6 +92,7 @@ impl Plan {
                 aggs_uuid,
                 maintain_order,
                 group_by_proxy,
+                output_schema,
             }) => {
                 let keys = keys
                     .into_iter()
@@ -117,6 +118,7 @@ impl Plan {
                     gb_proxy: group_by_proxy.ok_or(PicachvError::InvalidOperation(
                         "The group by proxy is empty.".into(),
                     ))?,
+                    output_schema,
                 })
             },
         }

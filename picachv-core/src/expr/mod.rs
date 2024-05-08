@@ -1,3 +1,4 @@
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use std::{fmt, vec};
 
@@ -5,6 +6,7 @@ use arrow_array::{Array, Date32Array, Int32Array, LargeStringArray, RecordBatch}
 use arrow_schema::DataType;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::binary_operator;
+use uuid::Uuid;
 
 use crate::arena::Arena;
 use crate::constants::GroupByMethod;
@@ -12,7 +14,9 @@ use crate::policy::context::ExpressionEvalContext;
 use crate::policy::types::AnyValue;
 use crate::policy::{policy_ok, BinaryTransformType, Policy, PolicyLabel, TransformType};
 use crate::udf::Udf;
-use crate::{build_unary_expr, cast, policy_agg_label, policy_binary_transform_label};
+use crate::{
+    build_unary_expr, cast, policy_agg_label, policy_binary_transform_label, rwlock_unlock,
+};
 
 pub mod builder;
 
@@ -21,35 +25,26 @@ pub type ExprArena = Arena<Expr>;
 
 #[derive(PartialEq, Clone)]
 pub enum AggExpr {
-    Min {
-        input: Box<Expr>,
-        propagate_nans: bool,
-    },
-    Max {
-        input: Box<Expr>,
-        propagate_nans: bool,
-    },
-    Median(Box<Expr>),
-    NUnique(Box<Expr>),
-    First(Box<Expr>),
-    Last(Box<Expr>),
-    Mean(Box<Expr>),
-    Implode(Box<Expr>),
+    Min { input: Uuid, propagate_nans: bool },
+    Max { input: Uuid, propagate_nans: bool },
+    Median(Uuid),
+    NUnique(Uuid),
+    First(Uuid),
+    Last(Uuid),
+    Mean(Uuid),
+    Implode(Uuid),
     // include_nulls
-    Count(Box<Expr>, bool),
-    Quantile {
-        expr: Box<Expr>,
-        quantile: Box<Expr>,
-    },
-    Sum(Box<Expr>),
-    AggGroups(Box<Expr>),
-    Std(Box<Expr>, u8),
-    Var(Box<Expr>, u8),
+    Count(Uuid, bool),
+    Quantile { expr: Uuid, quantile: Uuid },
+    Sum(Uuid),
+    AggGroups(Uuid),
+    Std(Uuid, u8),
+    Var(Uuid, u8),
 }
 
 impl AggExpr {
-    pub fn extract_expr(&self) -> &Expr {
-        match self {
+    pub fn extract_expr(&self, expr_arena: &Arc<RwLock<ExprArena>>) -> PicachvResult<Arc<Expr>> {
+        let expr_uuid = match self {
             Self::Min { input, .. }
             | Self::Max { input, .. }
             | Self::Median(input)
@@ -64,7 +59,11 @@ impl AggExpr {
             | Self::AggGroups(input)
             | Self::Std(input, _)
             | Self::Var(input, _) => input,
-        }
+        };
+
+        rwlock_unlock!(expr_arena, read)
+            .get(expr_uuid)
+            .map(|e| e.clone())
     }
 
     pub fn as_groupby_method(&self) -> GroupByMethod {
@@ -87,32 +86,35 @@ impl AggExpr {
 #[derive(Clone, PartialEq)]
 pub enum Expr {
     /// Aggregation.
-    Agg(AggExpr),
+    Agg {
+        expr: AggExpr,
+        values: Option<Vec<Vec<AnyValue>>>,
+    },
     /// Select a column.
     Column(String),
     /// Count expression.
     Count,
     /// Making alias.
     Alias {
-        expr: Box<Expr>,
+        expr: Uuid,
         name: String,
     },
     /// "*".
     Wildcard,
     /// Filter.
     Filter {
-        input: Box<Expr>,
-        filter: Box<Expr>,
+        input: Uuid,
+        filter: Uuid,
     },
     /// Binary operations
     BinaryExpr {
-        left: Box<Expr>,
+        left: Uuid,
         op: binary_operator::Operator,
-        right: Box<Expr>,
+        right: Uuid,
         values: Option<Vec<Vec<AnyValue>>>,
     },
     UnaryExpr {
-        arg: Box<Expr>,
+        arg: Uuid,
         op: TransformType,
     },
     Literal,
@@ -120,7 +122,7 @@ pub enum Expr {
     Apply {
         udf_desc: Udf,
         // This only takes one argument.
-        args: Vec<Box<Expr>>,
+        args: Vec<Uuid>,
         // A type-erased array of values reified by the caller.
         values: Option<Vec<Vec<AnyValue>>>,
     },
@@ -128,7 +130,7 @@ pub enum Expr {
 
 impl Expr {
     pub fn needs_reify(&self) -> bool {
-        matches!(self, Self::Apply { .. })
+        matches!(self, Self::Apply { .. } | Self::Agg { .. })
     }
 
     /// This function checks the policy enforcement for the expression type in aggregation context.
@@ -139,6 +141,7 @@ impl Expr {
         ctx: &mut ExpressionEvalContext,
     ) -> PicachvResult<Vec<Policy<PolicyLabel>>> {
         let mut policies = vec![];
+        let expr_arena = rwlock_unlock!(ctx.arena.expr_arena, read);
 
         // Extract the groups as a sub-dataframe.
         let groups = ctx.gb_proxy.ok_or(PicachvError::ComputeError(
@@ -165,6 +168,36 @@ impl Expr {
                 }
             },
 
+            Expr::Apply {
+                udf_desc,
+                args,
+                values,
+            } => {
+                let values = values.clone().ok_or(PicachvError::ComputeError(
+                    format!("{udf_desc:?} does not have values reified.").into(),
+                ))?;
+
+                let args = args
+                    .iter()
+                    .map(|e| expr_arena.get(e))
+                    .collect::<PicachvResult<Vec<_>>>()?;
+
+                for i in 0..groups.shape().0 {
+                    let mut p = Default::default();
+                    for j in 0..args.len() {
+                        let arg = args[j].check_policy_in_row(ctx, i)?;
+                        p = check_policy_binary_udf(
+                            groups.columns[j].policies[i].clone(),
+                            arg,
+                            &udf_desc.name,
+                            &values[i],
+                        )?;
+                    }
+
+                    policies.push(p);
+                }
+            },
+
             _ => unimplemented!("{self:?} is not yet supported in aggregation context."),
         }
 
@@ -180,6 +213,8 @@ impl Expr {
         ctx: &mut ExpressionEvalContext,
         idx: usize,
     ) -> PicachvResult<Policy<PolicyLabel>> {
+        let expr_arena = rwlock_unlock!(ctx.arena.expr_arena, read);
+
         match self {
             // A literal expression is always allowed because it does not
             // contain any sensitive information.
@@ -191,12 +226,14 @@ impl Expr {
                 values, // todo.
             } => match values {
                 Some(values) => check_policy_in_row_apply(ctx, name, args, values, idx),
-                None => panic!("The values are not reified."),
+                None => picachv_bail!(ComputeError: "The values are not reified."),
             },
 
             Expr::BinaryExpr {
                 left, right, op, ..
             } => {
+                let left = expr_arena.get(left)?;
+                let right = expr_arena.get(right)?;
                 let lhs = left.check_policy_in_row(ctx, idx)?;
                 let rhs = right.check_policy_in_row(ctx, idx)?;
 
@@ -227,6 +264,7 @@ impl Expr {
             //
             // See `eval_unary_expression_in_cell`.
             Expr::UnaryExpr { arg, op } => {
+                let arg = expr_arena.get(arg)?;
                 let policy = arg.check_policy_in_row(ctx, idx)?;
                 policy.downgrade(build_unary_expr!(op.clone()))
             },
@@ -247,12 +285,17 @@ impl Expr {
                 // See `EvalColumnNotAgg` in `expression.v`.
                 Ok(ctx.df.row(idx)?[col].clone())
             },
-            Expr::Alias { expr, .. } => expr.check_policy_in_row(ctx, idx),
+            Expr::Alias { expr, .. } => {
+                let expr = expr_arena.get(expr)?;
+                expr.check_policy_in_row(ctx, idx)
+            },
             Expr::Filter { input, filter } => {
+                let input = expr_arena.get(input)?;
+                let filter = expr_arena.get(filter)?;
                 input.check_policy_in_row(ctx, idx)?;
                 filter.check_policy_in_row(ctx, idx)
             },
-            Expr::Agg(_) => Err(PicachvError::ComputeError(
+            Expr::Agg { .. } => Err(PicachvError::ComputeError(
                 "Aggregation expression is not allowed in row context.".into(),
             )),
             // todo.
@@ -261,10 +304,12 @@ impl Expr {
     }
 
     pub fn reify(&mut self, values: RecordBatch) -> PicachvResult<()> {
-        log::debug!("reifying {values:?}");
+        log::debug!("reifying {values:?} for {self:?}");
 
         let values_mut = match self {
-            Expr::Apply { values, .. } | Expr::BinaryExpr { values, .. } => values,
+            Expr::Apply { values, .. }
+            | Expr::BinaryExpr { values, .. }
+            | Expr::Agg { values, .. } => values,
             _ => picachv_bail!(ComputeError: "The expression does not need reification."),
         };
 
@@ -358,7 +403,7 @@ impl fmt::Debug for AggExpr {
 impl fmt::Debug for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Agg(agg) => write!(f, "{agg:?}"),
+            Self::Agg { expr, .. } => write!(f, "{expr:?}"),
             Self::Column(column) => write!(f, "col({column})"),
             Self::Count => write!(f, "COUNT"),
             Self::Wildcard => write!(f, "*"),
@@ -421,6 +466,7 @@ fn check_policy_binary_udf(
             "dt.offset_by" => {
                 // We now construct the downgrading operation.
                 let lhs_value = cast::into_duration(values[0].clone())?;
+
                 let pf = policy_binary_transform_label!(udf_name.to_string(), lhs_value);
 
                 // Check if we can downgrade.
@@ -434,6 +480,7 @@ fn check_policy_binary_udf(
             "dt.offset_by" => {
                 // We now construct the downgrading operation.
                 let rhs_value = cast::into_duration(values[1].clone())?;
+                log::debug!("rhs_value = {:?}", rhs_value);
                 let pf = policy_binary_transform_label!(udf_name.to_string(), rhs_value);
 
                 // Check if we can downgrade.
@@ -451,10 +498,17 @@ fn check_policy_binary_udf(
 fn check_policy_in_row_apply(
     ctx: &mut ExpressionEvalContext,
     udf_name: &str,
-    args: &[Box<Expr>],
+    args: &[Uuid],
     values: &[Vec<AnyValue>],
     idx: usize,
 ) -> PicachvResult<Policy<PolicyLabel>> {
+    let args = {
+        let expr_arena = rwlock_unlock!(ctx.arena.expr_arena, read);
+        args.iter()
+            .map(|e| expr_arena.get(e).cloned())
+            .collect::<PicachvResult<Vec<_>>>()?
+    };
+
     match args.len() {
         // Because a UDF does not have any argument, it is safe since it does not de-
         // pend on any sensitive information.

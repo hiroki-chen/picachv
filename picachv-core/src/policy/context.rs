@@ -11,13 +11,13 @@ use picachv_message::group_by_proxy::Groups;
 
 use crate::dataframe::PolicyGuardedDataFrame;
 use crate::udf::Udf;
+use crate::Arenas;
 
 /// The `eval_env` type defined in the Coq file.
 ///
 /// There are some changes:
 /// - No `step` is required since there is no termination check, and
 /// - Γ is not required here although we can add it (not necessary).
-#[derive(Debug)]
 pub(crate) struct ExpressionEvalContext<'ctx> {
     /// The schema of the current expression.
     pub(crate) schema: Vec<String>,
@@ -27,7 +27,10 @@ pub(crate) struct ExpressionEvalContext<'ctx> {
     pub(crate) in_agg: bool,
     /// The group by columns.
     pub(crate) gb_proxy: Option<&'ctx Groups>,
-    udfs: &'ctx HashMap<String, Udf>,
+    /// Some UDF mappings.
+    pub(crate) udfs: &'ctx HashMap<String, Udf>,
+    /// The reference to the arena.
+    pub(crate) arena: &'ctx Arenas,
 }
 
 impl<'ctx> ExpressionEvalContext<'ctx> {
@@ -36,6 +39,7 @@ impl<'ctx> ExpressionEvalContext<'ctx> {
         df: &'ctx PolicyGuardedDataFrame,
         in_agg: bool,
         udfs: &'ctx HashMap<String, Udf>,
+        arena: &'ctx Arenas,
     ) -> Self {
         ExpressionEvalContext {
             schema,
@@ -43,6 +47,7 @@ impl<'ctx> ExpressionEvalContext<'ctx> {
             in_agg,
             gb_proxy: None,
             udfs,
+            arena,
         }
     }
 

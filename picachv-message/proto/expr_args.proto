@@ -4,33 +4,9 @@ package PicachvMessages;
 
 import "basic.proto";
 
-message MinExpr {
-  bytes input_uuid = 1;
-  bool propagate_nans = 2;
-}
-
-message MaxExpr {
-  bytes input_uuid = 1;
-  bool propagate_nans = 2;
-}
-
-message SumExpr { bytes input_uuid = 1; }
-
-message MeanExpr { bytes input_uuid = 1; }
-
-message FirstExpr { bytes input_uuid = 1; }
-
-message LastExpr { bytes input_uuid = 1; }
-
 message AggExpr {
-  oneof expr {
-    MinExpr min = 1;
-    MaxExpr max = 2;
-    SumExpr sum = 3;
-    MeanExpr mean = 4;
-    FirstExpr first = 5;
-    LastExpr last = 6;
-  }
+  bytes input_uuid = 1;
+  GroupByMethod method = 2;
 }
 
 message ColumnExpr {

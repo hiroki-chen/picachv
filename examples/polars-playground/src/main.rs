@@ -3,17 +3,19 @@ use polars::prelude::*;
 
 fn main() {
     let df = df! {
-        "a" => &[1, 2, 3, 4, 5],
-        "b" => &["2020-08-21", "2020-08-22", "2020-08-23", "2020-08-24", "2020-08-25"]
+        "a" => &[1, 1, 1, 1, 1],
+        "b" => &[1, 2, 3, 4, 5]
     }
     .unwrap();
 
     let out = df
         .lazy()
-        .filter(lit(1).lt(col("a")))
-        .select([col("b").cast(DataType::Date).dt().offset_by(lit("5mo"))])
-        .collect()
-        .unwrap();
+        .group_by([col("a").cast(DataType::Date).dt().offset_by(lit("5s"))])
+        .agg(vec![col("b").sum()]);
+
+    println!("plan logical query:\n{}", out.explain(true).unwrap());
+
+    let out = out.collect().unwrap();
 
     println!("{:?}", out);
 }

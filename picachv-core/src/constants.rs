@@ -1,6 +1,7 @@
 use std::fmt;
 
 use num_enum::{IntoPrimitive, TryFromPrimitive};
+use picachv_error::{PicachvError, PicachvResult};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, IntoPrimitive, TryFromPrimitive)]
@@ -143,6 +144,23 @@ pub enum GroupByMethod {
     Implode,
     Std(u8),
     Var(u8),
+}
+
+impl TryFrom<picachv_message::GroupByMethod> for GroupByMethod {
+    type Error = PicachvError;
+    fn try_from(value: picachv_message::GroupByMethod) -> PicachvResult<Self> {
+        match value {
+            picachv_message::GroupByMethod::Min => Ok(GroupByMethod::Min),
+            picachv_message::GroupByMethod::NanMin => Ok(GroupByMethod::NanMin),
+            picachv_message::GroupByMethod::Max => Ok(GroupByMethod::Max),
+            picachv_message::GroupByMethod::NanMax => Ok(GroupByMethod::NanMax),
+            picachv_message::GroupByMethod::Median => Ok(GroupByMethod::Median),
+            picachv_message::GroupByMethod::Mean => Ok(GroupByMethod::Mean),
+            picachv_message::GroupByMethod::First => Ok(GroupByMethod::First),
+            picachv_message::GroupByMethod::Last => Ok(GroupByMethod::Last),
+            picachv_message::GroupByMethod::Sum => Ok(GroupByMethod::Sum),
+        }
+    }
 }
 
 impl fmt::Display for LogicalBinaryOperator {

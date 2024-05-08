@@ -46,6 +46,7 @@ message AggregateArgument {
   repeated bytes aggs_uuid = 2;
   bool maintain_order = 3;
   GroupByProxy group_by_proxy = 4;
+  repeated string output_schema = 5;
 }
 
 // A Rust `enum`-like message to represent the different types of physical

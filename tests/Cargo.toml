@@ -1,0 +1,17 @@
+[package]
+name = "tests"
+version = "0.1.0"
+edition = "2021"
+
+[dev-dependencies]
+env_logger = "0.11.3"
+log = "0.4.21"
+polars = { path = "../../polars/crates/polars", features = [
+  "lazy",
+  "temporal",
+  "date_offset",
+] }
+
+[[test]]
+name = "polars_test"
+path = "polars_test.rs"

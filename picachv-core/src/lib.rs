@@ -7,8 +7,7 @@ use arrow_ipc::writer::StreamWriter;
 use dataframe::PolicyGuardedDataFrame;
 use expr::{Expr, ExprArena};
 use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::{ExprArgument, PlanArgument};
-use plan::Plan;
+use picachv_message::ExprArgument;
 use uuid::Uuid;
 
 pub mod arena;
@@ -34,17 +33,6 @@ impl Arenas {
             df_arena: Arc::new(RwLock::new(Arena::new("df_arena".into()))),
         }
     }
-
-    // pub fn build_plan(&self, arg: PlanArgument) -> PicachvResult<Uuid> {
-    //     let arg = arg.argument.ok_or(PicachvError::InvalidOperation(
-    //         "The argument is empty.".into(),
-    //     ))?;
-
-    //     let lp = Plan::from_args(self, arg)?;
-
-    //     let mut lock = rwlock_unlock!(self.lp_arena, write);
-    //     lock.insert(lp)
-    // }
 
     pub fn build_expr(&self, arg: ExprArgument) -> PicachvResult<Uuid> {
         let arg = arg.argument.ok_or(PicachvError::InvalidOperation(

@@ -4,10 +4,10 @@ package PicachvMessages;
 
 message GroupByProxy {
   // The vectors of indexes that are used to group the data.
-  repeated uint32 first = 1;
+  repeated uint64 first = 1;
   // Groups belonging to the same group.
   message Groups {
-    repeated uint32 group = 1;
+    repeated uint64 group = 1;
   }
   repeated Groups groups = 2;
 }

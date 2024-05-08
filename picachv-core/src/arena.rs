@@ -22,6 +22,7 @@ where
     T: Clone + fmt::Debug,
 {
     /// Inserts a new object into the arena.
+    #[inline]
     pub fn insert(&mut self, object: T) -> PicachvResult<Uuid> {
         let uuid = Uuid::new_v4();
 
@@ -29,11 +30,17 @@ where
         Ok(uuid)
     }
 
+    #[inline]
     pub fn insert_arc(&mut self, plan: Arc<T>) -> PicachvResult<Uuid> {
         let uuid = Uuid::new_v4();
 
         self.inner.insert(uuid, plan);
         Ok(uuid)
+    }
+
+    #[inline]
+    pub fn contains_key(&self, uuid: &Uuid) -> bool {
+        self.inner.contains_key(uuid)
     }
 
     pub fn get(&self, uuid: &Uuid) -> PicachvResult<&Arc<T>> {

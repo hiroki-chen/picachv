@@ -55,6 +55,7 @@ pub enum Plan {
         maintain_order: bool,
         // An auxiliary data structure telling the monitor how data should be aggregated.
         gb_proxy: GroupByProxy,
+        output_schema: Vec<String>,
     },
 
     DataFrameScan {
@@ -204,6 +205,7 @@ impl Plan {
                 keys,
                 aggs,
                 gb_proxy,
+                output_schema,
                 ..
             } => {
                 let expr_arena = rwlock_unlock!(arena.expr_arena, read);
@@ -228,7 +230,7 @@ impl Plan {
                 let first_part = {
                     let df_arena = rwlock_unlock!(arena.df_arena, read);
                     let df = df_arena.get(&active_df_uuid)?;
-                    let df = do_check_expressions(df, &keys, udfs)?;
+                    let df = do_check_expressions(arena, df, &keys, udfs)?;
 
                     aggregate_keys(&df, gb_proxy)
                 }?;
@@ -240,7 +242,8 @@ impl Plan {
                 // Combine the two parts.
                 let mut df_arena = rwlock_unlock!(arena.df_arena, write);
                 let second_part = df_arena.get(&second_part)?;
-                let new_df = PolicyGuardedDataFrame::stitch(&first_part, second_part)?;
+                let mut new_df = PolicyGuardedDataFrame::stitch(&first_part, second_part)?;
+                new_df.schema = output_schema.clone();
 
                 df_arena.insert(new_df)
             },
@@ -253,6 +256,8 @@ fn aggregate_keys(
     gb_proxy: &GroupByProxy,
 ) -> PicachvResult<PolicyGuardedDataFrame> {
     let mut columns = vec![];
+
+    println!("aggregate_keys: df = {df:?}, gb_proxy = {gb_proxy:?}");
 
     for col_idx in 0..df.shape().1 {
         let mut cur = vec![];
@@ -310,14 +315,14 @@ fn check_policy_agg(
     );
 
     let agg_expr = match expr {
-        Expr::Agg(agg) => agg,
+        Expr::Agg { expr, .. } => expr,
         _ => {
             // We must ensure that the expression being checked is an aggregation expression.
             picachv_bail!(ComputeError: "The expression {expr:?} is not an aggregation expression.")
         },
     };
 
-    let inner_expr = agg_expr.extract_expr();
+    let inner_expr = agg_expr.extract_expr(&ctx.arena.expr_arena)?;
     // We first check the policy enforcement for the inner expression.
     let inner = inner_expr.check_policy_in_group(ctx)?;
     // We then apply the `fold` thing on `inner`.
@@ -345,7 +350,7 @@ fn check_expressions_agg(
         let mut group_res = vec![];
         // Then we need to iterate over the groups.
         for group in 0..group_num {
-            let mut ctx = ExpressionEvalContext::new(df.schema.clone(), df, true, udfs);
+            let mut ctx = ExpressionEvalContext::new(df.schema.clone(), df, true, udfs, arena);
             ctx.gb_proxy = Some(&gb_proxy.groups[group]);
 
             // For each group we will get the result of the aggregation.
@@ -372,13 +377,14 @@ fn check_expressions_agg(
 }
 
 fn do_check_expressions(
+    arena: &Arenas,
     df: &PolicyGuardedDataFrame,
     expression: &[Arc<Expr>],
     udfs: &HashMap<String, Udf>,
 ) -> PicachvResult<PolicyGuardedDataFrame> {
     let rows = df.shape().0;
     let mut col = vec![];
-    let mut ctx = ExpressionEvalContext::new(df.schema.clone(), df, false, udfs);
+    let mut ctx = ExpressionEvalContext::new(df.schema.clone(), df, false, udfs, arena);
     for expr in expression.into_iter() {
         let mut cur = vec![];
         for idx in 0..rows {
@@ -406,7 +412,7 @@ fn check_expressions(
     let df = df_arena.get_mut(&active_df_uuid)?;
     let can_replace = Arc::strong_count(df) == 1 && !keep_old;
 
-    let new_df = Arc::new(do_check_expressions(df, expression, udfs)?);
+    let new_df = Arc::new(do_check_expressions(arena, df, expression, udfs)?);
 
     if can_replace {
         let _ = std::mem::replace(df, new_df);
