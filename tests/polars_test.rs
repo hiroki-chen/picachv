@@ -8,27 +8,36 @@ mod polars_tests {
     use polars::lazy::PicachvError;
     use polars::prelude::*;
 
-    fn prepare() -> (Uuid, DataFrame) {
-        let _ = env_logger::builder()
-            .is_test(true)
-            .filter_level(log::LevelFilter::Debug)
-            .try_init();
-
+    fn get_df(ctx_id: Uuid) -> DataFrame {
+        let policy = PolicyGuardedDataFrame::from_json("../data/simple_policy.json").unwrap();
         let mut df = df! {
             "a" => &[1, 2, 3, 4, 5],
             "b" => &[5, 4, 3, 2, 1]
         }
         .unwrap();
+        let uuid = register_policy_dataframe(ctx_id, policy).unwrap();
+        df.set_uuid(uuid);
+
+        df
+    }
+
+    fn init() -> Uuid {
+        let _ = env_logger::builder()
+            .is_test(true)
+            .filter_level(log::LevelFilter::Debug)
+            .try_init();
 
         match init_monitor() {
             Ok(_) | Err(PicachvError::Already(_)) => (),
             Err(e) => panic!("Error: {:?}", e),
         };
 
-        let policy = PolicyGuardedDataFrame::from_json("../data/simple_policy.json").unwrap();
-        let ctx_id = open_new().unwrap();
-        let uuid = register_policy_dataframe(ctx_id, policy.clone()).unwrap();
-        df.set_uuid(uuid);
+        open_new().unwrap()
+    }
+
+    fn prepare() -> (Uuid, DataFrame) {
+        let ctx_id = init();
+        let df = get_df(ctx_id);
 
         (ctx_id, df)
     }
@@ -134,5 +143,54 @@ mod polars_tests {
         }
 
         assert!(out.is_ok());
+    }
+
+    #[test]
+    fn test_polars_union_ok() {
+        let ctx_id = init();
+        let df1 = get_df(ctx_id);
+        let df2 = get_df(ctx_id);
+
+        let out1 = df1.clone().lazy();
+        let out2 = df2.clone().lazy();
+
+        let out1 = out1
+            .filter(lit(1).lt(col("b")))
+            .select([
+                col("a").cast(DataType::Date).dt().offset_by(lit("5s")),
+                col("b"),
+            ])
+            .group_by([col("a")])
+            .agg(vec![col("b").sum()]);
+        let out2 = out2
+            .filter(lit(1).lt(col("b")))
+            .select([
+                col("a").cast(DataType::Date).dt().offset_by(lit("5s")),
+                col("b"),
+            ])
+            .group_by([col("a")])
+            .agg(vec![col("b").sum()]);
+
+        let out = concat([out1, out2], Default::default())
+            .unwrap()
+            .set_ctx_id(ctx_id)
+            .collect();
+
+        assert!(out.is_ok());
+    }
+
+    #[test]
+    fn test_polars_union_fail() {
+        let (ctx_id, df) = prepare();
+
+        let out1 = df.clone().lazy();
+        let out2 = df.clone().lazy().filter(lit(1).lt(col("b")));
+
+        let out = concat([out1, out2], Default::default())
+            .unwrap()
+            .set_ctx_id(ctx_id)
+            .collect();
+
+        assert!(out.is_err());
     }
 }

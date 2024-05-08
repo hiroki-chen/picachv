@@ -434,6 +434,7 @@ impl fmt::Display for Expr {
 
 impl ExprArena {}
 
+// The checking logic seems identical to the one in `expr.rs`.
 fn check_policy_binary(
     lhs: &Policy<PolicyLabel>,
     rhs: &Policy<PolicyLabel>,

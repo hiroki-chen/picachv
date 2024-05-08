@@ -418,10 +418,7 @@ where
             } => match cur.flowsto(&label) {
                 false => Ok(Self::PolicyDeclassify {
                     label: cur.clone(),
-                    next: Box::new(Self::PolicyDeclassify {
-                        label,
-                        next: p.clone(),
-                    }),
+                    next: Box::new(p.clone().cons(label)?),
                 }),
                 true => Err(PicachvError::InvalidOperation(
                     "policy label is not ordered correctly".into(),

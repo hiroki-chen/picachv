@@ -11,10 +11,10 @@ pub use policy::*;
 macro_rules! build_policy {
     () => { $crate::policy::Policy::default() };
     ($label:expr) => {
-        $crate::policy::Policy::new().cons($label)
+        $crate::policy::Policy::new().cons($label.clone())
     };
     ($label:expr $(=> $rest:path)*) => {{
-        let mut policy = $crate::policy::Policy::new().cons($label);
+        let mut policy = $crate::policy::Policy::new().cons($label.clone());
 
         $(
             policy = policy.and_then(|p| p.cons($rest));
@@ -43,6 +43,7 @@ mod tests {
 
     use crate::policy::types::AnyValue;
     use crate::policy::{BinaryTransformType, Policy, PolicyLabel, TransformOps, TransformType};
+    use crate::policy_binary_transform_label;
 
     #[test]
     fn test_build_policy() {
@@ -63,5 +64,18 @@ mod tests {
         let policy_str = serde_json::to_string(&prev).unwrap();
         let cur: Policy<PolicyLabel> = serde_json::from_str(&policy_str).unwrap();
         assert_eq!(prev, cur);
+    }
+
+    #[test]
+    fn test_policy_join() {
+        let policy_lhs = build_policy!(PolicyLabel::PolicyTop).unwrap();
+        let policy_rhs =
+            policy_binary_transform_label!("dt.offset_by", AnyValue::Duration(Duration::new(5, 0)));
+        let polich_rhs = build_policy!(policy_rhs).unwrap();
+        let policy_res =
+            build_policy!(PolicyLabel::PolicyTop => policy_rhs).unwrap();
+
+        let res = policy_lhs.join(&polich_rhs);
+        assert!(res.is_ok_and(|res| res == policy_res));
     }
 }

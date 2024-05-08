@@ -19,7 +19,7 @@ macro_rules! policy_binary_transform_label {
             ops: $crate::policy::TransformOps(::std::collections::HashSet::from_iter(
                 vec![$crate::policy::TransformType::Binary(
                     $crate::policy::BinaryTransformType {
-                        name: $name,
+                        name: $name.into(),
                         arg: $arg,
                     },
                 )]

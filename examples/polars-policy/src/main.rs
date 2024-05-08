@@ -114,7 +114,8 @@ fn example3(policy: &PolicyGuardedDataFrame) -> Result<DataFrame> {
     df1.set_uuid(uuid1);
     df2.set_uuid(uuid2);
 
-    concat([df1.lazy(), df2.lazy()], Default::default())?
+    df1.lazy()
+        .join(df2.lazy(), [col("b")], [col("b")], JoinArgs::default())
         .set_ctx_id(ctx_id)
         .collect()
         .map_err(|e| anyhow!(e))
@@ -137,14 +138,14 @@ fn main() -> Result<()> {
     //     Ok(_) => unreachable!("Should not occur!"),
     //     Err(e) => log::error!("Error: {}", e),
     // }
-    match example2(&policy) {
-        Ok(df) => log::info!("Result: {}", df),
-        Err(e) => unreachable!("Error: {}", e),
-    }
-    // match example3(&policy) {
-    //     Ok(df) => unreachable!("Result: {}", df),
-    //     Err(e) => log::error!("Error: {}", e),
+    // match example2(&policy) {
+    //     Ok(df) => log::info!("Result: {}", df),
+    //     Err(e) => unreachable!("Error: {}", e),
     // }
+    match example3(&policy) {
+        Ok(df) => unreachable!("Result: {}", df),
+        Err(e) => log::error!("Error: {}", e),
+    }
 
     Ok(())
 }

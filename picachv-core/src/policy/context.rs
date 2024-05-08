@@ -18,6 +18,7 @@ use crate::Arenas;
 /// There are some changes:
 /// - No `step` is required since there is no termination check, and
 /// - Γ is not required here although we can add it (not necessary).
+#[allow(unused)]
 pub(crate) struct ExpressionEvalContext<'ctx> {
     /// The schema of the current expression.
     pub(crate) schema: Vec<String>,
@@ -49,9 +50,5 @@ impl<'ctx> ExpressionEvalContext<'ctx> {
             udfs,
             arena,
         }
-    }
-
-    pub fn get_udf(&self, name: &str) -> Option<&Udf> {
-        self.udfs.get(name)
     }
 }
