@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use picachv_core::dataframe::PolicyGuardedDataFrame;
+use picachv_core::dataframe::{apply_transform, PolicyGuardedDataFrame};
 use picachv_core::expr::Expr;
 use picachv_core::plan::Plan;
 use picachv_core::udf::Udf;
 use picachv_core::{get_new_uuid, record_batch_from_bytes, rwlock_unlock, Arenas};
 use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::transform_info::information::Information;
 use picachv_message::{ExprArgument, PlanArgument, TransformInfo};
 use prost::Message;
 use uuid::Uuid;
@@ -84,82 +83,7 @@ impl Context {
             return Ok(df_uuid);
         }
 
-        let mut uuid = Uuid::default();
-
-        for ti in transform.trans_info.iter() {
-            match ti.information.as_ref() {
-                Some(ti) => match ti {
-                    Information::Dummy(dummy) => {
-                        let df_uuid = Uuid::from_slice_le(&dummy.df_uuid)
-                            .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
-                        // Just a sanity check to make sure the UUID is valid.
-                        rwlock_unlock!(self.arena.df_arena, read).get(&df_uuid)?;
-                        // We just re-use the UUID.
-                        uuid = df_uuid;
-                    },
-
-                    Information::Filter(pred) => {
-                        let df_uuid = Uuid::from_slice_le(&pred.df_uuid)
-                            .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
-                        let mut df_arena = rwlock_unlock!(self.arena.df_arena, write);
-                        let df = df_arena.get_mut(&df_uuid)?;
-
-                        // We then apply the transformation.
-                        //
-                        // We first check if we are holding a strong reference to the dataframe, if so
-                        // we can directly apply the transformation on the dataframe, otherwise we need
-                        // to clone the dataframe and apply the transformation on the cloned dataframe.
-                        // By doing so we can save the memory usage.
-                        let new_uuid = match Arc::get_mut(df) {
-                            Some(df) => {
-                                df.filter(&pred.filter)?;
-                                // We just re-use the UUID.
-                                df_uuid
-                            },
-                            None => {
-                                let mut df = (**df).clone();
-                                df.filter(&pred.filter)?;
-                                // We insert the new dataframe and this methods returns a new UUID.
-                                df_arena.insert(df)?
-                            },
-                        };
-
-                        uuid = new_uuid;
-                    },
-
-                    Information::Union(union_info) => {
-                        let mut df_arena = rwlock_unlock!(self.arena.df_arena, write);
-
-                        let involved_dfs = union_info
-                            .input_df_uuid
-                            .iter()
-                            .map(|uuid| {
-                                let uuid = Uuid::from_slice_le(uuid).map_err(|_| {
-                                    PicachvError::InvalidOperation("Invalid UUID.".into())
-                                })?;
-                                df_arena.get(&uuid)
-                            })
-                            .collect::<PicachvResult<Vec<_>>>()?;
-
-                        // We just union them all.
-                        let new_df = PolicyGuardedDataFrame::union(&involved_dfs)?;
-
-                        // Assign the new UUID.
-                        uuid = df_arena.insert(new_df)?;
-                    },
-
-                    _ => todo!(),
-                },
-                None => {
-                    return Err(PicachvError::InvalidOperation(
-                        "The transformation information is empty.".into(),
-                    ))
-                },
-            }
-        }
-
-        println!("execute_epilogue: uuid = {uuid}");
-        Ok(uuid)
+        apply_transform(&self.arena.df_arena, transform)
     }
 
     pub fn finalize(&self, df_uuid: Uuid) -> PicachvResult<()> {

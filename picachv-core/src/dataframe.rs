@@ -1,43 +1,24 @@
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::group_by_proxy::Groups;
+use picachv_message::join_information::RowJoinInformation;
+use picachv_message::transform_info::information::Information;
+use picachv_message::TransformInfo;
 use serde::{Deserialize, Serialize};
 use tabled::builder::Builder;
 use tabled::settings::object::Rows;
 use tabled::settings::{Alignment, Style};
+use uuid::Uuid;
 
+use crate::arena::Arena;
 use crate::policy::{Policy, PolicyLabel};
+use crate::rwlock_unlock;
 
 pub type Row = Vec<Policy<PolicyLabel>>;
 
-// pub fn get_example_df() -> PolicyGuardedDataFrame {
-//     let df = df!(
-//         "a" => &[1, 2, 3, 4, 5],
-//         "b" => &[5, 4, 3, 2, 1],
-//     )
-//     .unwrap();
-
-//     let mut p1 = vec![];
-//     let mut p2 = vec![];
-//     for i in 0..5 {
-//         let policy1 = build_policy!(PolicyLabel::PolicyTransform {
-//             ops: TransformOps(HashSet::from_iter(vec![TransformType::Binary(BinaryTransformType::ShiftBy {by: Duration::new(i, 0) })].into_iter()))
-//         } => PolicyLabel::PolicyBot)
-//         .unwrap();
-//         let policy2 = Policy::PolicyClean;
-//         p1.push(policy1);
-//         p2.push(policy2);
-//     }
-//     let col_a = PolicyGuardedColumn { policies: p1 };
-//     let col_b = PolicyGuardedColumn { policies: p2 };
-
-//     PolicyGuardedDataFrame {
-//         schema: df.schema().into(),
-//         columns: vec![col_a, col_b],
-//     }
-// }
+pub type DfArena = Arena<PolicyGuardedDataFrame>;
 
 /// A column in a [`DataFrame`] that is guarded by a vector of policies.
 ///
@@ -136,6 +117,80 @@ impl PolicyGuardedDataFrame {
         }
 
         Ok(())
+    }
+
+    /// Joins two policy-carrying dataframes.
+    ///
+    /// The function iterates over the `row_info` to join the policies specified by `common_list`. After
+    /// this is done, it re-arranges all the columns according to the `output_schema`.
+    ///
+    /// TODO: Do we need to specify join type here?
+    pub fn join(
+        lhs: &PolicyGuardedDataFrame,
+        rhs: &PolicyGuardedDataFrame,
+        left_on: &[String],
+        right_on: &[String],
+        row_info: &[RowJoinInformation],
+        output_schema: &[String],
+    ) -> PicachvResult<Self> {
+        // First we convert the column names into indices.
+        let left = left_on
+            .into_iter()
+            .map(|e| {
+                lhs.schema
+                    .iter()
+                    .position(|s| s == e)
+                    .ok_or(PicachvError::InvalidOperation(
+                        "The column is not in the schema.".into(),
+                    ))
+            })
+            .collect::<PicachvResult<Vec<_>>>()?;
+        let right = right_on
+            .into_iter()
+            .map(|e| {
+                rhs.schema
+                    .iter()
+                    .position(|s| s == e)
+                    .ok_or(PicachvError::InvalidOperation(
+                        "The column is not in the schema.".into(),
+                    ))
+            })
+            .collect::<PicachvResult<Vec<_>>>()?;
+
+        let mut common_policy_columns = vec![];
+        for (&left_col_idx, &right_col_idx) in left.iter().zip(right.iter()) {
+            let mut col = vec![];
+            for RowJoinInformation {
+                left_rows,
+                right_rows,
+            } in row_info
+            {
+                let left_row_idx = *left_rows as usize;
+                let right_row_idx = *right_rows as usize;
+                // Make sure the row index is within the bound.
+                picachv_ensure!(
+                    left_row_idx < lhs.shape().0 && right_row_idx < rhs.shape().0,
+                    ComputeError: "The row index is out of bound.",
+                );
+
+                // Then we try to fetch the row from the left and right dataframes.
+                let left_row = &lhs.columns[left_col_idx].policies[left_row_idx];
+                let right_row = &rhs.columns[right_col_idx].policies[right_row_idx];
+
+                col.push(left_row.join(right_row)?);
+            }
+
+            common_policy_columns.push(PolicyGuardedColumn { policies: col });
+        }
+
+        let common_part = PolicyGuardedDataFrame {
+            schema: left_on.iter().chain(right_on.iter()).cloned().collect(),
+            columns: common_policy_columns,
+        };
+        // After common lists are joined we stitch the rest part together.
+        // TODO: How to obtain the arrangement of the output schema?
+
+        todo!()
     }
 
     /// According to the `groups` struct, fetch the group of columns.
@@ -312,4 +367,104 @@ impl PolicyGuardedDataFrame {
 
         Ok(())
     }
+}
+
+/// Apply the transformation on the involved dataframes.
+///
+/// This function is important for keeping synchronization between the policy and the data.
+/// Any operations that alter the schema must send `TransformInfo` to this function to ensure
+/// that the policy dataframe is in sync with the data.
+pub fn apply_transform(
+    df_arena: &Arc<RwLock<DfArena>>,
+    transform: TransformInfo,
+) -> PicachvResult<Uuid> {
+    let mut uuid = Uuid::default();
+
+    for ti in transform.trans_info.iter() {
+        match ti.information.as_ref() {
+            Some(ti) => match ti {
+                Information::Filter(pred) => {
+                    let df_uuid = Uuid::from_slice_le(&pred.df_uuid)
+                        .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
+                    let mut df_arena = rwlock_unlock!(df_arena, write);
+                    let df = df_arena.get_mut(&df_uuid)?;
+
+                    // We then apply the transformation.
+                    //
+                    // We first check if we are holding a strong reference to the dataframe, if so
+                    // we can directly apply the transformation on the dataframe, otherwise we need
+                    // to clone the dataframe and apply the transformation on the cloned dataframe.
+                    // By doing so we can save the memory usage.
+                    let new_uuid = match Arc::get_mut(df) {
+                        Some(df) => {
+                            df.filter(&pred.filter)?;
+                            // We just re-use the UUID.
+                            df_uuid
+                        },
+                        None => {
+                            let mut df = (**df).clone();
+                            df.filter(&pred.filter)?;
+                            // We insert the new dataframe and this methods returns a new UUID.
+                            df_arena.insert(df)?
+                        },
+                    };
+
+                    uuid = new_uuid;
+                },
+
+                Information::Union(union_info) => {
+                    let mut df_arena = rwlock_unlock!(df_arena, write);
+
+                    let involved_dfs = [&union_info.lhs_df_uuid, &union_info.rhs_df_uuid]
+                        .iter()
+                        .map(|uuid| {
+                            let uuid = Uuid::from_slice_le(uuid).map_err(|_| {
+                                PicachvError::InvalidOperation("Invalid UUID.".into())
+                            })?;
+                            df_arena.get(&uuid)
+                        })
+                        .collect::<PicachvResult<Vec<_>>>()?;
+
+                    // We just union them all.
+                    let new_df = PolicyGuardedDataFrame::union(&involved_dfs)?;
+
+                    // Assign the new UUID.
+                    uuid = df_arena.insert(new_df)?;
+                },
+
+                Information::Join(join) => {
+                    let mut df_arena = rwlock_unlock!(df_arena, write);
+
+                    let lhs = Uuid::from_slice_le(&join.lhs_df_uuid)
+                        .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
+                    let rhs = Uuid::from_slice_le(&join.rhs_df_uuid)
+                        .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
+
+                    let lhs_df = df_arena.get(&lhs)?;
+                    let rhs_df = df_arena.get(&rhs)?;
+
+                    let new_df = PolicyGuardedDataFrame::join(
+                        lhs_df,
+                        rhs_df,
+                        &join.left_on,
+                        &join.right_on,
+                        &join.row_join_info,
+                        &join.output_schema,
+                    )?;
+
+                    uuid = df_arena.insert(new_df)?;
+                },
+
+                _ => todo!(),
+            },
+            None => {
+                return Err(PicachvError::InvalidOperation(
+                    "The transformation information is empty.".into(),
+                ))
+            },
+        }
+    }
+
+    println!("apply_transform: uuid = {uuid}");
+    Ok(uuid)
 }

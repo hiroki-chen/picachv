@@ -2,21 +2,9 @@ use picachv_error::PicachvResult;
 use uuid::Uuid;
 
 use crate::transform_info::{information, Information};
-use crate::{DummyInformation, FilterInformation, TransformInfo, UnionInformation};
+use crate::{FilterInformation, TransformInfo, UnionInformation};
 
 impl TransformInfo {
-    pub fn push_dummy(&mut self, df_uuid: Uuid) -> PicachvResult<()> {
-        let ti = Information {
-            information: Some(information::Information::Dummy(DummyInformation {
-                df_uuid: df_uuid.to_bytes_le().to_vec(),
-            })),
-        };
-
-        self.trans_info.push(ti);
-
-        Ok(())
-    }
-
     pub fn push_filter(&mut self, df_uuid: Uuid, pred: &[bool]) -> PicachvResult<()> {
         let ti = Information {
             information: Some(information::Information::Filter(FilterInformation {
@@ -30,13 +18,11 @@ impl TransformInfo {
         Ok(())
     }
 
-    pub fn push_union(&mut self, inputs: Vec<Uuid>) -> PicachvResult<()> {
+    pub fn push_union(&mut self, lhs_df_uuid: Uuid, rhs_df_uuid: Uuid) -> PicachvResult<()> {
         let ti = Information {
             information: Some(information::Information::Union(UnionInformation {
-                input_df_uuid: inputs
-                    .iter()
-                    .map(|uuid| uuid.to_bytes_le().to_vec())
-                    .collect(),
+                lhs_df_uuid: lhs_df_uuid.to_bytes_le().to_vec(),
+                rhs_df_uuid: rhs_df_uuid.to_bytes_le().to_vec(),
             })),
         };
 

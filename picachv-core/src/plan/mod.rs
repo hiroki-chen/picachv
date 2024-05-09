@@ -114,7 +114,7 @@ impl Plan {
     }
 
     /// This is the function eventually called to check if a physical operator is
-    /// allowed to be executed. The caller is required to call this function *before*
+    /// allowed to be executed. The caller is required to call this function *after*
     /// executing the physical plan as though it was instrumented. This functios
     /// returns the UUID (possibly updated) of the active dataframe that is being
     /// processed.
@@ -139,10 +139,13 @@ impl Plan {
     ///
     /// ```c++
     /// void *Plan::execute(State *state) const {
+    ///     Result *res = this->execute_impl(state);
+    /// 
     ///     if (!this->check(state, this->active_df_uuid)) {
     ///         return nullptr;
+    ///     } else {
+    ///         return (void*)res;
     ///     }
-    ///     return this->execute_impl(state);
     /// }
     /// ```
     pub fn check_executor(

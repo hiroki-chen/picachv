@@ -11,7 +11,7 @@ mod polars_tests {
     fn get_df(ctx_id: Uuid) -> DataFrame {
         let policy = PolicyGuardedDataFrame::from_json("../data/simple_policy.json").unwrap();
         let mut df = df! {
-            "a" => &[1, 2, 3, 4, 5],
+            "a" => &[2, 3, 3, 1, 5],
             "b" => &[5, 4, 3, 2, 1]
         }
         .unwrap();
@@ -188,6 +188,23 @@ mod polars_tests {
 
         let out = concat([out1, out2], Default::default())
             .unwrap()
+            .set_ctx_id(ctx_id)
+            .collect();
+
+        assert!(out.is_err());
+    }
+
+    #[test]
+    fn test_polars_join_fail() {
+        let ctx_id = init();
+        let df1 = get_df(ctx_id);
+        let df2 = get_df(ctx_id);
+
+        let out1 = df1.clone().lazy();
+        let out2 = df2.clone().lazy();
+
+        let out = out1
+            .join(out2, [col("a")], [col("a")], JoinArgs::new(JoinType::Inner))
             .set_ctx_id(ctx_id)
             .collect();
 

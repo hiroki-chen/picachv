@@ -128,7 +128,7 @@ impl FileType {
 pub enum JoinType {
     Inner = 0,
     Left = 1,
-    Right = 2,
+    Cross = 2,
     Outer = 3,
 }
 impl JoinType {
@@ -140,7 +140,7 @@ impl JoinType {
         match self {
             JoinType::Inner => "Inner",
             JoinType::Left => "Left",
-            JoinType::Right => "Right",
+            JoinType::Cross => "Cross",
             JoinType::Outer => "Outer",
         }
     }
@@ -149,7 +149,7 @@ impl JoinType {
         match value {
             "Inner" => Some(Self::Inner),
             "Left" => Some(Self::Left),
-            "Right" => Some(Self::Right),
+            "Cross" => Some(Self::Cross),
             "Outer" => Some(Self::Outer),
             _ => None,
         }
@@ -636,12 +636,6 @@ pub mod plan_argument {
         GetData(super::GetDataArgument),
     }
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DummyInformation {
-    #[prost(bytes = "vec", tag = "1")]
-    pub df_uuid: ::prost::alloc::vec::Vec<u8>,
-}
 /// This message is used to notify the monitor which rows are dropped.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -657,9 +651,37 @@ pub struct FilterInformation {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JoinInformation {
-    /// todo: other stuff not yet defined
+    /// The UUID of the left relation.
     #[prost(bytes = "vec", tag = "1")]
-    pub df_uuid: ::prost::alloc::vec::Vec<u8>,
+    pub lhs_df_uuid: ::prost::alloc::vec::Vec<u8>,
+    /// The UUID of the right relation.
+    #[prost(bytes = "vec", tag = "2")]
+    pub rhs_df_uuid: ::prost::alloc::vec::Vec<u8>,
+    /// The lhs columns that are used to join the two relations.
+    #[prost(string, repeated, tag = "3")]
+    pub left_on: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// The rhs columns that are used to join the two relations.
+    #[prost(string, repeated, tag = "4")]
+    pub right_on: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// The information of each row in the joined relation.
+    #[prost(message, repeated, tag = "5")]
+    pub row_join_info: ::prost::alloc::vec::Vec<join_information::RowJoinInformation>,
+    /// Output schema.
+    #[prost(string, repeated, tag = "6")]
+    pub output_schema: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+/// Nested message and enum types in `JoinInformation`.
+pub mod join_information {
+    /// This message is used to describe for each row in the joined
+    /// relation, which rows in the left and right relations are used to join.
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct RowJoinInformation {
+        #[prost(uint64, tag = "1")]
+        pub left_rows: u64,
+        #[prost(uint64, tag = "2")]
+        pub right_rows: u64,
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -673,9 +695,10 @@ pub struct GroupByInformation {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UnionInformation {
-    /// How?
-    #[prost(bytes = "vec", repeated, tag = "1")]
-    pub input_df_uuid: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bytes = "vec", tag = "1")]
+    pub lhs_df_uuid: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub rhs_df_uuid: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -698,7 +721,7 @@ pub mod transform_info {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Information {
-        #[prost(oneof = "information::Information", tags = "1, 2, 3, 4, 5, 6")]
+        #[prost(oneof = "information::Information", tags = "1, 2, 3, 4, 5")]
         pub information: ::core::option::Option<information::Information>,
     }
     /// Nested message and enum types in `Information`.
@@ -715,8 +738,6 @@ pub mod transform_info {
             #[prost(message, tag = "4")]
             Reorder(super::super::ReorderInformation),
             #[prost(message, tag = "5")]
-            Dummy(super::super::DummyInformation),
-            #[prost(message, tag = "6")]
             Union(super::super::UnionInformation),
         }
     }

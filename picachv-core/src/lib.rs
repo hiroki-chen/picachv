@@ -4,7 +4,7 @@ use arena::Arena;
 pub use arrow_array::{Array, RecordBatch};
 use arrow_ipc::reader::StreamReader;
 use arrow_ipc::writer::StreamWriter;
-use dataframe::PolicyGuardedDataFrame;
+use dataframe::DfArena;
 use expr::{Expr, ExprArena};
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::ExprArgument;
@@ -23,7 +23,7 @@ pub mod udf;
 
 pub struct Arenas {
     pub expr_arena: Arc<RwLock<ExprArena>>,
-    pub df_arena: Arc<RwLock<Arena<PolicyGuardedDataFrame>>>,
+    pub df_arena: Arc<RwLock<DfArena>>,
 }
 
 impl Arenas {

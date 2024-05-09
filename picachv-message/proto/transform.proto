@@ -2,10 +2,6 @@ syntax = "proto3";
 
 package PicachvMessages;
 
-message DummyInformation {
-  bytes df_uuid = 1;
-}
-
 // This message is used to notify the monitor which rows are dropped.
 message FilterInformation {
   bytes df_uuid = 1;
@@ -16,8 +12,25 @@ message FilterInformation {
 }
 
 message JoinInformation {
-  bytes df_uuid = 1;
-  // todo: other stuff not yet defined
+  // This message is used to describe for each row in the joined
+  // relation, which rows in the left and right relations are used to join.
+  message RowJoinInformation {
+    uint64 left_rows = 1;
+    uint64 right_rows = 2;
+  }
+
+  // The UUID of the left relation.
+  bytes lhs_df_uuid = 1;
+  // The UUID of the right relation.
+  bytes rhs_df_uuid = 2;
+  // The lhs columns that are used to join the two relations.
+  repeated string left_on = 3;
+  // The rhs columns that are used to join the two relations.
+  repeated string right_on = 4;
+  // The information of each row in the joined relation.
+  repeated RowJoinInformation row_join_info = 5;
+  // Output schema.
+  repeated string output_schema = 6;
 }
 
 message GroupByInformation {
@@ -27,8 +40,8 @@ message GroupByInformation {
 }
 
 message UnionInformation {
-  repeated bytes input_df_uuid = 1;
-  // How?
+  bytes lhs_df_uuid = 1;
+  bytes rhs_df_uuid = 2;
 }
 
 message ReorderInformation {
@@ -44,8 +57,7 @@ message TransformInfo {
       JoinInformation join = 2;
       GroupByInformation group_by = 3;
       ReorderInformation reorder = 4;
-      DummyInformation dummy = 5;
-      UnionInformation union = 6;
+      UnionInformation union = 5;
     }
   }
   // An array of information telling the monitor what has been done.
