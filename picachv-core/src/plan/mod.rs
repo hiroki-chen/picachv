@@ -294,12 +294,12 @@ fn early_projection(
 
     match Arc::get_mut(df) {
         Some(df) => {
-            df.early_projection(project_list)?;
+            df.projection(project_list)?;
             Ok(active_df_uuid)
         },
         None => {
             let mut df = (**df).clone();
-            df.early_projection(project_list)?;
+            df.projection(project_list)?;
             df_arena.insert_arc(Arc::new(df))
         },
     }

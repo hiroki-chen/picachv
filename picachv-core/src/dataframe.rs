@@ -5,7 +5,7 @@ use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::group_by_proxy::Groups;
 use picachv_message::join_information::RowJoinInformation;
 use picachv_message::transform_info::information::Information;
-use picachv_message::TransformInfo;
+use picachv_message::{JoinInformation, TransformInfo};
 use serde::{Deserialize, Serialize};
 use tabled::builder::Builder;
 use tabled::settings::object::Rows;
@@ -119,6 +119,22 @@ impl PolicyGuardedDataFrame {
         Ok(())
     }
 
+    pub fn new_from_slice(&self, slices: &[usize]) -> PicachvResult<Self> {
+        let mut columns = vec![];
+        for col in self.columns.iter() {
+            let mut policies = vec![];
+            for &i in slices.iter() {
+                policies.push(col.policies[i].clone());
+            }
+            columns.push(PolicyGuardedColumn { policies });
+        }
+
+        Ok(PolicyGuardedDataFrame {
+            schema: self.schema.clone(),
+            columns,
+        })
+    }
+
     /// Joins two policy-carrying dataframes.
     ///
     /// The function iterates over the `row_info` to join the policies specified by `common_list`. After
@@ -128,14 +144,14 @@ impl PolicyGuardedDataFrame {
     pub fn join(
         lhs: &PolicyGuardedDataFrame,
         rhs: &PolicyGuardedDataFrame,
-        left_on: &[String],
-        right_on: &[String],
-        row_info: &[RowJoinInformation],
-        output_schema: &[String],
+        info: &JoinInformation,
     ) -> PicachvResult<Self> {
+        log::debug!("joining\n{lhs}\n{rhs} with info\n{info:?}",);
+
         // First we convert the column names into indices.
-        let left = left_on
-            .into_iter()
+        let left = info
+            .left_on
+            .iter()
             .map(|e| {
                 lhs.schema
                     .iter()
@@ -145,8 +161,9 @@ impl PolicyGuardedDataFrame {
                     ))
             })
             .collect::<PicachvResult<Vec<_>>>()?;
-        let right = right_on
-            .into_iter()
+        let right = info
+            .right_on
+            .iter()
             .map(|e| {
                 rhs.schema
                     .iter()
@@ -157,16 +174,30 @@ impl PolicyGuardedDataFrame {
             })
             .collect::<PicachvResult<Vec<_>>>()?;
 
+        let common_columns = info
+            .left_on
+            .iter()
+            .filter(|e| info.right_on.contains(e))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        let left_idx = info
+            .row_join_info
+            .iter()
+            .map(|e| e.left_row as usize)
+            .collect::<Vec<_>>();
+        let right_idx = info
+            .row_join_info
+            .iter()
+            .map(|e| e.right_row as usize)
+            .collect::<Vec<_>>();
+
         let mut common_policy_columns = vec![];
         for (&left_col_idx, &right_col_idx) in left.iter().zip(right.iter()) {
             let mut col = vec![];
-            for RowJoinInformation {
-                left_rows,
-                right_rows,
-            } in row_info
-            {
-                let left_row_idx = *left_rows as usize;
-                let right_row_idx = *right_rows as usize;
+            for (left_row, right_row) in left_idx.iter().zip(right_idx.iter()) {
+                let left_row_idx = *left_row;
+                let right_row_idx = *right_row;
                 // Make sure the row index is within the bound.
                 picachv_ensure!(
                     left_row_idx < lhs.shape().0 && right_row_idx < rhs.shape().0,
@@ -183,14 +214,47 @@ impl PolicyGuardedDataFrame {
             common_policy_columns.push(PolicyGuardedColumn { policies: col });
         }
 
-        let common_part = PolicyGuardedDataFrame {
-            schema: left_on.iter().chain(right_on.iter()).cloned().collect(),
+        // We first select the columns not appearing in the common list.
+        let mut lhs = lhs.clone();
+        let mut rhs = rhs.clone();
+        let other_columns_lhs = lhs
+            .schema
+            .iter()
+            .filter_map(|e| {
+                if !common_columns.contains(e) {
+                    Some(e.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        let other_columns_rhs = rhs
+            .schema
+            .iter()
+            .filter_map(|e| {
+                if !common_columns.contains(e) {
+                    Some(e.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        lhs.projection(&other_columns_lhs)?;
+        rhs.projection(&other_columns_rhs)?;
+
+        let lhs = lhs.new_from_slice(&left_idx)?;
+        let rhs = rhs.new_from_slice(&right_idx)?;
+
+        // After common lists are joined we stitch the rest part together.
+        let common = PolicyGuardedDataFrame {
+            schema: common_columns,
             columns: common_policy_columns,
         };
-        // After common lists are joined we stitch the rest part together.
-        // TODO: How to obtain the arrangement of the output schema?
 
-        todo!()
+        let res = PolicyGuardedDataFrame::stitch(&common, &lhs)?;
+        let res = PolicyGuardedDataFrame::stitch(&res, &rhs)?;
+
+        Ok(res)
     }
 
     /// According to the `groups` struct, fetch the group of columns.
@@ -280,7 +344,7 @@ impl PolicyGuardedDataFrame {
         PolicyGuardedDataFrame { schema, columns }
     }
 
-    pub(crate) fn early_projection(&mut self, project_list: &[String]) -> PicachvResult<()> {
+    pub(crate) fn projection(&mut self, project_list: &[String]) -> PicachvResult<()> {
         // First make sure if the project list contains valid columns.
         for col in project_list.iter() {
             picachv_ensure!(
@@ -443,14 +507,7 @@ pub fn apply_transform(
                     let lhs_df = df_arena.get(&lhs)?;
                     let rhs_df = df_arena.get(&rhs)?;
 
-                    let new_df = PolicyGuardedDataFrame::join(
-                        lhs_df,
-                        rhs_df,
-                        &join.left_on,
-                        &join.right_on,
-                        &join.row_join_info,
-                        &join.output_schema,
-                    )?;
+                    let new_df = PolicyGuardedDataFrame::join(lhs_df, rhs_df, &join)?;
 
                     uuid = df_arena.insert(new_df)?;
                 },

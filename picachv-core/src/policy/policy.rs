@@ -449,6 +449,28 @@ where
 
         Ok(res)
     }
+}
+
+impl Policy<PolicyLabel> {
+    /// Since this function is called only after we have decided that p_cur ⪯ p_f which means that
+    /// the current policy is less or equal to the operation we are about to apply, we can safely
+    /// assume that the operation is allowed. So, this function's logic is simple as there are
+    /// only two possible cases:
+    /// - The current policy is less stricter, then the new policy is the current policy.
+    /// - The current policy can be declassified, then the new policy is the declassified policy.
+    ///
+    ///   In other words, ℓ ⇝ p ⪯ ∘ (op) ==> p_new = p.
+    fn do_downgrade(&self, by: &PolicyLabel) -> PicachvResult<Self> {
+        match &self {
+            // The current policy is less stricter.
+            Policy::PolicyClean => Ok(self.clone()),
+            Policy::PolicyDeclassify { label, next } => match label.can_declassify(by) {
+                true => Ok(next.as_ref().clone()),
+                false => Ok(self.clone()),
+            },
+        }
+    }
+
 
     /// The implementation for the `policy_join` inductive relation.
     pub fn join(&self, other: &Self) -> PicachvResult<Self> {
@@ -468,6 +490,15 @@ where
                     next: next2,
                 },
             ) => {
+                if label1.base_eq(&label2) {
+                    return Ok(
+                        Policy::PolicyDeclassify {
+                            label: label1.join(label2),
+                            next: Box::new(next1.join(next2)?),
+                        }
+                    )
+                }
+
                 let (lbl, p3) = match label1.flowsto(label2) {
                     true => (label2, self.join(next2)?),
                     false => (label1, next1.join(other)?),
@@ -477,27 +508,6 @@ where
                     label: lbl.clone(),
                     next: Box::new(p3),
                 })
-            },
-        }
-    }
-}
-
-impl Policy<PolicyLabel> {
-    /// Since this function is called only after we have decided that p_cur ⪯ p_f which means that
-    /// the current policy is less or equal to the operation we are about to apply, we can safely
-    /// assume that the operation is allowed. So, this function's logic is simple as there are
-    /// only two possible cases:
-    /// - The current policy is less stricter, then the new policy is the current policy.
-    /// - The current policy can be declassified, then the new policy is the declassified policy.
-    ///
-    ///   In other words, ℓ ⇝ p ⪯ ∘ (op) ==> p_new = p.
-    fn do_downgrade(&self, by: &PolicyLabel) -> PicachvResult<Self> {
-        match &self {
-            // The current policy is less stricter.
-            Policy::PolicyClean => Ok(self.clone()),
-            Policy::PolicyDeclassify { label, next } => match label.can_declassify(by) {
-                true => Ok(next.as_ref().clone()),
-                false => Ok(self.clone()),
             },
         }
     }

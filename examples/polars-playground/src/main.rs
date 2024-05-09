@@ -13,7 +13,7 @@ fn main() {
         .lazy()
         .join(
             df.clone().lazy(),
-            [col("b")],
+            [col("a")],
             [col("a")],
             JoinArgs::new(JoinType::Inner),
         )

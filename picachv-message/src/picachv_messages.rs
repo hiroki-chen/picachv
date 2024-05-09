@@ -666,9 +666,14 @@ pub struct JoinInformation {
     /// The information of each row in the joined relation.
     #[prost(message, repeated, tag = "5")]
     pub row_join_info: ::prost::alloc::vec::Vec<join_information::RowJoinInformation>,
-    /// Output schema.
+    /// Input schemas.
     #[prost(string, repeated, tag = "6")]
-    pub output_schema: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    pub lhs_input_schema: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag = "7")]
+    pub rhs_input_schema: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// renaming
+    #[prost(message, repeated, tag = "8")]
+    pub renaming: ::prost::alloc::vec::Vec<join_information::RenamingInformation>,
 }
 /// Nested message and enum types in `JoinInformation`.
 pub mod join_information {
@@ -678,9 +683,17 @@ pub mod join_information {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct RowJoinInformation {
         #[prost(uint64, tag = "1")]
-        pub left_rows: u64,
+        pub left_row: u64,
         #[prost(uint64, tag = "2")]
-        pub right_rows: u64,
+        pub right_row: u64,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct RenamingInformation {
+        #[prost(string, tag = "1")]
+        pub old_name: ::prost::alloc::string::String,
+        #[prost(string, tag = "2")]
+        pub new_name: ::prost::alloc::string::String,
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

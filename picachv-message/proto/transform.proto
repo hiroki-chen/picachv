@@ -15,8 +15,12 @@ message JoinInformation {
   // This message is used to describe for each row in the joined
   // relation, which rows in the left and right relations are used to join.
   message RowJoinInformation {
-    uint64 left_rows = 1;
-    uint64 right_rows = 2;
+    uint64 left_row = 1;
+    uint64 right_row = 2;
+  }
+  message RenamingInformation {
+    string old_name = 1;
+    string new_name = 2;
   }
 
   // The UUID of the left relation.
@@ -29,8 +33,11 @@ message JoinInformation {
   repeated string right_on = 4;
   // The information of each row in the joined relation.
   repeated RowJoinInformation row_join_info = 5;
-  // Output schema.
-  repeated string output_schema = 6;
+  // Input schemas.
+  repeated string lhs_input_schema = 6;
+  repeated string rhs_input_schema = 7;
+  // renaming
+  repeated RenamingInformation renaming = 8;
 }
 
 message GroupByInformation {

@@ -208,6 +208,7 @@ mod polars_tests {
             .set_ctx_id(ctx_id)
             .collect();
 
+        println!("{:?}", out);
         assert!(out.is_err());
     }
 }
