@@ -62,11 +62,17 @@ pub enum TransformType {
     Others,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AggType {
     pub how: GroupByMethod,
     /// The size of the group.
     pub group_size: usize,
+}
+
+impl PartialEq for AggType {
+    fn eq(&self, other: &Self) -> bool {
+        self.how == other.how
+    }
 }
 
 impl Hash for AggType {
@@ -154,7 +160,17 @@ impl SetLike for AggOps {
     }
 
     fn intersection(&self, other: &Self) -> Self {
-        AggOps(self.0.intersection(&other.0).cloned().collect())
+        let mut v = vec![];
+        for item in other.0.iter() {
+            if let Some(this) = self.0.get(item) {
+                v.push(AggType {
+                    how: this.how,
+                    group_size: this.group_size.max(item.group_size),
+                })
+            }
+        }
+
+        AggOps(v.into_iter().collect())
     }
 
     fn union(&self, other: &Self) -> Self {
@@ -471,7 +487,6 @@ impl Policy<PolicyLabel> {
         }
     }
 
-
     /// The implementation for the `policy_join` inductive relation.
     pub fn join(&self, other: &Self) -> PicachvResult<Self> {
         picachv_ensure!(self.valid() && other.valid(),
@@ -491,12 +506,10 @@ impl Policy<PolicyLabel> {
                 },
             ) => {
                 if label1.base_eq(&label2) {
-                    return Ok(
-                        Policy::PolicyDeclassify {
-                            label: label1.join(label2),
-                            next: Box::new(next1.join(next2)?),
-                        }
-                    )
+                    return Ok(Policy::PolicyDeclassify {
+                        label: label1.join(label2),
+                        next: Box::new(next1.join(next2)?),
+                    });
                 }
 
                 let (lbl, p3) = match label1.flowsto(label2) {

@@ -1,50 +1,73 @@
+use polars::lazy::dataframe::PolicyGuardedDataFrame;
+use polars::lazy::io::JsonIO;
+use polars::lazy::native::{init_monitor, open_new, register_policy_dataframe};
+use polars::lazy::uuid::Uuid;
+use polars::lazy::PicachvError;
+use polars::prelude::*;
+
+fn example_df1() -> DataFrame {
+    df! {
+        "a" => &[2, 3, 3, 1, 5],
+        "b" => &[5, 5, 4, 4, 1]
+    }
+    .unwrap()
+}
+
+fn example_df2() -> DataFrame {
+    df! {
+        "a" => &["2021-01-01", "2021-01-02", "2021-01-03", "2021-01-04", "2021-01-05"],
+        "b" => &[1, 2, 3, 4, 5]
+    }
+    .unwrap()
+}
+
+fn example_df3() -> DataFrame {
+    df! {
+        "a" => &[2, 3, 3, 1, 5],
+        "b" => &[5, 5, 5, 5, 5]
+    }
+    .unwrap()
+}
+
+fn get_df(ctx_id: Uuid, get_df: fn() -> DataFrame, path: &str) -> DataFrame {
+    let policy = PolicyGuardedDataFrame::from_json(path).unwrap();
+    let mut df = get_df();
+    let uuid = register_policy_dataframe(ctx_id, policy).unwrap();
+    df.set_uuid(uuid);
+
+    df
+}
+
+fn init() -> Uuid {
+    let _ = env_logger::builder()
+        .is_test(true)
+        .filter_level(log::LevelFilter::Debug)
+        .try_init();
+
+    match init_monitor() {
+        Ok(_) | Err(PicachvError::Already(_)) => (),
+        Err(e) => panic!("Error: {:?}", e),
+    };
+
+    open_new().unwrap()
+}
+
+fn prepare(df: fn() -> DataFrame, path: &str) -> (Uuid, DataFrame) {
+    let ctx_id = init();
+    let df = get_df(ctx_id, df, path);
+
+    (ctx_id, df)
+}
+
 #[cfg(test)]
 mod polars_tests {
-    use polars::lazy::dataframe::PolicyGuardedDataFrame;
     use polars::lazy::dsl::col;
-    use polars::lazy::io::JsonIO;
-    use polars::lazy::native::{init_monitor, open_new, register_policy_dataframe};
-    use polars::lazy::uuid::Uuid;
-    use polars::lazy::PicachvError;
-    use polars::prelude::*;
 
-    fn get_df(ctx_id: Uuid) -> DataFrame {
-        let policy = PolicyGuardedDataFrame::from_json("../data/simple_policy.json").unwrap();
-        let mut df = df! {
-            "a" => &[2, 3, 3, 1, 5],
-            "b" => &[5, 4, 3, 2, 1]
-        }
-        .unwrap();
-        let uuid = register_policy_dataframe(ctx_id, policy).unwrap();
-        df.set_uuid(uuid);
-
-        df
-    }
-
-    fn init() -> Uuid {
-        let _ = env_logger::builder()
-            .is_test(true)
-            .filter_level(log::LevelFilter::Debug)
-            .try_init();
-
-        match init_monitor() {
-            Ok(_) | Err(PicachvError::Already(_)) => (),
-            Err(e) => panic!("Error: {:?}", e),
-        };
-
-        open_new().unwrap()
-    }
-
-    fn prepare() -> (Uuid, DataFrame) {
-        let ctx_id = init();
-        let df = get_df(ctx_id);
-
-        (ctx_id, df)
-    }
+    use super::*;
 
     #[test]
     fn test_polars_query_fail() {
-        let (ctx_id, df) = prepare();
+        let (ctx_id, df) = prepare(example_df1, "../data/simple_policy.json");
 
         // This query is equivalent to
         //
@@ -63,7 +86,7 @@ mod polars_tests {
 
     #[test]
     fn test_polars_query_ok() {
-        let (ctx_id, df) = prepare();
+        let (ctx_id, df) = prepare(example_df1, "../data/simple_policy.json");
 
         // This query is equivalent to
         //
@@ -85,7 +108,7 @@ mod polars_tests {
 
     #[test]
     fn test_polars_expr_in_agg_ok() {
-        let (ctx_id, df) = prepare();
+        let (ctx_id, df) = prepare(example_df1, "../data/simple_policy.json");
 
         let out = df
             .lazy()
@@ -99,7 +122,7 @@ mod polars_tests {
 
     #[test]
     fn test_polars_expr_in_agg_fail() {
-        let (ctx_id, df) = prepare();
+        let (ctx_id, df) = prepare(example_df1, "../data/simple_policy.json");
 
         // Error: the argument to `offset` is incorrect.
         let out = df
@@ -125,7 +148,7 @@ mod polars_tests {
 
     #[test]
     fn test_polars_expr_within_agg_ok() {
-        let (ctx_id, df) = prepare();
+        let (ctx_id, df) = prepare(example_df1, "../data/simple_policy.json");
 
         let out = df
             .lazy()
@@ -148,8 +171,8 @@ mod polars_tests {
     #[test]
     fn test_polars_union_ok() {
         let ctx_id = init();
-        let df1 = get_df(ctx_id);
-        let df2 = get_df(ctx_id);
+        let df1 = get_df(ctx_id, example_df1, "../data/simple_policy.json");
+        let df2 = get_df(ctx_id, example_df1, "../data/simple_policy.json");
 
         let out1 = df1.clone().lazy();
         let out2 = df2.clone().lazy();
@@ -181,7 +204,7 @@ mod polars_tests {
 
     #[test]
     fn test_polars_union_fail() {
-        let (ctx_id, df) = prepare();
+        let (ctx_id, df) = prepare(example_df1, "../data/simple_policy.json");
 
         let out1 = df.clone().lazy();
         let out2 = df.clone().lazy().filter(lit(1).lt(col("b")));
@@ -197,8 +220,8 @@ mod polars_tests {
     #[test]
     fn test_polars_join_fail() {
         let ctx_id = init();
-        let df1 = get_df(ctx_id);
-        let df2 = get_df(ctx_id);
+        let df1 = get_df(ctx_id, example_df1, "../data/simple_policy.json");
+        let df2 = get_df(ctx_id, example_df1, "../data/simple_policy.json");
 
         let out1 = df1.clone().lazy();
         let out2 = df2.clone().lazy();
@@ -210,5 +233,86 @@ mod polars_tests {
 
         println!("{:?}", out);
         assert!(out.is_err());
+    }
+
+    #[test]
+    fn test_polars_agg_groupsize_fail() {
+        let (ctx_id, df) = prepare(example_df1, "../data/simple_policy2.json");
+
+        let out = df
+            .lazy()
+            .group_by([col("b")])
+            .agg(vec![col("a").sum()]) // <- Because the groupsize is too small.
+            .set_ctx_id(ctx_id)
+            .collect();
+
+        assert!(out.is_err());
+    }
+
+    #[test]
+    fn test_polars_agg_groupsize_ok() {
+        let (ctx_id, df) = prepare(example_df3, "../data/simple_policy2.json");
+
+        let out = df
+            .lazy()
+            .group_by([col("b")])
+            .agg(vec![col("a").sum()]) // <- Because the groupsize is too small.
+            .set_ctx_id(ctx_id)
+            .collect();
+        println!("{:?}", out);
+
+        assert!(out.is_ok());
+    }
+}
+
+#[cfg(test)]
+mod polars_sql_tests {
+    use polars::sql::SQLContext;
+
+    use super::*;
+
+    #[test]
+    fn test_polars_sql_fail() {
+        let (ctx_id, df) = prepare(example_df1, "../data/simple_policy.json");
+
+        let sql = r#"
+            SELECT a, b
+            FROM df
+            WHERE 1 < a
+        "#;
+
+        let mut sql_ctx = SQLContext::new();
+        sql_ctx.register("df", df.lazy());
+        let out = sql_ctx.execute(sql);
+
+        assert!(out.is_ok());
+
+        let out = out.unwrap().set_ctx_id(ctx_id).collect();
+
+        assert!(out.is_err());
+    }
+
+    #[test]
+    fn test_polars_sql_ok() {
+        let (ctx_id, df) = prepare(example_df2, "../data/simple_policy.json");
+
+        let sql = r#"
+            SELECT a, b + 1
+            FROM df
+            WHERE 1 < b
+        "#;
+
+        let mut sql_ctx = SQLContext::new();
+        sql_ctx.register("df", df.lazy());
+        let out = sql_ctx.execute(sql);
+
+        if let Err(ref e) = out {
+            eprintln!("{}", e);
+        }
+
+        assert!(out.is_ok());
+
+        let out = out.unwrap().set_ctx_id(ctx_id).collect();
+        println!("{:?}", out);
     }
 }

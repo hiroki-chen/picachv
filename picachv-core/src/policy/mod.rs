@@ -41,9 +41,10 @@ mod tests {
     use std::collections::HashSet;
     use std::time::Duration;
 
+    use crate::constants::GroupByMethod;
     use crate::policy::types::AnyValue;
     use crate::policy::{BinaryTransformType, Policy, PolicyLabel, TransformOps, TransformType};
-    use crate::policy_binary_transform_label;
+    use crate::{policy_agg_label, policy_binary_transform_label};
 
     #[test]
     fn test_build_policy() {
@@ -77,5 +78,13 @@ mod tests {
 
         let res = policy_lhs.join(&polich_rhs);
         assert!(res.is_ok_and(|res| res == policy_res));
+    }
+
+    #[test]
+    fn test_policy_cmp() {
+        let agg1 = build_policy!(policy_agg_label!(GroupByMethod::Sum, 2)).unwrap();
+        let agg2 = build_policy!(policy_agg_label!(GroupByMethod::Sum, 5)).unwrap();
+
+        assert!(agg1.le(&agg2).is_ok_and(|b| b));
     }
 }
