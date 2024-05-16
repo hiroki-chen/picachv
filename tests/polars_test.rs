@@ -107,6 +107,35 @@ mod polars_tests {
     }
 
     #[test]
+    fn test_polars_non_single() {
+        let (ctx_id, df) = prepare(example_df1, "../data/simple_policy.json");
+
+        let lazy = df.lazy();
+
+        fn do_something(mut lazy: LazyFrame) -> LazyFrame {
+            for i in 3..5 {
+                lazy = lazy.filter(col("a").lt(lit(i)))
+            }
+
+            lazy
+        }
+
+        let out = do_something(lazy);
+
+        let out = out
+            .select([
+                col("a").cast(DataType::Date).dt().offset_by(lit("5s")),
+                col("b"),
+            ])
+            .set_ctx_id(ctx_id)
+            .collect();
+
+        println!("{:?}", out);
+
+        assert!(out.is_ok());
+    }
+
+    #[test]
     fn test_polars_expr_in_agg_ok() {
         let (ctx_id, df) = prepare(example_df1, "../data/simple_policy.json");
 
@@ -276,7 +305,7 @@ mod polars_sql_tests {
         let (ctx_id, df) = prepare(example_df1, "../data/simple_policy.json");
 
         let sql = r#"
-            SELECT a, b
+            SELECT a, b + 1
             FROM df
             WHERE 1 < a
         "#;

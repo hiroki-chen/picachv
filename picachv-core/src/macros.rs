@@ -14,6 +14,15 @@ macro_rules! rwlock_unlock {
 
 #[macro_export]
 macro_rules! policy_binary_transform_label {
+    ($single_op:expr) => {
+        $crate::policy::PolicyLabel::PolicyTransform {
+            ops: $crate::policy::TransformOps(::std::collections::HashSet::from_iter(
+                vec![$single_op]
+                .into_iter(),
+            )),
+        }
+    };
+
     ($name:expr, $arg:expr) => {
         $crate::policy::PolicyLabel::PolicyTransform {
             ops: $crate::policy::TransformOps(::std::collections::HashSet::from_iter(

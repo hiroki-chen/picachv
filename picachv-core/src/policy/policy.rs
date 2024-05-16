@@ -5,6 +5,7 @@ use std::sync::OnceLock;
 
 use ordered_float::OrderedFloat;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
+use picachv_message::ArithmeticBinaryOperator;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -576,6 +577,40 @@ where
             Policy::PolicyDeclassify { label, next } => {
                 write!(f, "{label} ⇝ {next}")
             },
+        }
+    }
+}
+
+impl TryFrom<ArithmeticBinaryOperator> for BinaryTransformType {
+    type Error = PicachvError;
+
+    fn try_from(op: ArithmeticBinaryOperator) -> PicachvResult<Self> {
+        match op {
+            ArithmeticBinaryOperator::Add => Ok(Self {
+                name: "add".into(),
+                arg: AnyValue::None,
+            }),
+            ArithmeticBinaryOperator::Sub => Ok(Self {
+                name: "sub".into(),
+                arg: AnyValue::None,
+            }),
+            ArithmeticBinaryOperator::Mul => Ok(Self {
+                name: "mul".into(),
+                arg: AnyValue::None,
+            }),
+            ArithmeticBinaryOperator::Div => Ok(Self {
+                name: "div".into(),
+                arg: AnyValue::None,
+            }),
+            ArithmeticBinaryOperator::Mod => Ok(Self {
+                name: "mod".into(),
+                arg: AnyValue::None,
+            }),
+            ArithmeticBinaryOperator::Pow => Ok(Self {
+                name: "pow".into(),
+                arg: AnyValue::None,
+            }),
+            _ => picachv_bail!(InvalidOperation: "unsupported arithmetic binary operator"),
         }
     }
 }

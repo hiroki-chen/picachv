@@ -15,8 +15,9 @@ picachv-core = { workspace = true }
 picachv-message = { workspace = true }
 
 log = { workspace = true }
-pyo3 = { version = "0.21.1", optional = true }
 jni = { version = "0.21.1", optional = true }
+pyo3 = { version = "0.21.1", optional = true }
+prost = { workspace = true }
 uuid = { workspace = true }
 
 [features]

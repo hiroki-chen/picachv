@@ -3,7 +3,6 @@ use std::sync::{Arc, RwLock};
 
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::group_by_proxy::Groups;
-use picachv_message::join_information::RowJoinInformation;
 use picachv_message::transform_info::information::Information;
 use picachv_message::{JoinInformation, TransformInfo};
 use serde::{Deserialize, Serialize};

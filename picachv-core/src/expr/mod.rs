@@ -5,7 +5,8 @@ use std::{fmt, vec};
 use arrow_array::{Array, Date32Array, Int32Array, LargeStringArray, RecordBatch};
 use arrow_schema::DataType;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
-use picachv_message::binary_operator;
+use picachv_message::binary_operator::Operator;
+use picachv_message::{binary_operator, ArithmeticBinaryOperator};
 use uuid::Uuid;
 
 use crate::arena::Arena;
@@ -230,14 +231,16 @@ impl Expr {
             },
 
             Expr::BinaryExpr {
-                left, right, op, ..
+                left,
+                right,
+                op,
+                values,
             } => {
                 let left = expr_arena.get(left)?;
                 let right = expr_arena.get(right)?;
                 let lhs = left.check_policy_in_row(ctx, idx)?;
                 let rhs = right.check_policy_in_row(ctx, idx)?;
 
-                // These operators occur only in predicates. Skip them.
                 if matches!(
                     op,
                     binary_operator::Operator::ComparisonOperator(_)
@@ -246,19 +249,16 @@ impl Expr {
                     return lhs.join(&rhs);
                 }
 
-                match (policy_ok(&lhs), policy_ok(&rhs)) {
-                    // lhs = ∎
-                    (true, _) => {
-                        todo!()
-                    },
+                let values = values.clone().ok_or(PicachvError::ComputeError(
+                    "The values are not reified.".into(),
+                ))?;
 
-                    // rhs = ∎
-                    (_, true) => {
-                        todo!()
-                    },
+                picachv_ensure!(
+                    !values.is_empty() && values[0].len() == 2,
+                    InvalidOperation: "The argument to the binary expression is incorrect"
+                );
 
-                    _ => lhs.join(&rhs),
-                }
+                check_policy_binary(&lhs, &rhs, op, &values[idx])
             },
             // This is truly interesting.
             //
@@ -438,9 +438,44 @@ impl ExprArena {}
 fn check_policy_binary(
     lhs: &Policy<PolicyLabel>,
     rhs: &Policy<PolicyLabel>,
-    op: BinaryTransformType,
+    op: &Operator,
+    value: &[AnyValue],
 ) -> PicachvResult<Policy<PolicyLabel>> {
-    todo!()
+    match op {
+        binary_operator::Operator::ComparisonOperator(_)
+        | binary_operator::Operator::LogicalOperator(_) => lhs.join(&rhs),
+        binary_operator::Operator::ArithmeticOperator(op) => {
+            let op = ArithmeticBinaryOperator::try_from(*op).map_err(|_| {
+                PicachvError::ComputeError(
+                    "Cannot convert i32 into `ArithmeticBinaryOperator`.".into(),
+                )
+            })?;
+
+            let mut op = BinaryTransformType::try_from(op)?;
+
+            match (policy_ok(&lhs), policy_ok(&rhs)) {
+                // lhs = ∎
+                (true, _) => {
+                    op.arg = value[0].clone();
+                    let p_f = policy_binary_transform_label!(TransformType::Binary(op));
+
+                    // Check if we can downgrade.
+                    rhs.downgrade(p_f)
+                },
+
+                // rhs = ∎
+                (_, true) => {
+                    op.arg = value[1].clone();
+                    let p_f = policy_binary_transform_label!(TransformType::Binary(op));
+
+                    // Check if we can downgrade.
+                    lhs.downgrade(p_f)
+                },
+
+                _ => lhs.join(&rhs),
+            }
+        },
+    }
 }
 
 fn check_policy_binary_udf(

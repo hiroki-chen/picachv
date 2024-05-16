@@ -1,7 +1,49 @@
+use picachv_core::dataframe::PolicyGuardedDataFrame;
+use picachv_core::io::JsonIO;
 use picachv_error::{PicachvError, PicachvResult};
+use picachv_message::ExprArgument;
 use picachv_monitor::{PicachvMonitor, MONITOR_INSTANCE};
+use prost::Message;
 use uuid::Uuid;
 
+macro_rules! try_execute {
+    ($expr:expr) => {{
+        match $expr {
+            Ok(val) => val,
+            Err(err) => return err.into(),
+        }
+    }};
+
+    ($expr:expr, $err:expr) => {{
+        match $expr {
+            Ok(val) => val,
+            Err(_) => return $err,
+        }
+    }};
+}
+
+#[repr(i32)]
+pub enum ErrorCode {
+    Success = 0,
+    InvalidOperation = 1,
+    SerializeError = 2,
+    NoEntry = 3,
+    PrivacyBreach = 4,
+    Already = 5,
+}
+
+impl From<PicachvError> for ErrorCode {
+    fn from(err: PicachvError) -> Self {
+        match err {
+            PicachvError::InvalidOperation(_) => ErrorCode::InvalidOperation,
+            PicachvError::PrivacyError(_) => ErrorCode::PrivacyBreach,
+            PicachvError::Already(_) => ErrorCode::Already,
+            _ => ErrorCode::InvalidOperation,
+        }
+    }
+}
+
+/// A convenient wrapper for recovering a UUID from a pointer.
 fn recover_uuid(uuid_ptr: *const u8, len: usize) -> PicachvResult<Uuid> {
     let uuid_bytes = unsafe { std::slice::from_raw_parts(uuid_ptr, len) };
     match Uuid::from_slice_le(uuid_bytes) {
@@ -12,110 +54,146 @@ fn recover_uuid(uuid_ptr: *const u8, len: usize) -> PicachvResult<Uuid> {
     }
 }
 
-// /// This function should be called whenever the caller is about to add a new node to the plan tree,
-// /// which should be called by the logical planner.
-// /// If this successfully returns 0 then we are fine, otherwise we need to abort since this plan already
-// /// violates the security policy.
-// ///
-// /// - `ctx`: The Uuid to the context.
-// /// - `build_args`: A pointer to the serialized argument struct.
-// /// - `build_args_size`: The length of `build_arg`.
-// #[no_mangle]
-// pub extern "C" fn build_plan(
-//     ctx_uuid: *const u8,
-//     ctx_uuid_len: usize,
-//     build_args: *const u8,
-//     build_args_size: usize,
-//     uuid_ptr: *mut u8,
-//     uuid_len: usize,
-// ) -> i32 {
-//     if ctx_uuid_len != 16 || uuid_len != 16 {
-//         return 1;
-//     }
+/// Registers a policy-guarded dataframe into the context.
+#[no_mangle]
+pub extern "C" fn register_policy_dataframe(
+    ctx_uuid: *const u8,
+    ctx_uuid_len: usize,
+    df: *const u8,
+    df_len: usize,
+    df_uuid: *mut u8,
+    df_uuid_len: usize,
+) -> ErrorCode {
+    let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
 
-//     let ctx_uuid = match recover_uuid(ctx_uuid, ctx_uuid_len) {
-//         Ok(uuid) => uuid,
-//         Err(_) => return 1,
-//     };
+    let df = unsafe { std::slice::from_raw_parts(df, df_len) };
+    // Recover from bytes and register the dataframe.
+    let df = try_execute!(PolicyGuardedDataFrame::from_json_bytes(df));
 
-//     log::debug!("getting {ctx_uuid:?}");
-//     match MONITOR_INSTANCE.get() {
-//         Some(monitor) => {
-//             let arg = unsafe { std::slice::from_raw_parts(build_args, build_args_size) };
+    let ctx = match MONITOR_INSTANCE.get() {
+        Some(monitor) => match monitor.get_ctx() {
+            Ok(ctx) => ctx,
+            Err(_) => return ErrorCode::InvalidOperation,
+        },
+        None => return ErrorCode::NoEntry,
+    };
 
-//             match monitor.build_plan(ctx_uuid, arg) {
-//                 Ok(uuid) => {
-//                     unsafe {
-//                         std::ptr::copy_nonoverlapping(uuid.as_bytes().as_ptr(), uuid_ptr, 16);
-//                     }
+    let ctx = match ctx.get(&ctx_id) {
+        Some(ctx) => ctx,
+        None => return ErrorCode::NoEntry,
+    };
 
-//                     0
-//                 },
-//                 Err(_) => 1,
-//             }
-//         },
-//         None => 1,
-//     }
-// }
+    let res = try_execute!(ctx.register_policy_dataframe(df));
+
+    unsafe {
+        std::ptr::copy_nonoverlapping(res.to_bytes_le().as_ptr(), df_uuid, df_uuid_len);
+    }
+
+    ErrorCode::Success
+}
 
 #[no_mangle]
-pub extern "C" fn init_monitor() -> i32 {
+pub extern "C" fn init_monitor() -> ErrorCode {
     match MONITOR_INSTANCE.set(PicachvMonitor::new().into()) {
-        Ok(_) => 0,
+        Ok(_) => ErrorCode::Success,
         // Already.
-        Err(_) => 1,
+        Err(_) => ErrorCode::Already,
     }
 }
 
 #[no_mangle]
-pub extern "C" fn open_new(uuid_ptr: *mut u8, len: usize) -> i32 {
+pub extern "C" fn open_new(uuid_ptr: *mut u8, len: usize) -> ErrorCode {
     if len < 16 {
-        return 1;
+        return ErrorCode::InvalidOperation;
     }
 
     match MONITOR_INSTANCE.get() {
         Some(monitor) => match monitor.open_new() {
             Ok(uuid) => {
                 let uuid_bytes = uuid.to_bytes_le();
-                unsafe {
-                    std::ptr::copy_nonoverlapping(uuid_bytes.as_ptr(), uuid_ptr, uuid_bytes.len())
-                }
+                println!("copying the uuid to the pointer");
+                unsafe { std::ptr::copy(uuid_bytes.as_ptr(), uuid_ptr, uuid_bytes.len()) }
+                println!("copying the uuid to the pointer finished");
                 log::debug!("returning {uuid:?}");
-                0
+                ErrorCode::Success
             },
-            Err(_) => 1,
+            Err(_) => ErrorCode::InvalidOperation,
         },
-        None => 1,
+        None => ErrorCode::InvalidOperation,
     }
 }
 
-// #[no_mangle]
-// pub extern "C" fn execute_prologue(
-//     ctx_uuid_ptr: *const u8,
-//     ctx_uuid_ptr_len: usize,
-//     plan_uuid_ptr: *const u8,
-//     plan_uuid_ptr_len: usize,
-//     df_uuid_ptr: *const u8,
-//     df_uuid_ptr_len: usize,
-// ) -> i32 {
-//     if ctx_uuid_ptr_len < 16 {
-//         return 1;
-//     }
+/// Constructs the expression out of the argument which is a serialized protobuf
+/// byte array that can be deserialized into an `ExprArgument`.
+#[no_mangle]
+pub extern "C" fn expr_from_args(
+    ctx_uuid: *const u8,
+    ctx_uuid_len: usize,
+    expr_arg: *const u8,
+    expr_arg_len: usize,
+    expr_uuid: *mut u8,
+    expr_uuid_len: usize,
+) -> ErrorCode {
+    let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
 
-//     let (ctx_id, plan_id, df_id) = match (
-//         recover_uuid(ctx_uuid_ptr, ctx_uuid_ptr_len),
-//         recover_uuid(plan_uuid_ptr, plan_uuid_ptr_len),
-//         recover_uuid(df_uuid_ptr, df_uuid_ptr_len),
-//     ) {
-//         (Ok(ctx_id), Ok(plan_id), Ok(df_id)) => (ctx_id, plan_id, df_id),
-//         _ => return 1,
-//     };
+    let ctx = match MONITOR_INSTANCE.get() {
+        Some(monitor) => match monitor.get_ctx() {
+            Ok(ctx) => ctx,
+            Err(e) => return e.into(),
+        },
+        None => return ErrorCode::NoEntry,
+    };
 
-//     match MONITOR_INSTANCE.get() {
-//         Some(monitor) => match monitor.execute_prologue(ctx_id, plan_id, df_id) {
-//             Ok(_) => 0,
-//             Err(_) => 1,
-//         },
-//         None => 1,
-//     }
-// }
+    let ctx = match ctx.get(&ctx_id) {
+        Some(ctx) => ctx,
+        None => return ErrorCode::NoEntry,
+    };
+
+    let expr_arg = unsafe { std::slice::from_raw_parts(expr_arg, expr_arg_len) };
+    let expr_arg = try_execute!(ExprArgument::decode(expr_arg), ErrorCode::SerializeError);
+
+    if expr_uuid_len != 16 {
+        return ErrorCode::InvalidOperation;
+    }
+
+    let uuid = ctx.expr_from_args(expr_arg).unwrap();
+
+    unsafe {
+        std::ptr::copy_nonoverlapping(uuid.to_bytes_le().as_ptr(), expr_uuid, expr_uuid_len);
+    }
+
+    ErrorCode::Success
+}
+
+/// Reifies an expression if the value is provided.
+#[no_mangle]
+pub extern "C" fn reify_expression(
+    ctx_uuid: *const u8,
+    ctx_uuid_len: usize,
+    expr_uuid: *const u8,
+    expr_uuid_len: usize,
+    value: *const u8,
+    value_len: usize,
+) -> ErrorCode {
+    let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
+    let expr_id = try_execute!(recover_uuid(expr_uuid, expr_uuid_len));
+
+    let ctx = match MONITOR_INSTANCE.get() {
+        Some(monitor) => match monitor.get_ctx() {
+            Ok(ctx) => ctx,
+            Err(_) => return ErrorCode::InvalidOperation,
+        },
+        None => return ErrorCode::NoEntry,
+    };
+
+    let ctx = match ctx.get(&ctx_id) {
+        Some(ctx) => ctx,
+        None => return ErrorCode::NoEntry,
+    };
+
+    let value = unsafe { std::slice::from_raw_parts(value, value_len) };
+
+    try_execute!(ctx.reify_expression(expr_id, value));
+
+    ErrorCode::Success
+}

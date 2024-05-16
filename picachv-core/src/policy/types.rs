@@ -57,6 +57,7 @@ pub enum AnyValue {
     Float32(OrderedFloat<f32>),
     Float64(OrderedFloat<f64>),
     Duration(Duration),
+    None,
 }
 
 impl TryFrom<PrimitiveValue> for AnyValue {
