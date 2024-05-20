@@ -1,4 +1,5 @@
 use std::fmt;
+use std::ops::Range;
 use std::sync::{Arc, RwLock};
 
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
@@ -123,6 +124,22 @@ impl PolicyGuardedDataFrame {
         for col in self.columns.iter() {
             let mut policies = vec![];
             for &i in slices.iter() {
+                policies.push(col.policies[i].clone());
+            }
+            columns.push(PolicyGuardedColumn { policies });
+        }
+
+        Ok(PolicyGuardedDataFrame {
+            schema: self.schema.clone(),
+            columns,
+        })
+    }
+
+    pub fn slice(&self, range: Range<usize>) -> PicachvResult<Self> {
+        let mut columns = vec![];
+        for col in self.columns.iter() {
+            let mut policies = vec![];
+            for i in range.clone() {
                 policies.push(col.policies[i].clone());
             }
             columns.push(PolicyGuardedColumn { policies });

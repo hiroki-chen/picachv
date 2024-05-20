@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Range;
 use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use picachv_core::dataframe::{apply_transform, PolicyGuardedDataFrame};
@@ -84,6 +85,14 @@ impl Context {
         }
 
         apply_transform(&self.arena.df_arena, transform)
+    }
+
+    pub fn create_slice(&self, df_uuid: Uuid, range: Range<usize>) -> PicachvResult<Uuid> {
+        let mut df_arena = rwlock_unlock!(self.arena.df_arena, write);
+        let df = df_arena.get(&df_uuid)?;
+
+        let new_df = df.slice(range)?;
+        df_arena.insert(new_df)
     }
 
     pub fn finalize(&self, df_uuid: Uuid) -> PicachvResult<()> {

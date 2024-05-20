@@ -430,118 +430,6 @@ impl ExprType {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AggExpr {
-    #[prost(bytes = "vec", tag = "1")]
-    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
-    #[prost(enumeration = "GroupByMethod", tag = "2")]
-    pub method: i32,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ColumnExpr {
-    #[prost(oneof = "column_expr::Column", tags = "1, 2")]
-    pub column: ::core::option::Option<column_expr::Column>,
-}
-/// Nested message and enum types in `ColumnExpr`.
-pub mod column_expr {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct ColumnNameSpecifier {
-        #[prost(string, tag = "1")]
-        pub column_name: ::prost::alloc::string::String,
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Column {
-        #[prost(uint64, tag = "1")]
-        ColumnId(u64),
-        /// This can be problematic since it relies solely on the column name
-        #[prost(message, tag = "2")]
-        ColumnNameSpecifier(ColumnNameSpecifier),
-    }
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AliasExpr {
-    #[prost(bytes = "vec", tag = "1")]
-    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
-    #[prost(string, tag = "2")]
-    pub alias: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct WildcardExpr {}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct LiteralExpr {}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct FilterExpr {
-    #[prost(bytes = "vec", tag = "1")]
-    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
-    #[prost(bytes = "vec", tag = "2")]
-    pub filter_uuid: ::prost::alloc::vec::Vec<u8>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct BinaryExpr {
-    #[prost(bytes = "vec", tag = "1")]
-    pub left_uuid: ::prost::alloc::vec::Vec<u8>,
-    #[prost(bytes = "vec", tag = "2")]
-    pub right_uuid: ::prost::alloc::vec::Vec<u8>,
-    #[prost(message, optional, tag = "3")]
-    pub op: ::core::option::Option<BinaryOperator>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UnaryExpr {
-    #[prost(bytes = "vec", tag = "1")]
-    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
-    #[prost(enumeration = "UnaryOperator", tag = "2")]
-    pub op: i32,
-}
-/// Function application.
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ApplyExpr {
-    #[prost(bytes = "vec", repeated, tag = "1")]
-    pub input_uuids: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-    #[prost(string, tag = "2")]
-    pub name: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ExprArgument {
-    #[prost(oneof = "expr_argument::Argument", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9")]
-    pub argument: ::core::option::Option<expr_argument::Argument>,
-}
-/// Nested message and enum types in `ExprArgument`.
-pub mod expr_argument {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Argument {
-        #[prost(message, tag = "1")]
-        Agg(super::AggExpr),
-        #[prost(message, tag = "2")]
-        Column(super::ColumnExpr),
-        #[prost(message, tag = "3")]
-        Alias(super::AliasExpr),
-        #[prost(message, tag = "4")]
-        Wildcard(super::WildcardExpr),
-        #[prost(message, tag = "5")]
-        Filter(super::FilterExpr),
-        #[prost(message, tag = "6")]
-        Binary(super::BinaryExpr),
-        #[prost(message, tag = "7")]
-        Unary(super::UnaryExpr),
-        #[prost(message, tag = "8")]
-        Literal(super::LiteralExpr),
-        #[prost(message, tag = "9")]
-        Apply(super::ApplyExpr),
-    }
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetDataFromFileArgument {
     /// The path to the file.
     #[prost(string, tag = "1")]
@@ -753,5 +641,117 @@ pub mod transform_info {
             #[prost(message, tag = "5")]
             Union(super::super::UnionInformation),
         }
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AggExpr {
+    #[prost(bytes = "vec", tag = "1")]
+    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
+    #[prost(enumeration = "GroupByMethod", tag = "2")]
+    pub method: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ColumnExpr {
+    #[prost(oneof = "column_expr::Column", tags = "1, 2")]
+    pub column: ::core::option::Option<column_expr::Column>,
+}
+/// Nested message and enum types in `ColumnExpr`.
+pub mod column_expr {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct ColumnNameSpecifier {
+        #[prost(string, tag = "1")]
+        pub column_name: ::prost::alloc::string::String,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Column {
+        #[prost(uint64, tag = "1")]
+        ColumnId(u64),
+        /// This can be problematic since it relies solely on the column name
+        #[prost(message, tag = "2")]
+        ColumnNameSpecifier(ColumnNameSpecifier),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AliasExpr {
+    #[prost(bytes = "vec", tag = "1")]
+    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
+    #[prost(string, tag = "2")]
+    pub alias: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WildcardExpr {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LiteralExpr {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FilterExpr {
+    #[prost(bytes = "vec", tag = "1")]
+    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub filter_uuid: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BinaryExpr {
+    #[prost(bytes = "vec", tag = "1")]
+    pub left_uuid: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub right_uuid: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "3")]
+    pub op: ::core::option::Option<BinaryOperator>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UnaryExpr {
+    #[prost(bytes = "vec", tag = "1")]
+    pub input_uuid: ::prost::alloc::vec::Vec<u8>,
+    #[prost(enumeration = "UnaryOperator", tag = "2")]
+    pub op: i32,
+}
+/// Function application.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ApplyExpr {
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub input_uuids: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(string, tag = "2")]
+    pub name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ExprArgument {
+    #[prost(oneof = "expr_argument::Argument", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9")]
+    pub argument: ::core::option::Option<expr_argument::Argument>,
+}
+/// Nested message and enum types in `ExprArgument`.
+pub mod expr_argument {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Argument {
+        #[prost(message, tag = "1")]
+        Agg(super::AggExpr),
+        #[prost(message, tag = "2")]
+        Column(super::ColumnExpr),
+        #[prost(message, tag = "3")]
+        Alias(super::AliasExpr),
+        #[prost(message, tag = "4")]
+        Wildcard(super::WildcardExpr),
+        #[prost(message, tag = "5")]
+        Filter(super::FilterExpr),
+        #[prost(message, tag = "6")]
+        Binary(super::BinaryExpr),
+        #[prost(message, tag = "7")]
+        Unary(super::UnaryExpr),
+        #[prost(message, tag = "8")]
+        Literal(super::LiteralExpr),
+        #[prost(message, tag = "9")]
+        Apply(super::ApplyExpr),
     }
 }
