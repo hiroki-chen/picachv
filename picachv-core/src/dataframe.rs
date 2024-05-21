@@ -136,6 +136,13 @@ impl PolicyGuardedDataFrame {
     }
 
     pub fn slice(&self, range: Range<usize>) -> PicachvResult<Self> {
+        println!("slicing: range = {range:?}");
+
+        picachv_ensure!(
+            range.end <= self.shape().0,
+            ComputeError: "The range is out of bound.",
+        );
+
         let mut columns = vec![];
         for col in self.columns.iter() {
             let mut policies = vec![];
@@ -360,6 +367,27 @@ impl PolicyGuardedDataFrame {
         PolicyGuardedDataFrame { schema, columns }
     }
 
+    pub(crate) fn projection_by_id(&mut self, project_list: &[usize]) -> PicachvResult<()> {
+        // First make sure if the project list contains valid columns.
+        for &col in project_list.iter() {
+            picachv_ensure!(
+                col < self.schema.len(),
+                ComputeError: format!("The column {} is not in the schema.", col),
+            );
+        }
+
+        self.columns = project_list
+            .iter()
+            .map(|&i| self.columns[i].clone())
+            .collect();
+        self.schema = project_list
+            .iter()
+            .map(|&i| self.schema[i].clone())
+            .collect();
+
+        Ok(())
+    }
+
     pub(crate) fn projection(&mut self, project_list: &[String]) -> PicachvResult<()> {
         // First make sure if the project list contains valid columns.
         for col in project_list.iter() {
@@ -369,10 +397,12 @@ impl PolicyGuardedDataFrame {
             );
         }
 
-        // Then we filter the columns.
-        self.schema.retain(|col| project_list.contains(col));
+        let idx = project_list
+            .iter()
+            .map(|e| self.schema.iter().position(|s| s == e).unwrap())
+            .collect::<Vec<_>>();
 
-        Ok(())
+        self.projection_by_id(&idx)
     }
 
     /// Convert the [`PolicyGuardedDataFrame`] into a vector of rows.

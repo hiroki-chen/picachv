@@ -284,7 +284,7 @@ fn aggregate_keys(
 }
 
 /// This function is used to apply the projection on the dataframe.
-fn early_projection(
+pub fn early_projection(
     df_arena: &Arenas,
     active_df_uuid: Uuid,
     project_list: &[String],
@@ -300,6 +300,27 @@ fn early_projection(
         None => {
             let mut df = (**df).clone();
             df.projection(project_list)?;
+            df_arena.insert_arc(Arc::new(df))
+        },
+    }
+}
+
+pub fn early_projection_by_id(
+    df_arena: &Arenas,
+    active_df_uuid: Uuid,
+    project_list: &[usize],
+) -> PicachvResult<Uuid> {
+    let mut df_arena = rwlock_unlock!(df_arena.df_arena, write);
+    let df = df_arena.get_mut(&active_df_uuid)?;
+
+    match Arc::get_mut(df) {
+        Some(df) => {
+            df.projection_by_id(project_list)?;
+            Ok(active_df_uuid)
+        },
+        None => {
+            let mut df = (**df).clone();
+            df.projection_by_id(project_list)?;
             df_arena.insert_arc(Arc::new(df))
         },
     }

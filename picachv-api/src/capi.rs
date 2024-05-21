@@ -1,3 +1,5 @@
+use std::sync::{OnceLock, RwLock};
+
 use picachv_core::dataframe::PolicyGuardedDataFrame;
 use picachv_core::io::JsonIO;
 use picachv_error::{PicachvError, PicachvResult};
@@ -6,18 +8,35 @@ use picachv_monitor::{PicachvMonitor, MONITOR_INSTANCE};
 use prost::Message;
 use uuid::Uuid;
 
+/// The last error message.
+static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
+
 macro_rules! try_execute {
     ($expr:expr) => {{
         match $expr {
             Ok(val) => val,
-            Err(err) => return err.into(),
+            Err(err) => {
+                let mut s = LAST_ERROR
+                    .get_or_init(|| RwLock::new("".into()))
+                    .write()
+                    .unwrap();
+                *s = format!("{}", err);
+                return err.into();
+            },
         }
     }};
 
     ($expr:expr, $err:expr) => {{
         match $expr {
             Ok(val) => val,
-            Err(_) => return $err,
+            Err(err) => {
+                let mut s = LAST_ERROR
+                    .get_or_init(|| RwLock::new("".into()))
+                    .write()
+                    .unwrap();
+                *s = format!("{}", err);
+                return $err;
+            },
         }
     }};
 }
@@ -51,6 +70,20 @@ fn recover_uuid(uuid_ptr: *const u8, len: usize) -> PicachvResult<Uuid> {
         Err(_) => Err(PicachvError::InvalidOperation(
             "Failed to recover the UUID.".into(),
         )),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn last_error(output: *mut u8, output_len: *mut usize) {
+    let s = LAST_ERROR
+        .get_or_init(|| RwLock::new("".into()))
+        .read()
+        .unwrap();
+
+    unsafe {
+        let len = s.len();
+        *output_len = len;
+        std::ptr::copy_nonoverlapping(s.as_ptr(), output, len);
     }
 }
 
@@ -228,6 +261,70 @@ pub extern "C" fn create_slice(
     let out = try_execute!(ctx.create_slice(df_id, start..end));
     unsafe {
         std::ptr::copy_nonoverlapping(out.to_bytes_le().as_ptr(), slice_df_uuid, slice_df_len);
+    }
+
+    ErrorCode::Success
+}
+
+#[no_mangle]
+pub extern "C" fn finalize(
+    ctx_uuid: *const u8,
+    ctx_uuid_len: usize,
+    df_uuid: *const u8,
+    df_len: usize,
+) -> ErrorCode {
+    let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
+    let df_id = try_execute!(recover_uuid(df_uuid, df_len));
+
+    let ctx = match MONITOR_INSTANCE.get() {
+        Some(monitor) => match monitor.get_ctx() {
+            Ok(ctx) => ctx,
+            Err(_) => return ErrorCode::InvalidOperation,
+        },
+        None => return ErrorCode::NoEntry,
+    };
+
+    let ctx = match ctx.get(&ctx_id) {
+        Some(ctx) => ctx,
+        None => return ErrorCode::NoEntry,
+    };
+
+    try_execute!(ctx.finalize(df_id));
+
+    ErrorCode::Success
+}
+
+#[no_mangle]
+pub extern "C" fn early_projection(
+    ctx_uuid: *const u8,
+    ctx_uuid_len: usize,
+    df_uuid: *const u8,
+    df_len: usize,
+    project_list: *const usize,
+    project_list_len: usize,
+    proj_df_uuid: *mut u8,
+    proj_df_len: usize,
+) -> ErrorCode {
+    let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
+    let df_id = try_execute!(recover_uuid(df_uuid, df_len));
+
+    let ctx = match MONITOR_INSTANCE.get() {
+        Some(monitor) => match monitor.get_ctx() {
+            Ok(ctx) => ctx,
+            Err(_) => return ErrorCode::InvalidOperation,
+        },
+        None => return ErrorCode::NoEntry,
+    };
+
+    let ctx = match ctx.get(&ctx_id) {
+        Some(ctx) => ctx,
+        None => return ErrorCode::NoEntry,
+    };
+    let project_list = unsafe { std::slice::from_raw_parts(project_list, project_list_len) };
+
+    let out = try_execute!(ctx.early_projection(df_id, project_list));
+    unsafe {
+        std::ptr::copy_nonoverlapping(out.to_bytes_le().as_ptr(), proj_df_uuid, proj_df_len);
     }
 
     ErrorCode::Success

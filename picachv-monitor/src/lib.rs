@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use picachv_core::dataframe::{apply_transform, PolicyGuardedDataFrame};
 use picachv_core::expr::Expr;
-use picachv_core::plan::Plan;
+use picachv_core::plan::{early_projection_by_id, Plan};
 use picachv_core::udf::Udf;
 use picachv_core::{get_new_uuid, record_batch_from_bytes, rwlock_unlock, Arenas};
 use picachv_error::{PicachvError, PicachvResult};
@@ -27,6 +27,7 @@ pub struct Context {
 }
 
 impl Context {
+    #[inline]
     pub fn new(id: Uuid, udfs: HashMap<String, Udf>) -> Self {
         Context {
             id,
@@ -36,9 +37,15 @@ impl Context {
         }
     }
 
+    #[inline]
     pub fn register_policy_dataframe(&self, df: PolicyGuardedDataFrame) -> PicachvResult<Uuid> {
         let mut df_arena = rwlock_unlock!(self.arena.df_arena, write);
         df_arena.insert(df)
+    }
+
+    #[inline]
+    pub fn early_projection(&self, df_uuid: Uuid, project_list: &[usize]) -> PicachvResult<Uuid> {
+        early_projection_by_id(&self.arena, df_uuid, project_list)
     }
 
     pub fn expr_from_args(&self, expr_arg: ExprArgument) -> PicachvResult<Uuid> {

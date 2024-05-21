@@ -3,6 +3,8 @@
 
 #include <cstdint>
 
+#define PICACHV_UUID_LEN 16
+
 /**
  * @brief The error code returned from the Rust code.
  *
@@ -18,11 +20,22 @@ enum ErrorCode {
   NoEntry = 3,
   /// @brief The privacy breach is detected.
   PrivacyBreach = 4,
-  /// @brief The monitor is already opened.
-  Already = 5
+  /// @brief The monitor is already opened or something already exists.
+  Already = 5,
+  /// @brief The file is not found.
+  FileNotFound = 6,
 };
 
 extern "C" {
+/**
+ * @brief Get the last error message. Please be aware that the error message
+ * does NOT include the trailing zero '\0'.
+ *
+ * @param [out] err_msg The buffer for holding the error message.
+ * @param [in, out] err_msg_len The length of the error message buffer.
+ */
+void last_error(uint8_t *err_msg, std::size_t *err_msg_len);
+
 /**
  * @brief Initialize the global instance of the monitor.
  *
@@ -89,11 +102,10 @@ ErrorCode expr_from_args(const uint8_t *ctx_uuid, std::size_t ctx_uuid_len,
 ErrorCode reify_expression(const uint8_t *ctx_uuid, std::size_t ctx_uuid_len,
                            const uint8_t *expr_uuid, std::size_t expr_uuid_len,
                            const uint8_t *value, std::size_t value_len);
-}
 
 /**
  * @brief Creates a sliced dataframe.
- * 
+ *
  * @param [in] ctx_uuid The UUID of the context.
  * @param [in] ctx_uuid_len The length of the context UUID.
  * @param [in] df_uuid The UUID of the dataframe.
@@ -102,12 +114,44 @@ ErrorCode reify_expression(const uint8_t *ctx_uuid, std::size_t ctx_uuid_len,
  * @param end The end index of the slice.
  * @param [out] slice_uuid The buffer for holding the UUID of the sliced
  * @param [in] slice_uuid_len The length of the slice UUID buffer.
- * @return ErrorCode 
+ * @return ErrorCode
  */
 ErrorCode create_slice(const uint8_t *ctx_uuid, std::size_t ctx_uuid_len,
                        const uint8_t *df_uuid, std::size_t df_uuid_len,
-                       uint64_t start, uint64_t end,
-                       uint8_t *slice_uuid, std::size_t slice_uuid_len);
+                       uint64_t start, uint64_t end, uint8_t *slice_uuid,
+                       std::size_t slice_uuid_len);
 
+/**
+ * @brief Finalize should be called whenever the analytical result is collected.
+ * This function makes sure that the policy should be met.
+ *
+ * @param [in] ctx_uuid The UUID of the context.
+ * @param [in] ctx_uuid_len The length of the context UUID.
+ * @param [in] df_uuid The UUID of the dataframe.
+ * @param [in] df_uuid_len The length of the dataframe UUID.
+ * @return ErrorCode
+ */
+ErrorCode finalize(const uint8_t *ctx_uuid, std::size_t ctx_uuid_len,
+                   const uint8_t *df_uuid, std::size_t df_uuid_len);
+
+/**
+ * @brief Do an early projection on the dataframe.
+ *
+ * @param ctx_uuid
+ * @param ctx_uuid_len
+ * @param df_uuid
+ * @param df_uuid_len
+ * @param project_list
+ * @param project_list_len
+ * @param result_uuid
+ * @param result_uuid_len
+ * @return ErrorCode
+ */
+ErrorCode early_projection(const uint8_t *ctx_uuid, std::size_t ctx_uuid_len,
+                           const uint8_t *df_uuid, std::size_t df_uuid_len,
+                           const std::size_t *project_list,
+                           std::size_t project_list_len, uint8_t *result_uuid,
+                           std::size_t result_uuid_len);
+}
 
 #endif
