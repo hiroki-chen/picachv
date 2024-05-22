@@ -1,5 +1,6 @@
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::get_data_argument::DataSource;
+use picachv_message::get_data_in_memory::{ById, ByName, ProjectionList};
 use picachv_message::{plan_argument, AggregateArgument};
 use uuid::Uuid;
 
@@ -40,12 +41,24 @@ impl Plan {
                             })
                             .transpose()?;
 
-                        let projection = if memory.projected_list.is_empty() {
-                            None
-                        } else {
-                            let proj_list = memory.projected_list.into_iter().collect::<Vec<_>>();
-
-                            Some(proj_list)
+                        let projection = match memory.projection_list {
+                            Some(projection_list) => Some(match projection_list {
+                                ProjectionList::ByName(ByName { project_list }) => project_list,
+                                ProjectionList::ById(ById { project_list }) => project_list
+                                    .into_iter()
+                                    .map(|id| {
+                                        df.schema
+                                            .get(id as usize)
+                                            .ok_or_else(|| {
+                                                PicachvError::InvalidOperation(
+                                                    "The column id is out of bound.".into(),
+                                                )
+                                            })
+                                            .cloned()
+                                    })
+                                    .collect::<PicachvResult<Vec<_>>>()?,
+                            }),
+                            None => None,
                         };
 
                         Ok(Plan::DataFrameScan {
@@ -121,6 +134,7 @@ impl Plan {
                     output_schema,
                 })
             },
+            _ => Err(PicachvError::ComputeError("Not implemented!".into())),
         }
     }
 }

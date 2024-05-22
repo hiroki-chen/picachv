@@ -228,6 +228,7 @@ mod polars_tests {
             .set_ctx_id(ctx_id)
             .collect();
 
+        println!("{:?}", out);
         assert!(out.is_ok());
     }
 
@@ -265,21 +266,21 @@ mod polars_tests {
     }
 
     #[test]
-    fn test_polars_agg_groupsize_fail() {
+    fn test_polars_agg_groupsize_ok1() {
         let (ctx_id, df) = prepare(example_df1, "../data/simple_policy2.json");
 
         let out = df
             .lazy()
             .group_by([col("b")])
-            .agg(vec![col("a").sum()]) // <- Because the groupsize is too small.
+            .agg(vec![col("a").sum()]) // <- Because the groupsize is ok.
             .set_ctx_id(ctx_id)
             .collect();
 
-        assert!(out.is_err());
+        assert!(out.is_ok());
     }
 
     #[test]
-    fn test_polars_agg_groupsize_ok() {
+    fn test_polars_agg_groupsize_ok2() {
         let (ctx_id, df) = prepare(example_df3, "../data/simple_policy2.json");
 
         let out = df

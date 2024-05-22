@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 import "basic.proto";
+import "transform.proto";
 
 package PicachvMessages;
 
@@ -16,11 +17,16 @@ message GetDataFromFileArgument {
 }
 
 message GetDataInMemory {
+  message ByName { repeated string project_list = 1; }
+  message ById { repeated uint64 project_list = 1; }
   bytes df_uuid = 1;
   // In case we will have the "selection pushdown" thing.
   optional bytes pred = 2;
   // In case we will have the "projection pushdown" thing.
-  repeated string projected_list = 3;
+  oneof projection_list {
+    ByName by_name = 3;
+    ById by_id = 4;
+  }
 }
 
 message GetDataArgument {
@@ -40,6 +46,11 @@ message ProjectionArgument {
   repeated bytes expression = 1;
 }
 
+// Some plans do not need to be checked.
+message TransformArgument {
+
+}
+
 message AggregateArgument {
   // The uuid of the group by.
   repeated bytes keys = 1;
@@ -57,5 +68,8 @@ message PlanArgument {
     ProjectionArgument projection = 2;
     AggregateArgument aggregate = 3;
     GetDataArgument get_data = 4;
+    TransformArgument transform = 5;
   }
+
+  TransformInfo transform_info = 6;
 }

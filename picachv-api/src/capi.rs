@@ -3,7 +3,7 @@ use std::sync::{OnceLock, RwLock};
 use picachv_core::dataframe::PolicyGuardedDataFrame;
 use picachv_core::io::JsonIO;
 use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::ExprArgument;
+use picachv_message::{ExprArgument, PlanArgument, TransformInfo};
 use picachv_monitor::{PicachvMonitor, MONITOR_INSTANCE};
 use prost::Message;
 use uuid::Uuid;
@@ -325,6 +325,56 @@ pub extern "C" fn early_projection(
     let out = try_execute!(ctx.early_projection(df_id, project_list));
     unsafe {
         std::ptr::copy_nonoverlapping(out.to_bytes_le().as_ptr(), proj_df_uuid, proj_df_len);
+    }
+
+    ErrorCode::Success
+}
+
+#[no_mangle]
+pub extern "C" fn execute_epilogue(
+    ctx_uuid: *const u8,
+    ctx_uuid_len: usize,
+    plan_arg: *const u8,
+    plan_arg_len: usize,
+    df_uuid: *const u8,
+    df_len: usize,
+    output: *mut u8,
+    output_len: usize,
+) -> ErrorCode {
+    let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
+    let df_id = try_execute!(recover_uuid(df_uuid, df_len));
+
+    let plan_arg = unsafe {
+        if plan_arg.is_null() {
+            None
+        } else {
+            let bytes = std::slice::from_raw_parts(plan_arg, plan_arg_len);
+            Some(try_execute!(
+                PlanArgument::decode(bytes),
+                ErrorCode::SerializeError
+            ))
+        }
+    };
+
+    let ctx = match MONITOR_INSTANCE.get() {
+        Some(monitor) => match monitor.get_ctx() {
+            Ok(ctx) => ctx,
+            Err(_) => return ErrorCode::InvalidOperation,
+        },
+        None => return ErrorCode::NoEntry,
+    };
+
+    let ctx = match ctx.get(&ctx_id) {
+        Some(ctx) => ctx,
+        None => return ErrorCode::NoEntry,
+    };
+
+    println!("execute_epilogue: df_id = {df_id:?}, plan_arg = {plan_arg:?}");
+    let out = try_execute!(ctx.execute_epilogue(df_id, plan_arg));
+    println!("out = {out:?}");
+
+    unsafe {
+        std::ptr::copy_nonoverlapping(out.to_bytes_le().as_ptr(), output, output_len);
     }
 
     ErrorCode::Success

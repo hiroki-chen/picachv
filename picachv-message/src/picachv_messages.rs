@@ -540,112 +540,14 @@ pub mod expr_argument {
         Apply(super::ApplyExpr),
     }
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetDataFromFileArgument {
-    /// The path to the file.
-    #[prost(string, tag = "1")]
-    pub path: ::prost::alloc::string::String,
-    /// The type of the file.
-    #[prost(enumeration = "FileType", tag = "2")]
-    pub file_type: i32,
-    /// The schema of the file.
-    ///
-    /// Note that the caller must ensure that the schema itself is registered!
-    #[prost(bytes = "vec", tag = "3")]
-    pub df_uuid: ::prost::alloc::vec::Vec<u8>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetDataInMemory {
-    #[prost(bytes = "vec", tag = "1")]
-    pub df_uuid: ::prost::alloc::vec::Vec<u8>,
-    /// In case we will have the "selection pushdown" thing.
-    #[prost(bytes = "vec", optional, tag = "2")]
-    pub pred: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
-    /// In case we will have the "projection pushdown" thing.
-    #[prost(string, repeated, tag = "3")]
-    pub projected_list: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetDataArgument {
-    #[prost(oneof = "get_data_argument::DataSource", tags = "1, 2")]
-    pub data_source: ::core::option::Option<get_data_argument::DataSource>,
-}
-/// Nested message and enum types in `GetDataArgument`.
-pub mod get_data_argument {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum DataSource {
-        #[prost(message, tag = "1")]
-        FromFile(super::GetDataFromFileArgument),
-        #[prost(message, tag = "2")]
-        InMemory(super::GetDataInMemory),
-    }
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SelectArgument {
-    /// The uuid of the predicate.
-    #[prost(bytes = "vec", tag = "1")]
-    pub pred_uuid: ::prost::alloc::vec::Vec<u8>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ProjectionArgument {
-    /// Column 'names' as we may apply some transformation on columns.
-    #[prost(bytes = "vec", repeated, tag = "1")]
-    pub expression: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AggregateArgument {
-    /// The uuid of the group by.
-    #[prost(bytes = "vec", repeated, tag = "1")]
-    pub keys: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-    #[prost(bytes = "vec", repeated, tag = "2")]
-    pub aggs_uuid: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-    #[prost(bool, tag = "3")]
-    pub maintain_order: bool,
-    #[prost(message, optional, tag = "4")]
-    pub group_by_proxy: ::core::option::Option<GroupByProxy>,
-    #[prost(string, repeated, tag = "5")]
-    pub output_schema: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-}
-/// A Rust `enum`-like message to represent the different types of physical
-/// plans.
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PlanArgument {
-    #[prost(oneof = "plan_argument::Argument", tags = "1, 2, 3, 4")]
-    pub argument: ::core::option::Option<plan_argument::Argument>,
-}
-/// Nested message and enum types in `PlanArgument`.
-pub mod plan_argument {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Argument {
-        #[prost(message, tag = "1")]
-        Select(super::SelectArgument),
-        #[prost(message, tag = "2")]
-        Projection(super::ProjectionArgument),
-        #[prost(message, tag = "3")]
-        Aggregate(super::AggregateArgument),
-        #[prost(message, tag = "4")]
-        GetData(super::GetDataArgument),
-    }
-}
 /// This message is used to notify the monitor which rows are dropped.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FilterInformation {
-    #[prost(bytes = "vec", tag = "1")]
-    pub df_uuid: ::prost::alloc::vec::Vec<u8>,
     /// A boolean array that indicates which rows are dropped (0 dropped; 1 not
     /// dropped). The index is in correspondence with the original relation, i.e.,
     /// filter\[idx\] = 1 means the idx-th row is not dropped.
-    #[prost(bool, repeated, tag = "2")]
+    #[prost(bool, repeated, tag = "1")]
     pub filter: ::prost::alloc::vec::Vec<bool>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -699,10 +601,8 @@ pub mod join_information {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupByInformation {
-    #[prost(bytes = "vec", tag = "1")]
-    pub df_uuid: ::prost::alloc::vec::Vec<u8>,
     /// Tells the monitor which row is aggregated.
-    #[prost(map = "uint64, uint64", tag = "2")]
+    #[prost(map = "uint64, uint64", tag = "1")]
     pub group_by: ::std::collections::HashMap<u64, u64>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -716,42 +616,158 @@ pub struct UnionInformation {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReorderInformation {
-    #[prost(bytes = "vec", tag = "1")]
-    pub df_uuid: ::prost::alloc::vec::Vec<u8>,
     /// The permutation of rows in case reorder occurs.
-    #[prost(uint64, repeated, tag = "2")]
+    #[prost(uint64, repeated, tag = "1")]
     pub perm: ::prost::alloc::vec::Vec<u64>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TransformInfo {
-    /// An array of information telling the monitor what has been done.
-    #[prost(message, repeated, tag = "1")]
-    pub trans_info: ::prost::alloc::vec::Vec<transform_info::Information>,
+    #[prost(oneof = "transform_info::Information", tags = "1, 2, 3, 4, 5")]
+    pub information: ::core::option::Option<transform_info::Information>,
 }
 /// Nested message and enum types in `TransformInfo`.
 pub mod transform_info {
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Information {
-        #[prost(oneof = "information::Information", tags = "1, 2, 3, 4, 5")]
-        pub information: ::core::option::Option<information::Information>,
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Information {
+        #[prost(message, tag = "1")]
+        Filter(super::FilterInformation),
+        #[prost(message, tag = "2")]
+        Join(super::JoinInformation),
+        #[prost(message, tag = "3")]
+        GroupBy(super::GroupByInformation),
+        #[prost(message, tag = "4")]
+        Reorder(super::ReorderInformation),
+        #[prost(message, tag = "5")]
+        Union(super::UnionInformation),
     }
-    /// Nested message and enum types in `Information`.
-    pub mod information {
-        #[allow(clippy::derive_partial_eq_without_eq)]
-        #[derive(Clone, PartialEq, ::prost::Oneof)]
-        pub enum Information {
-            #[prost(message, tag = "1")]
-            Filter(super::super::FilterInformation),
-            #[prost(message, tag = "2")]
-            Join(super::super::JoinInformation),
-            #[prost(message, tag = "3")]
-            GroupBy(super::super::GroupByInformation),
-            #[prost(message, tag = "4")]
-            Reorder(super::super::ReorderInformation),
-            #[prost(message, tag = "5")]
-            Union(super::super::UnionInformation),
-        }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetDataFromFileArgument {
+    /// The path to the file.
+    #[prost(string, tag = "1")]
+    pub path: ::prost::alloc::string::String,
+    /// The type of the file.
+    #[prost(enumeration = "FileType", tag = "2")]
+    pub file_type: i32,
+    /// The schema of the file.
+    ///
+    /// Note that the caller must ensure that the schema itself is registered!
+    #[prost(bytes = "vec", tag = "3")]
+    pub df_uuid: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetDataInMemory {
+    #[prost(bytes = "vec", tag = "1")]
+    pub df_uuid: ::prost::alloc::vec::Vec<u8>,
+    /// In case we will have the "selection pushdown" thing.
+    #[prost(bytes = "vec", optional, tag = "2")]
+    pub pred: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    /// In case we will have the "projection pushdown" thing.
+    #[prost(oneof = "get_data_in_memory::ProjectionList", tags = "3, 4")]
+    pub projection_list: ::core::option::Option<get_data_in_memory::ProjectionList>,
+}
+/// Nested message and enum types in `GetDataInMemory`.
+pub mod get_data_in_memory {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct ByName {
+        #[prost(string, repeated, tag = "1")]
+        pub project_list: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct ById {
+        #[prost(uint64, repeated, tag = "1")]
+        pub project_list: ::prost::alloc::vec::Vec<u64>,
+    }
+    /// In case we will have the "projection pushdown" thing.
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum ProjectionList {
+        #[prost(message, tag = "3")]
+        ByName(ByName),
+        #[prost(message, tag = "4")]
+        ById(ById),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetDataArgument {
+    #[prost(oneof = "get_data_argument::DataSource", tags = "1, 2")]
+    pub data_source: ::core::option::Option<get_data_argument::DataSource>,
+}
+/// Nested message and enum types in `GetDataArgument`.
+pub mod get_data_argument {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum DataSource {
+        #[prost(message, tag = "1")]
+        FromFile(super::GetDataFromFileArgument),
+        #[prost(message, tag = "2")]
+        InMemory(super::GetDataInMemory),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SelectArgument {
+    /// The uuid of the predicate.
+    #[prost(bytes = "vec", tag = "1")]
+    pub pred_uuid: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ProjectionArgument {
+    /// Column 'names' as we may apply some transformation on columns.
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub expression: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+}
+/// Some plans do not need to be checked.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TransformArgument {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AggregateArgument {
+    /// The uuid of the group by.
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub keys: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bytes = "vec", repeated, tag = "2")]
+    pub aggs_uuid: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bool, tag = "3")]
+    pub maintain_order: bool,
+    #[prost(message, optional, tag = "4")]
+    pub group_by_proxy: ::core::option::Option<GroupByProxy>,
+    #[prost(string, repeated, tag = "5")]
+    pub output_schema: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+/// A Rust `enum`-like message to represent the different types of physical
+/// plans.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PlanArgument {
+    #[prost(message, optional, tag = "6")]
+    pub transform_info: ::core::option::Option<TransformInfo>,
+    #[prost(oneof = "plan_argument::Argument", tags = "1, 2, 3, 4, 5")]
+    pub argument: ::core::option::Option<plan_argument::Argument>,
+}
+/// Nested message and enum types in `PlanArgument`.
+pub mod plan_argument {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Argument {
+        #[prost(message, tag = "1")]
+        Select(super::SelectArgument),
+        #[prost(message, tag = "2")]
+        Projection(super::ProjectionArgument),
+        #[prost(message, tag = "3")]
+        Aggregate(super::AggregateArgument),
+        #[prost(message, tag = "4")]
+        GetData(super::GetDataArgument),
+        #[prost(message, tag = "5")]
+        Transform(super::TransformArgument),
     }
 }

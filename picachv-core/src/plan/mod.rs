@@ -140,7 +140,7 @@ impl Plan {
     /// ```c++
     /// void *Plan::execute(State *state) const {
     ///     Result *res = this->execute_impl(state);
-    /// 
+    ///
     ///     if (!this->check(state, this->active_df_uuid)) {
     ///         return nullptr;
     ///     } else {
@@ -154,7 +154,7 @@ impl Plan {
         active_df_uuid: Uuid,
         udfs: &HashMap<String, Udf>,
     ) -> PicachvResult<Uuid> {
-        log::debug!(
+        println!(
             "execute_prologue: checking {:?} with {active_df_uuid}",
             self
         );
@@ -184,24 +184,25 @@ impl Plan {
                 selection,
                 projection,
                 ..
-            } => match selection {
-                Some(s) => {
-                    let uuid = if let Some(projection) = projection {
-                        early_projection(arena, active_df_uuid, projection)?
-                    } else {
-                        active_df_uuid
-                    };
+            } => {
+                let projected_uuid = match projection {
+                    Some(projection) => early_projection(arena, active_df_uuid, &projection),
+                    None => Ok(active_df_uuid),
+                }?;
 
-                    let expr = {
-                        let expr_arena = rwlock_unlock!(arena.expr_arena, read);
-                        expr_arena.get(s)?.clone()
-                    };
+                match selection {
+                    Some(s) => {
+                        let expr = {
+                            let expr_arena = rwlock_unlock!(arena.expr_arena, read);
+                            expr_arena.get(s)?.clone()
+                        };
 
-                    check_expressions(arena, uuid, &[expr], true, udfs)?;
+                        check_expressions(arena, projected_uuid, &[expr], true, udfs)?;
 
-                    Ok(active_df_uuid)
-                },
-                None => Ok(active_df_uuid),
+                        Ok(projected_uuid)
+                    },
+                    None => Ok(projected_uuid),
+                }
             },
 
             Plan::Aggregation {

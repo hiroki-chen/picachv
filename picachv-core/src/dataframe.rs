@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::group_by_proxy::Groups;
-use picachv_message::transform_info::information::Information;
+use picachv_message::transform_info::Information;
 use picachv_message::{JoinInformation, TransformInfo};
 use serde::{Deserialize, Serialize};
 use tabled::builder::Builder;
@@ -486,88 +486,75 @@ impl PolicyGuardedDataFrame {
 /// that the policy dataframe is in sync with the data.
 pub fn apply_transform(
     df_arena: &Arc<RwLock<DfArena>>,
+    df_uuid: Uuid,
     transform: TransformInfo,
 ) -> PicachvResult<Uuid> {
-    let mut uuid = Uuid::default();
+    match transform.information {
+        Some(ti) => match ti {
+            Information::Filter(pred) => {
+                let mut df_arena = rwlock_unlock!(df_arena, write);
+                let df = df_arena.get_mut(&df_uuid)?;
 
-    for ti in transform.trans_info.iter() {
-        match ti.information.as_ref() {
-            Some(ti) => match ti {
-                Information::Filter(pred) => {
-                    let df_uuid = Uuid::from_slice_le(&pred.df_uuid)
-                        .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
-                    let mut df_arena = rwlock_unlock!(df_arena, write);
-                    let df = df_arena.get_mut(&df_uuid)?;
+                // We then apply the transformation.
+                //
+                // We first check if we are holding a strong reference to the dataframe, if so
+                // we can directly apply the transformation on the dataframe, otherwise we need
+                // to clone the dataframe and apply the transformation on the cloned dataframe.
+                // By doing so we can save the memory usage.
+                let new_uuid = match Arc::get_mut(df) {
+                    Some(df) => {
+                        df.filter(&pred.filter)?;
+                        // We just re-use the UUID.
+                        df_uuid
+                    },
+                    None => {
+                        let mut df = (**df).clone();
+                        df.filter(&pred.filter)?;
+                        // We insert the new dataframe and this methods returns a new UUID.
+                        df_arena.insert(df)?
+                    },
+                };
 
-                    // We then apply the transformation.
-                    //
-                    // We first check if we are holding a strong reference to the dataframe, if so
-                    // we can directly apply the transformation on the dataframe, otherwise we need
-                    // to clone the dataframe and apply the transformation on the cloned dataframe.
-                    // By doing so we can save the memory usage.
-                    let new_uuid = match Arc::get_mut(df) {
-                        Some(df) => {
-                            df.filter(&pred.filter)?;
-                            // We just re-use the UUID.
-                            df_uuid
-                        },
-                        None => {
-                            let mut df = (**df).clone();
-                            df.filter(&pred.filter)?;
-                            // We insert the new dataframe and this methods returns a new UUID.
-                            df_arena.insert(df)?
-                        },
-                    };
-
-                    uuid = new_uuid;
-                },
-
-                Information::Union(union_info) => {
-                    let mut df_arena = rwlock_unlock!(df_arena, write);
-
-                    let involved_dfs = [&union_info.lhs_df_uuid, &union_info.rhs_df_uuid]
-                        .iter()
-                        .map(|uuid| {
-                            let uuid = Uuid::from_slice_le(uuid).map_err(|_| {
-                                PicachvError::InvalidOperation("Invalid UUID.".into())
-                            })?;
-                            df_arena.get(&uuid)
-                        })
-                        .collect::<PicachvResult<Vec<_>>>()?;
-
-                    // We just union them all.
-                    let new_df = PolicyGuardedDataFrame::union(&involved_dfs)?;
-
-                    // Assign the new UUID.
-                    uuid = df_arena.insert(new_df)?;
-                },
-
-                Information::Join(join) => {
-                    let mut df_arena = rwlock_unlock!(df_arena, write);
-
-                    let lhs = Uuid::from_slice_le(&join.lhs_df_uuid)
-                        .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
-                    let rhs = Uuid::from_slice_le(&join.rhs_df_uuid)
-                        .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
-
-                    let lhs_df = df_arena.get(&lhs)?;
-                    let rhs_df = df_arena.get(&rhs)?;
-
-                    let new_df = PolicyGuardedDataFrame::join(lhs_df, rhs_df, &join)?;
-
-                    uuid = df_arena.insert(new_df)?;
-                },
-
-                _ => todo!(),
+                Ok(new_uuid)
             },
-            None => {
-                return Err(PicachvError::InvalidOperation(
-                    "The transformation information is empty.".into(),
-                ))
+
+            Information::Union(union_info) => {
+                let mut df_arena = rwlock_unlock!(df_arena, write);
+
+                let involved_dfs = [&union_info.lhs_df_uuid, &union_info.rhs_df_uuid]
+                    .iter()
+                    .map(|uuid| {
+                        let uuid = Uuid::from_slice_le(uuid)
+                            .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
+                        df_arena.get(&uuid)
+                    })
+                    .collect::<PicachvResult<Vec<_>>>()?;
+
+                // We just union them all.
+                let new_df = PolicyGuardedDataFrame::union(&involved_dfs)?;
+
+                // Assign the new UUID.
+                df_arena.insert(new_df)
             },
-        }
+
+            Information::Join(join) => {
+                let mut df_arena = rwlock_unlock!(df_arena, write);
+
+                let lhs = Uuid::from_slice_le(&join.lhs_df_uuid)
+                    .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
+                let rhs = Uuid::from_slice_le(&join.rhs_df_uuid)
+                    .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
+
+                let lhs_df = df_arena.get(&lhs)?;
+                let rhs_df = df_arena.get(&rhs)?;
+
+                let new_df = PolicyGuardedDataFrame::join(lhs_df, rhs_df, &join)?;
+
+                df_arena.insert(new_df)
+            },
+
+            _ => todo!(),
+        },
+        None => Ok(df_uuid),
     }
-
-    println!("apply_transform: uuid = {uuid}");
-    Ok(uuid)
 }

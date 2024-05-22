@@ -8,7 +8,9 @@ use picachv_core::plan::{early_projection_by_id, Plan};
 use picachv_core::udf::Udf;
 use picachv_core::{get_new_uuid, record_batch_from_bytes, rwlock_unlock, Arenas};
 use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::{ExprArgument, PlanArgument, TransformInfo};
+use picachv_message::{
+    plan_argument, ExprArgument, PlanArgument, TransformArgument, TransformInfo,
+};
 use prost::Message;
 use uuid::Uuid;
 
@@ -62,36 +64,41 @@ impl Context {
         Ok(uuid)
     }
 
-    // pub fn execute_prologue(&self, plan_uuid: Uuid, df_uuid: Uuid) -> PicachvResult<Uuid> {
-    //     let lp_arena = rwlock_unlock!(self.arena.lp_arena, read);
-    //     let plan = lp_arena.get(&plan_uuid)?;
-
-    //     plan.execute_prologue(&self.arena, df_uuid, &self.udfs)
-    // }
-
     /// This function will parse the `TransformInfo` and apply the corresponding transformation on
     /// the invovled dataframes so that we can keep sync with the original dataframe since policies
     /// are de-coupled with their data. After succesful application it returns the UUID of the new
     /// dataframe allocated in the arena.
     pub fn execute_epilogue(
         &self,
-        mut df_uuid: Uuid,
+        df_uuid: Uuid,
         plan_arg: Option<PlanArgument>,
-        transform: TransformInfo, // todo: possibly we can wrap it into `plan_arg`.
     ) -> PicachvResult<Uuid> {
-        if let Some(plan_arg) = plan_arg {
-            let arg = plan_arg.argument.ok_or(PicachvError::InvalidOperation(
-                "The argument is empty.".into(),
-            ))?;
-            let plan = Plan::from_args(&self.arena, arg)?;
-            df_uuid = plan.check_executor(&self.arena, df_uuid, &self.udfs)?;
-        }
+        match plan_arg {
+            Some(plan_arg) => {
+                let arg = plan_arg.argument.ok_or(PicachvError::InvalidOperation(
+                    "The argument is empty.".into(),
+                ))?;
 
-        if transform.trans_info.is_empty() {
-            return Ok(df_uuid);
-        }
+                if let plan_argument::Argument::Transform(_) = arg {
+                    let ti = plan_arg
+                        .transform_info
+                        .ok_or(PicachvError::InvalidOperation(
+                            "The transform info is empty.".into(),
+                        ))?;
+                    return apply_transform(&self.arena.df_arena, df_uuid, ti);
+                }
 
-        apply_transform(&self.arena.df_arena, transform)
+                let plan = Plan::from_args(&self.arena, arg)?;
+                let df_uuid = plan.check_executor(&self.arena, df_uuid, &self.udfs)?;
+
+                if let Some(ti) = plan_arg.transform_info {
+                    apply_transform(&self.arena.df_arena, df_uuid, ti)
+                } else {
+                    Ok(df_uuid)
+                }
+            },
+            None => Ok(df_uuid),
+        }
     }
 
     pub fn create_slice(&self, df_uuid: Uuid, range: Range<usize>) -> PicachvResult<Uuid> {
@@ -213,14 +220,13 @@ impl PicachvMonitor {
         ctx_id: Uuid,
         df_uuid: Uuid,
         plan_arg: Option<PlanArgument>,
-        side_effect: TransformInfo,
     ) -> PicachvResult<Uuid> {
         let mut ctx = rwlock_unlock!(self.ctx, write);
         let ctx = ctx
             .get_mut(&ctx_id)
             .ok_or_else(|| PicachvError::InvalidOperation("The context does not exist.".into()))?;
 
-        ctx.execute_epilogue(df_uuid, plan_arg, side_effect)
+        ctx.execute_epilogue(df_uuid, plan_arg)
     }
 
     pub fn finalize(&self, ctx_id: Uuid, df_uuid: Uuid) -> PicachvResult<()> {
