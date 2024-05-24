@@ -83,6 +83,13 @@ impl AggExpr {
     }
 }
 
+/// How we access a column.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ColumnIdent {
+    ColumnName(String),
+    ColumnId(usize),
+}
+
 /// An expression type for describing a node in the query.
 #[derive(Clone, PartialEq)]
 pub enum Expr {
@@ -92,7 +99,7 @@ pub enum Expr {
         values: Option<Vec<Vec<AnyValue>>>,
     },
     /// Select a column.
-    Column(String),
+    Column(ColumnIdent),
     /// Count expression.
     Count,
     /// Making alias.
@@ -152,9 +159,14 @@ impl Expr {
 
         match self {
             Expr::Column(col) => {
-                let col = groups.schema.iter().position(|e| e == col).ok_or(
-                    PicachvError::ComputeError("The column does not exist.".into()),
-                )?;
+                let col = match col {
+                    ColumnIdent::ColumnId(id) => *id,
+                    ColumnIdent::ColumnName(name) => {
+                        groups.schema.iter().position(|e| e == name).ok_or(
+                            PicachvError::ComputeError("The column does not exist.".into()),
+                        )?
+                    },
+                };
 
                 for i in 0..groups.shape().0 {
                     policies.push(
@@ -269,13 +281,14 @@ impl Expr {
                 policy.downgrade(build_unary_expr!(op.clone()))
             },
             Expr::Column(col) => {
-                let col =
-                    ctx.schema
-                        .iter()
-                        .position(|e| e == col)
-                        .ok_or(PicachvError::ComputeError(
-                            "The column does not exist.".into(),
-                        ))?;
+                let col = match col {
+                    ColumnIdent::ColumnId(id) => *id,
+                    ColumnIdent::ColumnName(name) => {
+                        ctx.schema.iter().position(|e| e == name).ok_or(
+                            PicachvError::ComputeError("The column does not exist.".into()),
+                        )?
+                    },
+                };
 
                 // For column expression this is an interesting undecidable case
                 // where we cannot determine what operation it will be applied.
@@ -404,7 +417,7 @@ impl fmt::Debug for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Agg { expr, .. } => write!(f, "{expr:?}"),
-            Self::Column(column) => write!(f, "col({column})"),
+            Self::Column(column) => write!(f, "col({column:?})"),
             Self::Count => write!(f, "COUNT"),
             Self::Wildcard => write!(f, "*"),
             Self::Alias { expr, name } => write!(f, "ALIAS {expr:?} -> {name}"),

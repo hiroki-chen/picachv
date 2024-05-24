@@ -4,6 +4,7 @@ use picachv_message::{expr_argument, AggExpr, ApplyExpr};
 use uuid::Uuid;
 
 use super::Expr;
+use crate::expr::ColumnIdent;
 use crate::udf::Udf;
 use crate::{rwlock_unlock, Arenas};
 
@@ -17,10 +18,10 @@ impl Expr {
         match arg {
             Argument::Column(expr) => match expr.column {
                 Some(column) => match column {
-                    Column::ColumnId(_) => Err(PicachvError::InvalidOperation(
-                        "The column ID is not supported.".into(),
-                    )),
-                    Column::ColumnNameSpecifier(name) => Ok(Expr::Column(name.column_name)),
+                    Column::ColumnId(id) => Ok(Expr::Column(ColumnIdent::ColumnId(id as usize))),
+                    Column::ColumnNameSpecifier(name) => {
+                        Ok(Expr::Column(ColumnIdent::ColumnName(name.column_name)))
+                    },
                 },
                 None => Err(PicachvError::InvalidOperation(
                     "The column is empty.".into(),

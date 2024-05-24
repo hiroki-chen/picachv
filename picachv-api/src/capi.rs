@@ -3,7 +3,7 @@ use std::sync::{OnceLock, RwLock};
 use picachv_core::dataframe::PolicyGuardedDataFrame;
 use picachv_core::io::JsonIO;
 use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::{ExprArgument, PlanArgument, TransformInfo};
+use picachv_message::{ExprArgument, PlanArgument};
 use picachv_monitor::{PicachvMonitor, MONITOR_INSTANCE};
 use prost::Message;
 use uuid::Uuid;
@@ -189,7 +189,7 @@ pub extern "C" fn expr_from_args(
         return ErrorCode::InvalidOperation;
     }
 
-    let uuid = ctx.expr_from_args(expr_arg).unwrap();
+    let uuid = try_execute!(ctx.expr_from_args(expr_arg));
 
     unsafe {
         std::ptr::copy_nonoverlapping(uuid.to_bytes_le().as_ptr(), expr_uuid, expr_uuid_len);
