@@ -8,9 +8,7 @@ use picachv_core::plan::{early_projection_by_id, Plan};
 use picachv_core::udf::Udf;
 use picachv_core::{get_new_uuid, record_batch_from_bytes, rwlock_unlock, Arenas};
 use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::{
-    plan_argument, ExprArgument, PlanArgument, TransformArgument, TransformInfo,
-};
+use picachv_message::{plan_argument, ExprArgument, PlanArgument};
 use prost::Message;
 use uuid::Uuid;
 

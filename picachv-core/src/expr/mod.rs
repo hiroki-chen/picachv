@@ -510,33 +510,28 @@ fn check_policy_binary_udf(
     );
 
     match (policy_ok(&lhs), policy_ok(&rhs)) {
+        (true, true) => Ok(Policy::PolicyClean),
         // lhs = ∎
-        (true, _) => match udf_name {
-            "dt.offset_by" => {
-                // We now construct the downgrading operation.
-                let lhs_value = cast::into_duration(values[0].clone())?;
+        (true, _) => {
+            let lhs_value = match udf_name {
+                "dt.offset_by" => cast::into_duration(values[0].clone()),
+                "+" => cast::into_i64(values[0].clone()),
+                _ => unimplemented!("{udf_name} is not yet supported."),
+            }?;
 
-                let pf = policy_binary_transform_label!(udf_name.to_string(), lhs_value);
-
-                // Check if we can downgrade.
-                rhs.downgrade(pf)
-            },
-
-            _ => todo!(),
+            let pf = policy_binary_transform_label!(udf_name.to_string(), lhs_value);
+            rhs.downgrade(pf)
         },
         // rhs = ∎
-        (_, true) => match udf_name {
-            "dt.offset_by" => {
-                // We now construct the downgrading operation.
-                let rhs_value = cast::into_duration(values[1].clone())?;
-                log::debug!("rhs_value = {:?}", rhs_value);
-                let pf = policy_binary_transform_label!(udf_name.to_string(), rhs_value);
+        (_, true) => {
+            let rhs_value = match udf_name {
+                "dt.offset_by" => cast::into_duration(values[1].clone()),
+                "+" => cast::into_i64(values[1].clone()),
+                _ => unimplemented!("{udf_name} is not yet supported."),
+            }?;
 
-                // Check if we can downgrade.
-                lhs.downgrade(pf)
-            },
-
-            _ => todo!(),
+            let pf = policy_binary_transform_label!(udf_name.to_string(), rhs_value);
+            lhs.downgrade(pf)
         },
 
         _ => lhs.join(&rhs),
