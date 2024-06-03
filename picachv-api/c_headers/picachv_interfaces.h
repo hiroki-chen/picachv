@@ -165,4 +165,16 @@ ErrorCode execute_epilogue(const uint8_t *ctx_uuid, std::size_t ctx_uuid_len, co
                            std::size_t output_len);
 }
 
+/**
+ * @brief Print the policy-guarded dataframe.
+ * 
+ * @param ctx_uuid 
+ * @param ctx_uuid_len 
+ * @param df_uuid 
+ * @param df_uuid_len 
+ * @return ErrorCode 
+ */
+ErrorCode debug_print_df(const uint8_t *ctx_uuid, std::size_t ctx_uuid_len, const uint8_t *df_uuid,
+												 std::size_t df_uuid_len);
+
 #endif

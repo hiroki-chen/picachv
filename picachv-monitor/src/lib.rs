@@ -144,8 +144,14 @@ impl Context {
         Ok(())
     }
 
+    #[inline]
     pub fn id(&self) -> Uuid {
         self.id
+    }
+
+    pub fn get_df(&self, df_uuid: Uuid) -> PicachvResult<Arc<PolicyGuardedDataFrame>> {
+        let df_arena = rwlock_unlock!(self.arena.df_arena, read);
+        df_arena.get(&df_uuid).cloned()
     }
 }
 

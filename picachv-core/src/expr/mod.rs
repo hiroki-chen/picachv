@@ -290,6 +290,11 @@ impl Expr {
                     },
                 };
 
+                picachv_ensure!(
+                    col < ctx.df.shape().1,
+                    ComputeError: "The column is out of bound"
+                );
+
                 // For column expression this is an interesting undecidable case
                 // where we cannot determine what operation it will be applied.
                 //

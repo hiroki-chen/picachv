@@ -379,3 +379,32 @@ pub extern "C" fn execute_epilogue(
 
     ErrorCode::Success
 }
+
+#[no_mangle]
+pub extern "C" fn debug_print_df(
+    ctx_uuid: *const u8,
+    ctx_uuid_len: usize,
+    df_uuid: *const u8,
+    df_len: usize,
+) -> ErrorCode {
+    let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
+    let df_id = try_execute!(recover_uuid(df_uuid, df_len));
+
+    let ctx = match MONITOR_INSTANCE.get() {
+        Some(monitor) => match monitor.get_ctx() {
+            Ok(ctx) => ctx,
+            Err(_) => return ErrorCode::InvalidOperation,
+        },
+        None => return ErrorCode::NoEntry,
+    };
+
+    let ctx = match ctx.get(&ctx_id) {
+        Some(ctx) => ctx,
+        None => return ErrorCode::NoEntry,
+    };
+
+    let df = try_execute!(ctx.get_df(df_id));
+    println!("{df}");
+
+    ErrorCode::Success
+}
