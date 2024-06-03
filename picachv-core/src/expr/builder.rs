@@ -1,5 +1,5 @@
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
-use picachv_message::column_expr::Column;
+use picachv_message::column_specifier::Column;
 use picachv_message::{expr_argument, AggExpr, ApplyExpr};
 use uuid::Uuid;
 
@@ -17,11 +17,16 @@ impl Expr {
         let expr_arena = rwlock_unlock!(arenas.expr_arena, read);
         match arg {
             Argument::Column(expr) => match expr.column {
-                Some(column) => match column {
-                    Column::ColumnId(id) => Ok(Expr::Column(ColumnIdent::ColumnId(id as usize))),
-                    Column::ColumnNameSpecifier(name) => {
-                        Ok(Expr::Column(ColumnIdent::ColumnName(name.column_name)))
+                Some(column) => match column.column {
+                    Some(column) => match column {
+                        Column::ColumnIndex(idx) => {
+                            Ok(Expr::Column(ColumnIdent::ColumnId(idx as usize)))
+                        },
+                        Column::ColumnName(name) => Ok(Expr::Column(ColumnIdent::ColumnName(name))),
                     },
+                    None => Err(PicachvError::InvalidOperation(
+                        "The column is empty.".into(),
+                    )),
                 },
                 None => Err(PicachvError::InvalidOperation(
                     "The column is empty.".into(),

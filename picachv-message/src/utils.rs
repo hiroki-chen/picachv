@@ -1,9 +1,12 @@
 use picachv_error::PicachvResult;
 use uuid::Uuid;
 
-use crate::join_information::{RenamingInformation, RowJoinInformation};
+use crate::join_information::How;
 use crate::transform_info::Information;
-use crate::{FilterInformation, JoinInformation, TransformInfo, UnionInformation};
+use crate::{
+    FilterInformation, JoinInformation, RenamingInformation, RowJoinInformation, TransformInfo,
+    UnionInformation,
+};
 
 impl TransformInfo {
     pub fn from_filter(pred: &[bool]) -> PicachvResult<Self> {
@@ -23,7 +26,7 @@ impl TransformInfo {
         })
     }
 
-    pub fn from_join(
+    pub fn from_join_by_name(
         lhs_df_uuid: Uuid,
         rhs_df_uuid: Uuid,
         left_on: Vec<String>,
@@ -37,12 +40,14 @@ impl TransformInfo {
             information: Some(Information::Join(JoinInformation {
                 lhs_df_uuid: lhs_df_uuid.to_bytes_le().to_vec(),
                 rhs_df_uuid: rhs_df_uuid.to_bytes_le().to_vec(),
-                left_on,
-                right_on,
-                row_join_info,
-                lhs_input_schema,
-                rhs_input_schema,
-                renaming,
+                how: Some(How::JoinByName(crate::JoinByName {
+                    left_on,
+                    right_on,
+                    row_join_info,
+                    lhs_input_schema,
+                    rhs_input_schema,
+                    renaming,
+                })),
             })),
         })
     }

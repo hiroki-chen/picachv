@@ -2,6 +2,13 @@ syntax = "proto3";
 
 package PicachvMessages;
 
+message ColumnSpecifier {
+  oneof column {
+    uint64 column_index = 1;
+    string column_name = 2;
+  }
+}
+
 message GroupByProxy {
   // The vectors of indexes that are used to group the data.
   repeated uint64 first = 1;

@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::group_by_proxy::Groups;
+use picachv_message::join_information::How;
 use picachv_message::transform_info::Information;
 use picachv_message::{JoinInformation, TransformInfo};
 use serde::{Deserialize, Serialize};
@@ -170,6 +171,11 @@ impl PolicyGuardedDataFrame {
         info: &JoinInformation,
     ) -> PicachvResult<Self> {
         log::debug!("joining\n{lhs}\n{rhs} with info\n{info:?}",);
+
+        let info = match &info.how {
+            Some(How::JoinByName(info)) => info,
+            _ => picachv_bail!(ComputeError: "The join information is not provided."),
+        };
 
         // First we convert the column names into indices.
         let left = info
