@@ -17,32 +17,10 @@ message RowJoinInformation {
   uint64 right_row = 2;
 }
 
+// Renaming information.
 message RenamingInformation {
   string old_name = 1;
   string new_name = 2;
-}
-
-message JoinByName {
-  // The lhs columns that are used to join the two relations.
-  repeated string left_on = 1;
-  // The rhs columns that are used to join the two relations.
-  repeated string right_on = 2;
-  // The information of each row in the joined relation.
-  repeated RowJoinInformation row_join_info = 3;
-  // Input schemas.
-  repeated string lhs_input_schema = 4;
-  repeated string rhs_input_schema = 5;
-  // renaming
-  repeated RenamingInformation renaming = 6;
-}
-
-message JoinByIdx {
-  // The lhs columns that are used to join the two relations.
-  repeated uint64 left_on = 1;
-  // The rhs columns that are used to join the two relations.
-  repeated uint64 right_on = 2;
-  // The information of each row in the joined relation.
-  repeated RowJoinInformation row_join_info = 3;
 }
 
 message JoinInformation {
@@ -50,8 +28,16 @@ message JoinInformation {
   bytes lhs_df_uuid = 1;
   // The UUID of the right relation.
   bytes rhs_df_uuid = 2;
-  // How join is performed.
-  oneof how { JoinByName join_by_name = 3; }
+  // The information of each row in the joined relation.
+  //
+  // This basically tells us which rows in the left and right relations are used to join.
+  repeated RowJoinInformation row_join_info = 3;
+  // Which columns are used to join.
+  repeated uint64 left_columns = 4;
+  // Which columns are used to join.
+  repeated uint64 right_columns = 5;
+  // Optional renaming information denoting the new names of the columns for the rhs side.
+  repeated RenamingInformation renaming_info = 6;
 }
 
 message GroupByInformation {

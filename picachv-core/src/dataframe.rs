@@ -4,7 +4,6 @@ use std::sync::{Arc, RwLock};
 
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::group_by_proxy::Groups;
-use picachv_message::join_information::How;
 use picachv_message::transform_info::Information;
 use picachv_message::{JoinInformation, TransformInfo};
 use serde::{Deserialize, Serialize};
@@ -172,44 +171,27 @@ impl PolicyGuardedDataFrame {
     ) -> PicachvResult<Self> {
         log::debug!("joining\n{lhs}\n{rhs} with info\n{info:?}",);
 
-        let info = match &info.how {
-            Some(How::JoinByName(info)) => info,
-            _ => picachv_bail!(ComputeError: "The join information is not provided."),
-        };
-
-        // First we convert the column names into indices.
-        let left = info
-            .left_on
+        // We select columns according to `left_columns` and `right_columns`.
+        let left_columns = info
+            .left_columns
             .iter()
-            .map(|e| {
-                lhs.schema
-                    .iter()
-                    .position(|s| s == e)
-                    .ok_or(PicachvError::InvalidOperation(
-                        "The column is not in the schema.".into(),
-                    ))
-            })
-            .collect::<PicachvResult<Vec<_>>>()?;
-        let right = info
-            .right_on
+            .map(|e| *e as usize)
+            .collect::<Vec<_>>();
+        let right_columns = info
+            .right_columns
             .iter()
-            .map(|e| {
-                rhs.schema
-                    .iter()
-                    .position(|s| s == e)
-                    .ok_or(PicachvError::InvalidOperation(
-                        "The column is not in the schema.".into(),
-                    ))
-            })
-            .collect::<PicachvResult<Vec<_>>>()?;
-
-        let common_columns = info
-            .left_on
-            .iter()
-            .filter(|e| info.right_on.contains(e))
-            .cloned()
+            .map(|e| *e as usize)
             .collect::<Vec<_>>();
 
+        let (lhs, rhs) = {
+            let mut lhs = lhs.clone();
+            let mut rhs = rhs.clone();
+            lhs.projection_by_id(&left_columns)?;
+            rhs.projection_by_id(&right_columns)?;
+            (lhs, rhs)
+        };
+
+        // Deal with the row join information.
         let left_idx = info
             .row_join_info
             .iter()
@@ -220,70 +202,24 @@ impl PolicyGuardedDataFrame {
             .iter()
             .map(|e| e.right_row as usize)
             .collect::<Vec<_>>();
+        let lhs = lhs.new_from_slice(&left_idx)?;
+        let mut rhs = rhs.new_from_slice(&right_idx)?;
 
-        let mut common_policy_columns = vec![];
-        for (&left_col_idx, &right_col_idx) in left.iter().zip(right.iter()) {
-            let mut col = vec![];
-            for (left_row, right_row) in left_idx.iter().zip(right_idx.iter()) {
-                let left_row_idx = *left_row;
-                let right_row_idx = *right_row;
-                // Make sure the row index is within the bound.
-                picachv_ensure!(
-                    left_row_idx < lhs.shape().0 && right_row_idx < rhs.shape().0,
-                    ComputeError: "The row index is out of bound.",
-                );
-
-                // Then we try to fetch the row from the left and right dataframes.
-                let left_row = &lhs.columns[left_col_idx].policies[left_row_idx];
-                let right_row = &rhs.columns[right_col_idx].policies[right_row_idx];
-
-                col.push(left_row.join(right_row)?);
-            }
-
-            common_policy_columns.push(PolicyGuardedColumn { policies: col });
+        for r in info.renaming_info.iter() {
+            let idx = rhs
+                .schema
+                .iter()
+                .position(|s| s == &r.old_name)
+                .ok_or_else(|| {
+                    PicachvError::InvalidOperation(
+                        format!("The column {} is not in the schema.", r.old_name).into(),
+                    )
+                })?;
+            rhs.schema[idx] = r.new_name.clone();
         }
 
-        // We first select the columns not appearing in the common list.
-        let mut lhs = lhs.clone();
-        let mut rhs = rhs.clone();
-        let other_columns_lhs = lhs
-            .schema
-            .iter()
-            .filter_map(|e| {
-                if !common_columns.contains(e) {
-                    Some(e.clone())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        let other_columns_rhs = rhs
-            .schema
-            .iter()
-            .filter_map(|e| {
-                if !common_columns.contains(e) {
-                    Some(e.clone())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        lhs.projection(&other_columns_lhs)?;
-        rhs.projection(&other_columns_rhs)?;
-
-        let lhs = lhs.new_from_slice(&left_idx)?;
-        let rhs = rhs.new_from_slice(&right_idx)?;
-
-        // After common lists are joined we stitch the rest part together.
-        let common = PolicyGuardedDataFrame {
-            schema: common_columns,
-            columns: common_policy_columns,
-        };
-
-        let res = PolicyGuardedDataFrame::stitch(&common, &lhs)?;
-        let res = PolicyGuardedDataFrame::stitch(&res, &rhs)?;
-
-        Ok(res)
+        // We then stitch them together.
+        PolicyGuardedDataFrame::stitch(&lhs, &rhs)
     }
 
     /// According to the `groups` struct, fetch the group of columns.

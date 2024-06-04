@@ -559,6 +559,7 @@ pub struct RowJoinInformation {
     #[prost(uint64, tag = "2")]
     pub right_row: u64,
 }
+/// Renaming information.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RenamingInformation {
@@ -569,40 +570,6 @@ pub struct RenamingInformation {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct JoinByName {
-    /// The lhs columns that are used to join the two relations.
-    #[prost(string, repeated, tag = "1")]
-    pub left_on: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// The rhs columns that are used to join the two relations.
-    #[prost(string, repeated, tag = "2")]
-    pub right_on: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// The information of each row in the joined relation.
-    #[prost(message, repeated, tag = "3")]
-    pub row_join_info: ::prost::alloc::vec::Vec<RowJoinInformation>,
-    /// Input schemas.
-    #[prost(string, repeated, tag = "4")]
-    pub lhs_input_schema: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(string, repeated, tag = "5")]
-    pub rhs_input_schema: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// renaming
-    #[prost(message, repeated, tag = "6")]
-    pub renaming: ::prost::alloc::vec::Vec<RenamingInformation>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct JoinByIdx {
-    /// The lhs columns that are used to join the two relations.
-    #[prost(uint64, repeated, tag = "1")]
-    pub left_on: ::prost::alloc::vec::Vec<u64>,
-    /// The rhs columns that are used to join the two relations.
-    #[prost(uint64, repeated, tag = "2")]
-    pub right_on: ::prost::alloc::vec::Vec<u64>,
-    /// The information of each row in the joined relation.
-    #[prost(message, repeated, tag = "3")]
-    pub row_join_info: ::prost::alloc::vec::Vec<RowJoinInformation>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JoinInformation {
     /// The UUID of the left relation.
     #[prost(bytes = "vec", tag = "1")]
@@ -610,19 +577,20 @@ pub struct JoinInformation {
     /// The UUID of the right relation.
     #[prost(bytes = "vec", tag = "2")]
     pub rhs_df_uuid: ::prost::alloc::vec::Vec<u8>,
-    /// How join is performed.
-    #[prost(oneof = "join_information::How", tags = "3")]
-    pub how: ::core::option::Option<join_information::How>,
-}
-/// Nested message and enum types in `JoinInformation`.
-pub mod join_information {
-    /// How join is performed.
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum How {
-        #[prost(message, tag = "3")]
-        JoinByName(super::JoinByName),
-    }
+    /// The information of each row in the joined relation.
+    ///
+    /// This basically tells us which rows in the left and right relations are used to join.
+    #[prost(message, repeated, tag = "3")]
+    pub row_join_info: ::prost::alloc::vec::Vec<RowJoinInformation>,
+    /// Which columns are used to join.
+    #[prost(uint64, repeated, tag = "4")]
+    pub left_columns: ::prost::alloc::vec::Vec<u64>,
+    /// Which columns are used to join.
+    #[prost(uint64, repeated, tag = "5")]
+    pub right_columns: ::prost::alloc::vec::Vec<u64>,
+    /// Optional renaming information denoting the new names of the columns for the rhs side.
+    #[prost(message, repeated, tag = "6")]
+    pub renaming_info: ::prost::alloc::vec::Vec<RenamingInformation>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
