@@ -86,5 +86,6 @@ mod tests {
         let agg2 = build_policy!(policy_agg_label!(GroupByMethod::Sum, 5)).unwrap();
 
         assert!(agg1.le(&agg2).is_ok_and(|b| b));
+        assert!(agg2.le(&agg1).is_ok_and(|b| !b));
     }
 }

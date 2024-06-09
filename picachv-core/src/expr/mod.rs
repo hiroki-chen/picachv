@@ -604,6 +604,8 @@ pub(crate) fn fold_on_groups(
     how: GroupByMethod,
 ) -> PicachvResult<Policy<PolicyLabel>> {
     // Construct the operator.
+    println!("{how:?} {}", groups.len());
+
     let pf = policy_agg_label!(how, groups.len());
     let mut p_output = Policy::PolicyClean;
 

@@ -106,6 +106,8 @@ impl Hash for AggType {
             },
             GroupByMethod::Implode => "implode".hash(state),
         }
+
+        // self.group_size.hash(state);
     }
 }
 
@@ -278,7 +280,18 @@ impl PartialEq for PolicyLabel {
                 PolicyLabel::PolicyTransform { ops: rhs },
             ) => lhs.set_eq(rhs),
             (PolicyLabel::PolicyAgg { ops: lhs }, PolicyLabel::PolicyAgg { ops: rhs }) => {
-                lhs.set_eq(rhs)
+                for l in lhs.0.iter() {
+                    match rhs.0.get(l) {
+                        None => return false,
+                        Some(r) => {
+                            if l.group_size != r.group_size {
+                                return false;
+                            }
+                        }
+                    }
+                }
+
+                true
             },
             (PolicyLabel::PolicyNoise { ops: lhs }, PolicyLabel::PolicyNoise { ops: rhs }) => {
                 lhs.set_eq(rhs)
@@ -306,7 +319,11 @@ impl Lattice for PolicyLabel {
             ) => self.clone(),
             (PolicyLabel::PolicyAgg { ops: lhs }, PolicyLabel::PolicyAgg { ops: rhs }) => {
                 PolicyLabel::PolicyAgg {
-                    ops: lhs.intersection(rhs),
+                    ops: {
+                        let res = lhs.intersection(rhs);
+                        println!("agg join: {:?} vs {:?} => {:?}", lhs, rhs, res);
+                        res
+                    },
                 }
             },
             (PolicyLabel::PolicyAgg { .. }, _) => other.clone(),
@@ -454,7 +471,10 @@ where
                     label: l2,
                     next: n2,
                 },
-            ) => l1.flowsto(l2) && n1.le(n2),
+            ) => {
+                println!("{} and {}", l1.flowsto(l2), n1.le(n2));
+                l1.flowsto(l2) && n1.le(n2)
+            },
             _ => false,
         };
 
@@ -524,6 +544,8 @@ impl Policy<PolicyLabel> {
     pub fn downgrade(&self, by: PolicyLabel) -> PicachvResult<Self> {
         let p = build_policy!(by.clone())?;
         log::debug!("in downgrade: constructed policy: {p:?}");
+
+        println!("downgrading: {self:?} vs {p:?}");
 
         match self.le(&p) {
             Ok(b) => {

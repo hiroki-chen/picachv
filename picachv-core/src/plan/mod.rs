@@ -414,6 +414,8 @@ fn check_expressions_agg(
         None => picachv_bail!(ComputeError: "The group by is empty."),
     };
 
+    println!("the aggregation list is {agg_list:?} against the group by {idx:?}");
+
     check_expressions_agg_idx(arena, active_df_uuid, &idx, agg_list, udfs)
 }
 
@@ -426,16 +428,16 @@ fn check_expressions_agg_idx(
 ) -> Result<Uuid, picachv_error::PicachvError> {
     let mut df_arena = rwlock_unlock!(arena.df_arena, write);
     let df = df_arena.get(&active_df_uuid)?;
-    let group_num = gb_proxy.groups.len();
 
     let mut res = vec![];
     // The semantic requires us to first iterate over the aggregate list.
     for agg in agg_list.into_iter() {
         let mut group_res = vec![];
         // Then we need to iterate over the groups.
-        for group in 0..group_num {
+        for group in gb_proxy.groups.iter() {
+            println!("check_expressions_agg_idx: group = {group:?}  ");
             let mut ctx = ExpressionEvalContext::new(df.schema.clone(), df, true, udfs, arena);
-            ctx.gb_proxy = Some(&gb_proxy.groups[group]);
+            ctx.gb_proxy = Some(&group);
 
             // For each group we will get the result of the aggregation.
             group_res.push(check_policy_agg(agg, &mut ctx)?);
