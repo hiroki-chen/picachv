@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use picachv_message::group_by_proxy::Groups;
+use picachv_message::group_by_idx::Groups;
 
 use crate::dataframe::PolicyGuardedDataFrame;
 use crate::udf::Udf;

@@ -6,7 +6,9 @@ use std::fmt;
 use std::sync::Arc;
 
 use picachv_error::{picachv_bail, picachv_ensure, PicachvResult};
-use picachv_message::GroupByProxy;
+use picachv_message::group_by_idx::Groups;
+use picachv_message::group_by_proxy::GroupBy;
+use picachv_message::{GroupByIdx, GroupByProxy, GroupBySlice};
 use uuid::Uuid;
 
 use crate::dataframe::{PolicyGuardedColumn, PolicyGuardedDataFrame};
@@ -255,13 +257,52 @@ impl Plan {
     }
 }
 
+fn convert_slice_to_idx(slice: &GroupBySlice) -> PicachvResult<GroupByIdx> {
+    let mut group_map = HashMap::<u64, Vec<u64>>::new();
+
+    for (idx, group) in slice.groups.iter().enumerate() {
+        // check if the group map contains this group.
+        match group_map.get_mut(group) {
+            Some(v) => v.push(idx as _),
+            None => {
+                group_map.insert(*group, vec![idx as _]);
+            },
+        }
+    }
+
+    Ok(GroupByIdx {
+        groups: group_map
+            .into_iter()
+            .map(|e| Groups {
+                first: e.0,
+                group: e.1,
+            })
+            .collect(),
+    })
+}
+
 fn aggregate_keys(
     df: &PolicyGuardedDataFrame,
     gb_proxy: &GroupByProxy,
 ) -> PicachvResult<PolicyGuardedDataFrame> {
-    let mut columns = vec![];
-
     println!("aggregate_keys: df = {df:?}, gb_proxy = {gb_proxy:?}");
+
+    let idx = match gb_proxy.group_by.as_ref() {
+        Some(gb) => match gb {
+            GroupBy::GroupByIdx(idx) => idx.clone(),
+            GroupBy::GroupBySlice(slice) => convert_slice_to_idx(slice)?,
+        },
+        None => picachv_bail!(ComputeError: "The group by is empty."),
+    };
+
+    aggregate_keys_idx(df, &idx)
+}
+
+fn aggregate_keys_idx(
+    df: &PolicyGuardedDataFrame,
+    gb_proxy: &GroupByIdx,
+) -> Result<PolicyGuardedDataFrame, picachv_error::PicachvError> {
+    let mut columns = vec![];
 
     for col_idx in 0..df.shape().1 {
         let mut cur = vec![];
@@ -365,9 +406,27 @@ fn check_expressions_agg(
     gb_proxy: &GroupByProxy,
     udfs: &HashMap<String, Udf>,
 ) -> PicachvResult<Uuid> {
+    let idx = match gb_proxy.group_by.as_ref() {
+        Some(gb) => match gb {
+            GroupBy::GroupByIdx(idx) => idx.clone(),
+            GroupBy::GroupBySlice(slice) => convert_slice_to_idx(slice)?,
+        },
+        None => picachv_bail!(ComputeError: "The group by is empty."),
+    };
+
+    check_expressions_agg_idx(arena, active_df_uuid, &idx, agg_list, udfs)
+}
+
+fn check_expressions_agg_idx(
+    arena: &Arenas,
+    active_df_uuid: Uuid,
+    gb_proxy: &GroupByIdx,
+    agg_list: &[Arc<Expr>],
+    udfs: &HashMap<String, Udf>,
+) -> Result<Uuid, picachv_error::PicachvError> {
     let mut df_arena = rwlock_unlock!(arena.df_arena, write);
     let df = df_arena.get(&active_df_uuid)?;
-    let group_num = gb_proxy.first.len();
+    let group_num = gb_proxy.groups.len();
 
     let mut res = vec![];
     // The semantic requires us to first iterate over the aggregate list.

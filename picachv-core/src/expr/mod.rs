@@ -16,7 +16,8 @@ use crate::policy::types::AnyValue;
 use crate::policy::{policy_ok, BinaryTransformType, Policy, PolicyLabel, TransformType};
 use crate::udf::Udf;
 use crate::{
-    build_unary_expr, cast, policy_agg_label, policy_binary_transform_label, rwlock_unlock,
+    build_unary_expr, cast, policy_agg_label, policy_binary_transform_label,
+    policy_unary_transform_label, rwlock_unlock,
 };
 
 pub mod builder;
@@ -543,6 +544,19 @@ fn check_policy_binary_udf(
     }
 }
 
+fn check_policy_unary_udf(
+    arg: Policy<PolicyLabel>,
+    udf_name: &str,
+) -> PicachvResult<Policy<PolicyLabel>> {
+    match policy_ok(&arg) {
+        true => Ok(Policy::PolicyClean),
+        false => {
+            let pf = policy_unary_transform_label!(udf_name.to_string());
+            arg.downgrade(pf)
+        },
+    }
+}
+
 /// This function handles the UDF case.
 fn check_policy_in_row_apply(
     ctx: &mut ExpressionEvalContext,
@@ -569,7 +583,7 @@ fn check_policy_in_row_apply(
         1 => {
             let arg = args[0].check_policy_in_row(ctx, idx)?;
 
-            todo!()
+            check_policy_unary_udf(arg, udf_name)
         },
         // The binary case.
         2 => {

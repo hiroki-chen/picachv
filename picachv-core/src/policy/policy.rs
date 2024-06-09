@@ -37,15 +37,9 @@ pub enum PrivacyScheme {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum UnaryTransformType {
-    /// An identity transform.
-    Identity,
-    /// Redact: completely hides the data.
-    Redact,
-    /// Length
-    Length,
-    /// Other custom types.
-    Others { name: String },
+pub struct UnaryTransformType {
+    /// The name of the operation.
+    pub name: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

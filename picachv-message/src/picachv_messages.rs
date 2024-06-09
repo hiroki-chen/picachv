@@ -18,21 +18,45 @@ pub mod column_specifier {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GroupByProxy {
-    /// The vectors of indexes that are used to group the data.
-    #[prost(uint64, repeated, tag = "1")]
-    pub first: ::prost::alloc::vec::Vec<u64>,
-    #[prost(message, repeated, tag = "2")]
-    pub groups: ::prost::alloc::vec::Vec<group_by_proxy::Groups>,
+pub struct GroupByIdx {
+    #[prost(message, repeated, tag = "1")]
+    pub groups: ::prost::alloc::vec::Vec<group_by_idx::Groups>,
 }
-/// Nested message and enum types in `GroupByProxy`.
-pub mod group_by_proxy {
-    /// Groups belonging to the same group.
+/// Nested message and enum types in `GroupByIdx`.
+pub mod group_by_idx {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Groups {
-        #[prost(uint64, repeated, tag = "1")]
+        /// The vectors of indexes that are used to group the data.
+        #[prost(uint64, tag = "1")]
+        pub first: u64,
+        /// The group indices that are used to group the data.
+        #[prost(uint64, repeated, tag = "2")]
         pub group: ::prost::alloc::vec::Vec<u64>,
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GroupBySlice {
+    /// A vector of group indices.
+    #[prost(uint64, repeated, tag = "1")]
+    pub groups: ::prost::alloc::vec::Vec<u64>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GroupByProxy {
+    #[prost(oneof = "group_by_proxy::GroupBy", tags = "1, 2")]
+    pub group_by: ::core::option::Option<group_by_proxy::GroupBy>,
+}
+/// Nested message and enum types in `GroupByProxy`.
+pub mod group_by_proxy {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum GroupBy {
+        #[prost(message, tag = "1")]
+        GroupByIdx(super::GroupByIdx),
+        #[prost(message, tag = "2")]
+        GroupBySlice(super::GroupBySlice),
     }
 }
 /// A value that incorporates any primitive data types.

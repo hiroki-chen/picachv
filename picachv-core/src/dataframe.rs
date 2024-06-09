@@ -3,7 +3,7 @@ use std::ops::Range;
 use std::sync::{Arc, RwLock};
 
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
-use picachv_message::group_by_proxy::Groups;
+use picachv_message::group_by_idx::Groups;
 use picachv_message::transform_info::Information;
 use picachv_message::{JoinInformation, TransformInfo};
 use serde::{Deserialize, Serialize};
@@ -162,8 +162,6 @@ impl PolicyGuardedDataFrame {
     ///
     /// The function iterates over the `row_info` to join the policies specified by `common_list`. After
     /// this is done, it re-arranges all the columns according to the `output_schema`.
-    ///
-    /// TODO: Do we need to specify join type here?
     pub fn join(
         lhs: &PolicyGuardedDataFrame,
         rhs: &PolicyGuardedDataFrame,
@@ -219,7 +217,11 @@ impl PolicyGuardedDataFrame {
         }
 
         // We then stitch them together.
-        PolicyGuardedDataFrame::stitch(&lhs, &rhs)
+        let res = PolicyGuardedDataFrame::stitch(&lhs, &rhs)?;
+
+        println!("res is {res}");
+
+        Ok(res)
     }
 
     /// According to the `groups` struct, fetch the group of columns.

@@ -9,14 +9,27 @@ message ColumnSpecifier {
   }
 }
 
-message GroupByProxy {
-  // The vectors of indexes that are used to group the data.
-  repeated uint64 first = 1;
-  // Groups belonging to the same group.
+message GroupByIdx {
   message Groups {
-    repeated uint64 group = 1;
+    // The vectors of indexes that are used to group the data.
+    uint64 first = 1;
+    // The group indices that are used to group the data.
+    repeated uint64 group = 2;
   }
-  repeated Groups groups = 2;
+
+  repeated Groups groups = 1;
+}
+
+message GroupBySlice {
+  // A vector of group indices.
+  repeated uint64 groups = 1;
+}
+
+message GroupByProxy {
+  oneof group_by {
+    GroupByIdx group_by_idx = 1;
+    GroupBySlice group_by_slice = 2;
+  }
 }
 
 // A value that incorporates any primitive data types.

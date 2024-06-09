@@ -13,11 +13,27 @@ macro_rules! rwlock_unlock {
 }
 
 #[macro_export]
-macro_rules! policy_binary_transform_label {
-    ($single_op:expr) => {
+macro_rules! policy_unary_transform_label {
+    ($name:expr) => {
         $crate::policy::PolicyLabel::PolicyTransform {
             ops: $crate::policy::TransformOps(::std::collections::HashSet::from_iter(
-                vec![$single_op]
+                vec![$crate::policy::TransformType::Unary(
+                    $crate::policy::UnaryTransformType {
+                        name: $name,
+                    }
+                )]
+                .into_iter(),
+            )),
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! policy_binary_transform_label {
+    ($name:expr) => {
+        $crate::policy::PolicyLabel::PolicyTransform {
+            ops: $crate::policy::TransformOps(::std::collections::HashSet::from_iter(
+                vec![$name]
                 .into_iter(),
             )),
         }
