@@ -13,7 +13,7 @@ impl Expr {
     pub fn from_args(arenas: &Arenas, arg: expr_argument::Argument) -> PicachvResult<Self> {
         use expr_argument::Argument;
 
-        log::debug!("Building expression from the arguments {arg:?}");
+        tracing::debug!("Building expression from the arguments {arg:?}");
         let expr_arena = rwlock_unlock!(arenas.expr_arena, read);
         match arg {
             Argument::Column(expr) => match expr.column {

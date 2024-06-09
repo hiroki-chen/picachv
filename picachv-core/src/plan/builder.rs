@@ -12,7 +12,7 @@ impl Plan {
     pub fn from_args(arenas: &Arenas, arg: plan_argument::Argument) -> PicachvResult<Self> {
         use plan_argument::Argument;
 
-        log::debug!("Building logical plan from the arguments {arg:?}");
+        tracing::debug!("Building logical plan from the arguments {arg:?}");
         let df_arena = rwlock_unlock!(arenas.df_arena, write);
         match arg {
             Argument::GetData(data_source) => match data_source.data_source {

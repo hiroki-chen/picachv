@@ -147,7 +147,7 @@ pub extern "C" fn open_new(uuid_ptr: *mut u8, len: usize) -> ErrorCode {
                 println!("copying the uuid to the pointer");
                 unsafe { std::ptr::copy(uuid_bytes.as_ptr(), uuid_ptr, uuid_bytes.len()) }
                 println!("copying the uuid to the pointer finished");
-                log::debug!("returning {uuid:?}");
+                tracing::debug!("returning {uuid:?}");
                 ErrorCode::Success
             },
             Err(_) => ErrorCode::InvalidOperation,

@@ -73,8 +73,7 @@ mod tests {
         let policy_rhs =
             policy_binary_transform_label!("dt.offset_by", AnyValue::Duration(Duration::new(5, 0)));
         let polich_rhs = build_policy!(policy_rhs).unwrap();
-        let policy_res =
-            build_policy!(PolicyLabel::PolicyTop => policy_rhs).unwrap();
+        let policy_res = build_policy!(PolicyLabel::PolicyTop => policy_rhs).unwrap();
 
         let res = policy_lhs.join(&polich_rhs);
         assert!(res.is_ok_and(|res| res == policy_res));

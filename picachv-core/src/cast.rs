@@ -28,9 +28,7 @@ pub fn into_i64(value: AnyValue) -> PicachvResult<AnyValue> {
         AnyValue::Int64(i) => Ok(AnyValue::Int64(i)),
         AnyValue::String(s) => {
             let i = s.parse::<i64>().map_err(|e| {
-                PicachvError::InvalidOperation(
-                    format!("Failed to parse the integer: {}", e).into(),
-                )
+                PicachvError::InvalidOperation(format!("Failed to parse the integer: {}", e).into())
             })?;
 
             Ok(AnyValue::Int64(i))

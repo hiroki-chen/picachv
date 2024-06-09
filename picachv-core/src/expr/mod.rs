@@ -323,7 +323,7 @@ impl Expr {
     }
 
     pub fn reify(&mut self, values: RecordBatch) -> PicachvResult<()> {
-        log::debug!("reifying {values:?} for {self:?}");
+        tracing::debug!("reifying {values:?} for {self:?}");
 
         let values_mut = match self {
             Expr::Apply { values, .. }
@@ -508,7 +508,7 @@ fn check_policy_binary_udf(
         ComputeError: "Checking policy for UDF requires two values."
     );
 
-    log::debug!(
+    tracing::debug!(
         "lhs = {:?}, rhs = {:?}, udf_name = {:?}",
         lhs,
         rhs,
@@ -604,7 +604,7 @@ pub(crate) fn fold_on_groups(
     how: GroupByMethod,
 ) -> PicachvResult<Policy<PolicyLabel>> {
     // Construct the operator.
-    println!("{how:?} {}", groups.len());
+    tracing::debug!("{how:?} {}", groups.len());
 
     let pf = policy_agg_label!(how, groups.len());
     let mut p_output = Policy::PolicyClean;

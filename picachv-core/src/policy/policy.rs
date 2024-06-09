@@ -287,7 +287,7 @@ impl PartialEq for PolicyLabel {
                             if l.group_size != r.group_size {
                                 return false;
                             }
-                        }
+                        },
                     }
                 }
 
@@ -321,7 +321,7 @@ impl Lattice for PolicyLabel {
                 PolicyLabel::PolicyAgg {
                     ops: {
                         let res = lhs.intersection(rhs);
-                        println!("agg join: {:?} vs {:?} => {:?}", lhs, rhs, res);
+                        tracing::debug!("agg join: {:?} vs {:?} => {:?}", lhs, rhs, res);
                         res
                     },
                 }
@@ -472,7 +472,7 @@ where
                     next: n2,
                 },
             ) => {
-                println!("{} and {}", l1.flowsto(l2), n1.le(n2));
+                tracing::debug!("{} and {}", l1.flowsto(l2), n1.le(n2));
                 l1.flowsto(l2) && n1.le(n2)
             },
             _ => false,
@@ -543,9 +543,9 @@ impl Policy<PolicyLabel> {
     /// Checks and downgrades the policy by a given label.
     pub fn downgrade(&self, by: PolicyLabel) -> PicachvResult<Self> {
         let p = build_policy!(by.clone())?;
-        log::debug!("in downgrade: constructed policy: {p:?}");
+        tracing::debug!("in downgrade: constructed policy: {p:?}");
 
-        println!("downgrading: {self:?} vs {p:?}");
+        tracing::debug!("downgrading: {self:?} vs {p:?}");
 
         match self.le(&p) {
             Ok(b) => {

@@ -136,7 +136,7 @@ impl PolicyGuardedDataFrame {
     }
 
     pub fn slice(&self, range: Range<usize>) -> PicachvResult<Self> {
-        println!("slicing: range = {range:?}");
+        tracing::debug!("slicing: range = {range:?}");
 
         picachv_ensure!(
             range.end <= self.shape().0,
@@ -167,7 +167,7 @@ impl PolicyGuardedDataFrame {
         rhs: &PolicyGuardedDataFrame,
         info: &JoinInformation,
     ) -> PicachvResult<Self> {
-        log::debug!("joining\n{lhs}\n{rhs} with info\n{info:?}",);
+        tracing::debug!("joining\n{lhs}\n{rhs} with info\n{info:?}",);
 
         // We select columns according to `left_columns` and `right_columns`.
         let left_columns = info
@@ -219,7 +219,7 @@ impl PolicyGuardedDataFrame {
         // We then stitch them together.
         let res = PolicyGuardedDataFrame::stitch(&lhs, &rhs)?;
 
-        println!("res is {res}");
+        tracing::debug!("res is {res}");
 
         Ok(res)
     }
@@ -262,7 +262,7 @@ impl PolicyGuardedDataFrame {
         lhs: &PolicyGuardedDataFrame,
         rhs: &PolicyGuardedDataFrame,
     ) -> PicachvResult<PolicyGuardedDataFrame> {
-        log::debug!("stitching\n{lhs}\n{rhs}");
+        tracing::debug!("stitching\n{lhs}\n{rhs}");
 
         picachv_ensure!(lhs.shape().0 == rhs.shape().0, ComputeError: "The number of rows must be the same.");
 
@@ -368,7 +368,7 @@ impl PolicyGuardedDataFrame {
     ///
     /// todo: Describe in more detail.
     pub fn finalize(&self) -> PicachvResult<()> {
-        log::debug!("finalizing\n{self}");
+        tracing::debug!("finalizing\n{self}");
 
         for c in self.columns.iter() {
             for p in c.policies.iter() {

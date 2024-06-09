@@ -7,7 +7,7 @@ use uuid::Uuid;
 macro_rules! impl_ctx_api {
     ($fn_name:ident, $ctx_fn:ident, $ctx_id:ident: Uuid, $($arg_name:ident: $arg_type:ty),* => $ret:ty) => {
         pub fn $fn_name($ctx_id: Uuid, $($arg_name: $arg_type),*) -> PicachvResult<$ret> {
-            log::debug!("{} called for ctx_id: {}", stringify!($fn_name), $ctx_id);
+            tracing::debug!("{} called for ctx_id: {}", stringify!($fn_name), $ctx_id);
 
             let instance = MONITOR_INSTANCE
                 .get()

@@ -1,5 +1,8 @@
 use std::collections::HashMap;
+use std::fmt;
+use std::fs::OpenOptions;
 use std::ops::Range;
+use std::path::Path;
 use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use picachv_core::dataframe::{apply_transform, PolicyGuardedDataFrame};
@@ -10,6 +13,8 @@ use picachv_core::{get_new_uuid, record_batch_from_bytes, rwlock_unlock, Arenas}
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::{plan_argument, ExprArgument, PlanArgument};
 use prost::Message;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
 
 /// An activate context for the data analysis.
@@ -26,6 +31,12 @@ pub struct Context {
     udfs: HashMap<String, Udf>,
 }
 
+impl fmt::Debug for Context {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Context").field("id", &self.id).finish()
+    }
+}
+
 impl Context {
     #[inline]
     pub fn new(id: Uuid, udfs: HashMap<String, Udf>) -> Self {
@@ -38,16 +49,19 @@ impl Context {
     }
 
     #[inline]
+    #[tracing::instrument]
     pub fn register_policy_dataframe(&self, df: PolicyGuardedDataFrame) -> PicachvResult<Uuid> {
         let mut df_arena = rwlock_unlock!(self.arena.df_arena, write);
         df_arena.insert(df)
     }
 
     #[inline]
+    #[tracing::instrument]
     pub fn early_projection(&self, df_uuid: Uuid, project_list: &[usize]) -> PicachvResult<Uuid> {
         early_projection_by_id(&self.arena, df_uuid, project_list)
     }
 
+    #[tracing::instrument]
     pub fn expr_from_args(&self, expr_arg: ExprArgument) -> PicachvResult<Uuid> {
         let expr_arg = expr_arg.argument.ok_or(PicachvError::InvalidOperation(
             "The argument is empty.".into(),
@@ -57,7 +71,7 @@ impl Context {
         println!("expr_from_args: expr = {expr:?}");
         let mut expr_arena = rwlock_unlock!(self.arena.expr_arena, write);
         let uuid = expr_arena.insert(expr)?;
-        log::debug!("expr_from_args: uuid = {uuid}");
+        tracing::debug!("expr_from_args: uuid = {uuid}");
 
         Ok(uuid)
     }
@@ -66,6 +80,7 @@ impl Context {
     /// the invovled dataframes so that we can keep sync with the original dataframe since policies
     /// are de-coupled with their data. After succesful application it returns the UUID of the new
     /// dataframe allocated in the arena.
+    #[tracing::instrument]
     pub fn execute_epilogue(
         &self,
         df_uuid: Uuid,
@@ -99,6 +114,7 @@ impl Context {
         }
     }
 
+    #[tracing::instrument]
     pub fn create_slice(&self, df_uuid: Uuid, range: Range<usize>) -> PicachvResult<Uuid> {
         let mut df_arena = rwlock_unlock!(self.arena.df_arena, write);
         let df = df_arena.get(&df_uuid)?;
@@ -107,6 +123,7 @@ impl Context {
         df_arena.insert(new_df)
     }
 
+    #[tracing::instrument]
     pub fn finalize(&self, df_uuid: Uuid) -> PicachvResult<()> {
         let df_arena = rwlock_unlock!(self.arena.df_arena, read);
 
@@ -117,8 +134,9 @@ impl Context {
     /// Reify an abstract value of the expression with the given values encoded in the bytes.
     ///
     /// The input values are just a serialized Arrow IPC data represented as record batches.
+    #[tracing::instrument]
     pub fn reify_expression(&self, expr_uuid: Uuid, value: &[u8]) -> PicachvResult<()> {
-        log::debug!("reify_expression: expression uuid = {expr_uuid} ");
+        tracing::debug!("reify_expression: expression uuid = {expr_uuid} ");
 
         let mut expr_arena = rwlock_unlock!(self.arena.expr_arena, write);
         let expr = expr_arena.get_mut(&expr_uuid)?;
@@ -149,6 +167,7 @@ impl Context {
         self.id
     }
 
+    #[tracing::instrument]
     pub fn get_df(&self, df_uuid: Uuid) -> PicachvResult<Arc<PolicyGuardedDataFrame>> {
         let df_arena = rwlock_unlock!(self.arena.df_arena, read);
         df_arena.get(&df_uuid).cloned()
@@ -164,6 +183,8 @@ pub struct PicachvMonitor {
 
 impl PicachvMonitor {
     pub fn new() -> Self {
+        enable_tracing("./picachv.log").unwrap();
+
         PicachvMonitor {
             ctx: Arc::new(RwLock::new(HashMap::new())),
             udfs: Arc::new(RwLock::new(HashMap::new())),
@@ -199,7 +220,7 @@ impl PicachvMonitor {
     }
 
     pub fn build_expr(&self, ctx_id: Uuid, expr_arg: &[u8]) -> PicachvResult<Uuid> {
-        log::debug!("build_expr");
+        tracing::debug!("build_expr");
 
         let mut ctx = rwlock_unlock!(self.ctx, write);
         let ctx = ctx
@@ -244,3 +265,17 @@ impl PicachvMonitor {
 }
 
 pub static MONITOR_INSTANCE: OnceLock<Arc<PicachvMonitor>> = OnceLock::new();
+
+fn enable_tracing<P: AsRef<Path>>(path: P) -> PicachvResult<()> {
+    let log_file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(true)
+        .open(path)?;
+
+    let debug_log = tracing_subscriber::fmt::layer().with_writer(Arc::new(log_file));
+
+    tracing_subscriber::registry().with(debug_log).init();
+
+    Ok(())
+}

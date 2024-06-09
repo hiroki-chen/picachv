@@ -41,7 +41,6 @@ fn get_df(ctx_id: Uuid, get_df: fn() -> DataFrame, path: &str) -> DataFrame {
 fn init() -> Uuid {
     let _ = env_logger::builder()
         .is_test(true)
-        .filter_level(log::LevelFilter::Debug)
         .try_init();
 
     match init_monitor() {

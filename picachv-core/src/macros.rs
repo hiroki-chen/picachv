@@ -18,9 +18,7 @@ macro_rules! policy_unary_transform_label {
         $crate::policy::PolicyLabel::PolicyTransform {
             ops: $crate::policy::TransformOps(::std::collections::HashSet::from_iter(
                 vec![$crate::policy::TransformType::Unary(
-                    $crate::policy::UnaryTransformType {
-                        name: $name,
-                    }
+                    $crate::policy::UnaryTransformType { name: $name },
                 )]
                 .into_iter(),
             )),
@@ -33,8 +31,7 @@ macro_rules! policy_binary_transform_label {
     ($name:expr) => {
         $crate::policy::PolicyLabel::PolicyTransform {
             ops: $crate::policy::TransformOps(::std::collections::HashSet::from_iter(
-                vec![$name]
-                .into_iter(),
+                vec![$name].into_iter(),
             )),
         }
     };

@@ -156,7 +156,7 @@ impl Plan {
         active_df_uuid: Uuid,
         udfs: &HashMap<String, Udf>,
     ) -> PicachvResult<Uuid> {
-        println!(
+        tracing::debug!(
             "execute_prologue: checking {:?} with {active_df_uuid}",
             self
         );
@@ -285,7 +285,7 @@ fn aggregate_keys(
     df: &PolicyGuardedDataFrame,
     gb_proxy: &GroupByProxy,
 ) -> PicachvResult<PolicyGuardedDataFrame> {
-    println!("aggregate_keys: df = {df:?}, gb_proxy = {gb_proxy:?}");
+    tracing::debug!("aggregate_keys: df = {df:?}, gb_proxy = {gb_proxy:?}");
 
     let idx = match gb_proxy.group_by.as_ref() {
         Some(gb) => match gb {
@@ -414,7 +414,7 @@ fn check_expressions_agg(
         None => picachv_bail!(ComputeError: "The group by is empty."),
     };
 
-    println!("the aggregation list is {agg_list:?} against the group by {idx:?}");
+    tracing::debug!("the aggregation list is {agg_list:?} against the group by {idx:?}");
 
     check_expressions_agg_idx(arena, active_df_uuid, &idx, agg_list, udfs)
 }
@@ -435,7 +435,7 @@ fn check_expressions_agg_idx(
         let mut group_res = vec![];
         // Then we need to iterate over the groups.
         for group in gb_proxy.groups.iter() {
-            println!("check_expressions_agg_idx: group = {group:?}  ");
+            tracing::debug!("check_expressions_agg_idx: group = {group:?}  ");
             let mut ctx = ExpressionEvalContext::new(df.schema.clone(), df, true, udfs, arena);
             ctx.gb_proxy = Some(&group);
 
@@ -447,7 +447,7 @@ fn check_expressions_agg_idx(
         res.push(group_res);
     }
 
-    log::debug!("check_expressions_agg: res = {res:?}");
+    tracing::debug!("check_expressions_agg: res = {res:?}");
 
     // Let us now construct a new dataframe.
     let df = PolicyGuardedDataFrame {

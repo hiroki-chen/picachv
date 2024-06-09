@@ -27,12 +27,13 @@ picachv-monitor = { path = "picachv-monitor", default-features = false }
 arrow-ipc = "51.0.0"
 arrow-array = "51.0.0"
 arrow-schema = { version = "51.0.0", features = ["serde"] }
-log = "0.4.21"
 num_enum = { version = "0.7.2" }
 ordered-float = { version = "4.2.0", features = ["serde"] }
+prost = { version = "0.12" }
 serde = { version = "1.0.198", features = ["derive", "rc"] }
 serde_json = "1.0.116"
-prost = { version = "0.12" }
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
 uuid = { version = "1.8.0", features = [
   "v4",       # Lets you generate random UUIDs
   "fast-rng", # Use a faster (but still sufficiently random) RNG

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use arrow::array::{Int32Array, RecordBatch};
 use arrow::ipc::writer::StreamWriter;
 
-fn main()  {
+fn main() {
     let array = Arc::new(Int32Array::from(vec![Some(1), None, Some(3)])) as _;
     let rb = RecordBatch::try_from_iter(vec![("a", array)]).unwrap();
 

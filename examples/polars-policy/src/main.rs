@@ -136,15 +136,15 @@ fn main() -> Result<()> {
     let policy = PolicyGuardedDataFrame::from_json("./data/simple_policy.json")?;
     // match example1(&policy) {
     //     Ok(_) => unreachable!("Should not occur!"),
-    //     Err(e) => log::error!("Error: {}", e),
+    //     Err(e) => tracing::error!("Error: {}", e),
     // }
     // match example2(&policy) {
-    //     Ok(df) => log::info!("Result: {}", df),
+    //     Ok(df) => tracing::info!("Result: {}", df),
     //     Err(e) => unreachable!("Error: {}", e),
     // }
     match example3(&policy) {
         Ok(df) => unreachable!("Result: {}", df),
-        Err(e) => log::error!("Error: {}", e),
+        Err(e) => tracing::error!("Error: {}", e),
     }
 
     Ok(())
