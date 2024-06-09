@@ -183,7 +183,12 @@ pub struct PicachvMonitor {
 
 impl PicachvMonitor {
     pub fn new() -> Self {
-        enable_tracing("./picachv.log").unwrap();
+        if let Err(e) = enable_tracing("./picachv.log") {
+            match e {
+                PicachvError::Already(_) => (),
+                _ => panic!("Failed to enable tracing: {e}"),
+            }
+        }
 
         PicachvMonitor {
             ctx: Arc::new(RwLock::new(HashMap::new())),
@@ -275,7 +280,8 @@ fn enable_tracing<P: AsRef<Path>>(path: P) -> PicachvResult<()> {
 
     let debug_log = tracing_subscriber::fmt::layer().with_writer(Arc::new(log_file));
 
-    tracing_subscriber::registry().with(debug_log).init();
-
-    Ok(())
+    tracing_subscriber::registry()
+        .with(debug_log)
+        .try_init()
+        .map_err(|e| PicachvError::Already(e.to_string().into()))
 }

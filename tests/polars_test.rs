@@ -265,7 +265,7 @@ mod polars_tests {
     }
 
     #[test]
-    fn test_polars_agg_groupsize_ok1() {
+    fn test_polars_agg_groupsize_fail() {
         let (ctx_id, df) = prepare(example_df1, "../data/simple_policy2.json");
 
         let out = df
@@ -275,11 +275,11 @@ mod polars_tests {
             .set_ctx_id(ctx_id)
             .collect();
 
-        assert!(out.is_ok());
+        assert!(out.is_err());
     }
 
     #[test]
-    fn test_polars_agg_groupsize_ok2() {
+    fn test_polars_agg_groupsize_ok() {
         let (ctx_id, df) = prepare(example_df3, "../data/simple_policy2.json");
 
         let out = df
