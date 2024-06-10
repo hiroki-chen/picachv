@@ -15,7 +15,7 @@ members = [
   "tools/policy-generator",
 ]
 
-exclude = ["examples/cpp"]
+exclude = ["examples/cpp", "benchmark"]
 
 [workspace.dependencies]
 picachv-api = { path = "picachv-api", default-features = false }

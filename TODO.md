@@ -22,4 +22,7 @@ in proxy_to_arg: gb GroupsIdx { sorted: false, first: [2, 0, 1, 3], all: [UnitVe
 [ ] Support `Order By` which re-arranges the dataframe.
 ## Integration with DuckDB
 
-[ ] Design and implement all the FFI APIs for C/C++ family.
+[x] Design and implement all the FFI APIs for C/C++ family.
+
+## Misc
+[ ] Add a licence?
