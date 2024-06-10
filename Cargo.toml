@@ -12,7 +12,7 @@ members = [
   "examples/polars-playground",
   "examples/arrow-playground",
   "tests",
-  "utils",
+  "tools/policy-generator",
 ]
 
 exclude = ["examples/cpp"]

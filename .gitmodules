@@ -1,0 +1,3 @@
+[submodule "picachv-proof"]
+	path = picachv-proof
+	url = git@github.com:hiroki-chen/pcd-proof.git
