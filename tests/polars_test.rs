@@ -39,9 +39,7 @@ fn get_df(ctx_id: Uuid, get_df: fn() -> DataFrame, path: &str) -> DataFrame {
 }
 
 fn init() -> Uuid {
-    let _ = env_logger::builder()
-        .is_test(true)
-        .try_init();
+    let _ = env_logger::builder().is_test(true).try_init();
 
     match init_monitor() {
         Ok(_) | Err(PicachvError::Already(_)) => (),
@@ -78,6 +76,7 @@ mod polars_tests {
             .group_by([col("b")])
             .agg(vec![col("a").sum()])
             .set_ctx_id(ctx_id)
+            .set_policy_checking(true)
             .collect();
 
         assert!(out.is_err());
@@ -99,6 +98,7 @@ mod polars_tests {
             ])
             .group_by([col("a")])
             .agg(vec![col("b").sum()])
+            .set_policy_checking(true)
             .set_ctx_id(ctx_id)
             .collect();
 
@@ -126,6 +126,7 @@ mod polars_tests {
                 col("a").cast(DataType::Date).dt().offset_by(lit("5s")),
                 col("b"),
             ])
+            .set_policy_checking(true)
             .set_ctx_id(ctx_id)
             .collect();
 
@@ -142,6 +143,7 @@ mod polars_tests {
             .lazy()
             .group_by([col("a").cast(DataType::Date).dt().offset_by(lit("5s"))])
             .agg(vec![col("b").sum()])
+            .set_policy_checking(true)
             .set_ctx_id(ctx_id)
             .collect();
 
@@ -158,6 +160,7 @@ mod polars_tests {
             .lazy()
             .group_by([col("a").cast(DataType::Date).dt().offset_by(lit("4s"))])
             .agg(vec![col("a").sum()])
+            .set_policy_checking(true)
             .set_ctx_id(ctx_id)
             .collect();
 
@@ -168,6 +171,7 @@ mod polars_tests {
             .lazy()
             .group_by([col("b")])
             .agg(vec![col("a").sum()]) // Cannot do it.
+            .set_policy_checking(true)
             .set_ctx_id(ctx_id)
             .collect();
 
@@ -186,6 +190,7 @@ mod polars_tests {
                 .dt()
                 .offset_by(lit("5s"))
                 .sum()])
+            .set_policy_checking(true)
             .set_ctx_id(ctx_id)
             .collect();
 
@@ -224,6 +229,7 @@ mod polars_tests {
 
         let out = concat([out1, out2], Default::default())
             .unwrap()
+            .set_policy_checking(true)
             .set_ctx_id(ctx_id)
             .collect();
 
@@ -240,6 +246,7 @@ mod polars_tests {
 
         let out = concat([out1, out2], Default::default())
             .unwrap()
+            .set_policy_checking(true)
             .set_ctx_id(ctx_id)
             .collect();
 
@@ -257,6 +264,7 @@ mod polars_tests {
 
         let out = out1
             .join(out2, [col("a")], [col("a")], JoinArgs::new(JoinType::Inner))
+            .set_policy_checking(true)
             .set_ctx_id(ctx_id)
             .collect();
 
@@ -272,6 +280,7 @@ mod polars_tests {
             .lazy()
             .group_by([col("b")])
             .agg(vec![col("a").sum()]) // <- Because the groupsize is ok.
+            .set_policy_checking(true)
             .set_ctx_id(ctx_id)
             .collect();
 
@@ -286,6 +295,7 @@ mod polars_tests {
             .lazy()
             .group_by([col("b")])
             .agg(vec![col("a").sum()]) // <- Because the groupsize is too small.
+            .set_policy_checking(true)
             .set_ctx_id(ctx_id)
             .collect();
         println!("{:?}", out);
@@ -316,7 +326,11 @@ mod polars_sql_tests {
 
         assert!(out.is_ok());
 
-        let out = out.unwrap().set_ctx_id(ctx_id).collect();
+        let out = out
+            .unwrap()
+            .set_ctx_id(ctx_id)
+            .set_policy_checking(true)
+            .collect();
 
         assert!(out.is_err());
     }

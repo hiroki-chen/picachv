@@ -16,7 +16,3 @@ polars = { path = "../../polars/crates/polars", features = [
 [[test]]
 name = "polars_test"
 path = "polars_test.rs"
-
-[[test]]
-name = "polars_tpc_h_test"
-path = "polars_tpc_h_test.rs"

@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4.38"
+clap = { version = "4.5.7", features = ["derive"] }
 polars = { path = "../../../polars/crates/polars", default-features = false, features = [
   "performant",
   "fmt",
