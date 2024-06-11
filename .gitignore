@@ -16,3 +16,15 @@ Cargo.lock
 build
 
 *.log
+
+# data
+*.csv
+*.tbl
+*.parquet
+*.avro
+*.xml
+*.yaml
+*.yml
+
+# pycache
+__pycache__/

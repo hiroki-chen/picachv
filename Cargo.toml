@@ -13,6 +13,7 @@ members = [
   "examples/arrow-playground",
   "tests",
   "tools/policy-generator",
+  "benchmark/polars-tpc",
 ]
 
 exclude = ["examples/cpp", "benchmark"]

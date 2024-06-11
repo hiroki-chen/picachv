@@ -1,4 +1,6 @@
 import polars as pl
+import subprocess
+import os
 
 from settings import Settings
 
@@ -85,27 +87,44 @@ table_columns = {
     ],
 }
 
+
 def main():
-  for table_name, columns in table_columns.items():
-      print(f"Processing table: {table_name}")
+    ret = subprocess.run(["make", "-C", "dbgen", "dbgen"], stdout=subprocess.PIPE, check=True)
+    if ret.returncode != 0:
+        print("Error running dbgen")
+        print(ret.stdout)
+        return
+      
+    # Generate tables.
+    os.chdir("dbgen")
+    ret = subprocess.run(["./dbgen", "-vf", "-s", "1"], stdout=subprocess.PIPE, check=True)
+    if ret.returncode != 0:
+        print("Error running dbgen")
+        return
+    ret = subprocess.Popen("mv *.tbl ../../data/tables", shell=True)
+    os.chdir('..')
 
-      path = settings.dataset_base_dir / f"{table_name}.tbl"
-      lf = pl.scan_csv(
-          path,
-          has_header=False,
-          separator="|",
-          try_parse_dates=True,
-          new_columns=columns,
-      )
+    for table_name, columns in table_columns.items():
+        print(f"Processing table: {table_name}")
 
-      # Drop empty last column because CSV ends with a separator
-      lf = lf.select(columns)
+        path = settings.dataset_base_dir / f"{table_name}.tbl"
+        lf = pl.scan_csv(
+            path,
+            has_header=False,
+            separator="|",
+            try_parse_dates=True,
+            new_columns=columns,
+        )
 
-      lf.sink_parquet(settings.dataset_base_dir / f"{table_name}.parquet")
-      lf.sink_csv(settings.dataset_base_dir / f"{table_name}.csv")
+        # Drop empty last column because CSV ends with a separator
+        lf = lf.select(columns)
 
-      # IPC currently not relevant
-      # lf.sink_ipc(base_path / f"{table_name}.feather")
+        lf.sink_parquet(settings.dataset_base_dir / f"{table_name}.parquet")
+        lf.sink_csv(settings.dataset_base_dir / f"{table_name}.csv")
+
+        # IPC currently not relevant
+        # lf.sink_ipc(base_path / f"{table_name}.feather")
+
 
 if __name__ == "__main__":
     main()

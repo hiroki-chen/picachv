@@ -8,4 +8,5 @@ polars = { version = "0.39.2", features = [
   "lazy",
   "temporal",    # We can use more data types.
   "date_offset",
+  "parquet",
 ] }

@@ -8,8 +8,8 @@ IoType: TypeAlias = Literal["skip", "parquet", "feather", "csv"]
 
 
 class Paths(BaseSettings):
-    answers: Path = Path("data/answers")
-    tables: Path = Path("data/tables")
+    answers: Path = Path("../data/answers")
+    tables: Path = Path("../data/tables")
 
     timings: Path = Path("output/run")
     timings_filename: str = "timings.csv"
@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[misc]
     @property
     def dataset_base_dir(self) -> Path:
-        return self.paths.tables / f"scale-{self.scale_factor}"
+        # return self.paths.tables / f"scale-{self.scale_factor}"
+        return self.paths.tables
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

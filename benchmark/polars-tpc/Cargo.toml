@@ -1,0 +1,23 @@
+[package]
+name = "polars-tpc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4.38"
+polars = { path = "../../../polars/crates/polars", default-features = false, features = [
+  "performant",
+  "fmt",
+  "simd",
+  "lazy",
+  "ipc",
+  "top_k",
+  "streaming",
+  "dtype-categorical",
+  "dtype-struct",
+  "parquet",
+  "temporal",
+  "dtype-date",
+  "strings",
+  "dtype-datetime",
+] }
