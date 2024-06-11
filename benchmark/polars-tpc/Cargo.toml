@@ -20,4 +20,5 @@ polars = { path = "../../../polars/crates/polars", default-features = false, fea
   "dtype-date",
   "strings",
   "dtype-datetime",
+  "semi_anti_join",
 ] }

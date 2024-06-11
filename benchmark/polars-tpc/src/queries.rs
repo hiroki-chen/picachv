@@ -29,7 +29,7 @@ pub fn q1() -> PolarsResult<LazyFrame> {
             mean("l_extendedprice").alias("avg_price"),
             mean("l_discount").alias("avg_disc"),
             cols(["l_returnflag", "l_linestatus"])
-                .count()
+                .len()
                 .alias("count_order"),
         ])
         .sort_by_exprs([cols(["l_returnflag", "l_linestatus"])], Default::default());
@@ -88,7 +88,7 @@ pub fn q2() -> PolarsResult<LazyFrame> {
         .agg([min("ps_supplycost").alias("min_supplycost")])
         .join(
             df,
-            [col("p_partkey"), col("ps_supplycost")],
+            [col("p_partkey"), col("min_supplycost")],
             [col("p_partkey"), col("ps_supplycost")],
             JoinArgs::default(),
         )
@@ -109,9 +109,157 @@ pub fn q2() -> PolarsResult<LazyFrame> {
                 col("s_name"),
                 col("p_partkey"),
             ],
-            Default::default(), // todo.
+            SortMultipleOptions::new().with_order_descendings([true, false, false, false]),
         )
         .limit(100);
+
+    Ok(df)
+}
+
+pub fn q3() -> PolarsResult<LazyFrame> {
+    let customer =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/customer.parquet"), Default::default())?;
+    let orders =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/orders.parquet"), Default::default())?;
+    let lineitem =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/lineitem.parquet"), Default::default())?;
+
+    let segment = lit("BUILDING");
+    let date = lit(NaiveDate::from_ymd_opt(1995, 3, 15)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap());
+
+    let df = customer
+        .filter(col("c_mktsegment").eq(segment))
+        .join(
+            orders,
+            [col("c_custkey")],
+            [col("o_custkey")],
+            JoinArgs::default(),
+        )
+        .join(
+            lineitem,
+            [col("o_orderkey")],
+            [col("l_orderkey")],
+            JoinArgs::default(),
+        )
+        .filter(col("o_orderdate").lt(date.clone()))
+        .filter(col("l_shipdate").gt(date))
+        .group_by([col("o_orderkey"), col("o_orderdate"), col("o_shippriority")])
+        .agg([(col("l_extendedprice") * (lit(1) - col("l_discount")))
+            .alias("revenue")
+            .sum()])
+        .select(&[
+            col("o_orderkey").alias("l_orderkey"),
+            col("revenue"),
+            col("o_orderdate"),
+            col("o_shippriority"),
+        ])
+        .sort(
+            ["revenue", "o_orderdate"],
+            SortMultipleOptions::new().with_order_descendings([true, false]),
+        )
+        .limit(10);
+
+    Ok(df)
+}
+
+pub fn q4() -> PolarsResult<LazyFrame> {
+    let orders =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/orders.parquet"), Default::default())?;
+    let lineitem =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/lineitem.parquet"), Default::default())?;
+
+    let date = lit(NaiveDate::from_ymd_opt(1993, 7, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap());
+    let date2 = lit(NaiveDate::from_ymd_opt(1993, 10, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap());
+
+    let df = orders
+        .join(
+            lineitem.filter(col("l_commitdate").lt(col("l_receiptdate"))),
+            [col("o_orderkey")],
+            [col("l_orderkey")],
+            JoinArgs::new(JoinType::Semi), // EXISTS
+        )
+        .filter(col("o_orderdate").gt_eq(date))
+        .filter(col("o_orderdate").lt(date2))
+        .group_by([col("o_orderpriority")])
+        .agg([len().alias("order_count")])
+        .sort(["o_orderpriority"], Default::default());
+
+    Ok(df)
+}
+
+pub fn q5() -> PolarsResult<LazyFrame> {
+    let customer =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/customer.parquet"), Default::default())?;
+    let orders =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/orders.parquet"), Default::default())?;
+    let lineitem =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/lineitem.parquet"), Default::default())?;
+    let supplier =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/supplier.parquet"), Default::default())?;
+    let nation =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/nation.parquet"), Default::default())?;
+    let region =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/region.parquet"), Default::default())?;
+
+    let date1 = lit(NaiveDate::from_ymd_opt(1994, 1, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap());
+    let date2 = lit(NaiveDate::from_ymd_opt(1995, 1, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap());
+    let asia = lit("ASIA");
+
+    let df = region
+        .join(
+            nation,
+            [col("r_regionkey")],
+            [col("n_regionkey")],
+            JoinArgs::default(),
+        )
+        .join(
+            customer,
+            [col("n_nationkey")],
+            [col("c_nationkey")],
+            JoinArgs::default(),
+        )
+        .join(
+            orders,
+            [col("c_custkey")],
+            [col("o_custkey")],
+            JoinArgs::default(),
+        )
+        .join(
+            lineitem,
+            [col("o_orderkey")],
+            [col("l_orderkey")],
+            JoinArgs::default(),
+        )
+        .join(
+            supplier,
+            [col("l_suppkey"), col("n_nationkey")],
+            [col("s_suppkey"), col("s_nationkey")],
+            JoinArgs::default(),
+        )
+        .filter(col("r_name").eq(asia))
+        .filter(col("l_shipdate").gt(date1))
+        .filter(col("o_orderdate").lt(date2))
+        .group_by([col("n_name")])
+        .agg([(col("l_extendedprice") * (lit(1) - col("l_discount"))).sum().alias("revenue")])
+        .sort(
+            ["revenue"],
+            SortMultipleOptions::new().with_order_descending(true),
+        );
 
     Ok(df)
 }
