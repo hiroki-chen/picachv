@@ -102,6 +102,25 @@ impl Expr {
                             expr: crate::expr::AggExpr::Sum(uuid),
                             values: None,
                         }),
+                        picachv_message::GroupByMethod::Mean => Ok(Expr::Agg {
+                            expr: crate::expr::AggExpr::Mean(uuid),
+                            values: None,
+                        }),
+                        picachv_message::GroupByMethod::Max => Ok(Expr::Agg {
+                            expr: crate::expr::AggExpr::Max {
+                                input: uuid,
+                                propagate_nans: true,
+                            },
+                            values: None,
+                        }),
+                        picachv_message::GroupByMethod::Min => Ok(Expr::Agg {
+                            expr: crate::expr::AggExpr::Min {
+                                input: uuid,
+                                propagate_nans: true,
+                            },
+                            values: None,
+                        }),
+
                         _ => todo!(),
                     },
                     Err(e) => picachv_bail!(ComputeError: "{e}"),

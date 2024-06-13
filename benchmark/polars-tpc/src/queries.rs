@@ -255,10 +255,153 @@ pub fn q5() -> PolarsResult<LazyFrame> {
         .filter(col("l_shipdate").gt(date1))
         .filter(col("o_orderdate").lt(date2))
         .group_by([col("n_name")])
-        .agg([(col("l_extendedprice") * (lit(1) - col("l_discount"))).sum().alias("revenue")])
+        .agg([(col("l_extendedprice") * (lit(1) - col("l_discount")))
+            .sum()
+            .alias("revenue")])
         .sort(
             ["revenue"],
             SortMultipleOptions::new().with_order_descending(true),
+        );
+
+    Ok(df)
+}
+
+pub fn q6() -> PolarsResult<LazyFrame> {
+    let lineitem =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/lineitem.parquet"), Default::default())?;
+
+    let date1 = lit(NaiveDate::from_ymd_opt(1994, 1, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap());
+    let date2 = lit(NaiveDate::from_ymd_opt(1995, 1, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap());
+    let discount1 = lit(0.05);
+    let discount2 = lit(0.07);
+    let quantity = lit(24);
+
+    let df = lineitem
+        .filter(col("l_shipdate").gt_eq(date1))
+        .filter(col("l_shipdate").lt(date2))
+        .filter(col("l_discount").gt_eq(discount1))
+        .filter(col("l_discount").lt(discount2))
+        .filter(col("l_quantity").lt(quantity))
+        .with_columns([(col("l_extendedprice") * col("l_discount")).alias("revenue")])
+        .select([sum("revenue")]);
+
+    Ok(df)
+}
+
+pub fn q7() -> PolarsResult<LazyFrame> {
+    let customer =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/customer.parquet"), Default::default())?;
+    let lineitem =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/lineitem.parquet"), Default::default())?;
+    let nation =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/nation.parquet"), Default::default())?;
+    let orders =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/orders.parquet"), Default::default())?;
+    let supplier =
+        LazyFrame::scan_parquet(format!("{TABLE_PATH}/supplier.parquet"), Default::default())?;
+
+    let from = lit("FRANCE");
+    let to = lit("GERMANY");
+    let date1 = lit(NaiveDate::from_ymd_opt(1995, 1, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap());
+    let date2 = lit(NaiveDate::from_ymd_opt(1996, 12, 31)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap());
+
+    let n1 = nation.clone().filter(col("n_name").eq(from));
+    let n2 = nation.filter(col("n_name").eq(to));
+
+    let q1 = customer
+        .clone()
+        .join(
+            n1.clone(),
+            [col("c_nationkey")],
+            [col("n_nationkey")],
+            JoinArgs::default(),
+        )
+        .join(
+            orders.clone(),
+            [col("c_custkey")],
+            [col("o_custkey")],
+            JoinArgs::default(),
+        )
+        .rename(["n_name"], ["cust_nation"])
+        .join(
+            lineitem.clone(),
+            [col("o_orderkey")],
+            [col("l_orderkey")],
+            JoinArgs::default(),
+        )
+        .join(
+            supplier.clone(),
+            [col("l_suppkey")],
+            [col("s_suppkey")],
+            JoinArgs::default(),
+        )
+        .join(
+            n2.clone(),
+            [col("s_nationkey")],
+            [col("n_nationkey")],
+            JoinArgs::default(),
+        )
+        .rename(["n_name"], ["supp_nation"]);
+
+    let q2 = customer
+        .join(
+            n2,
+            [col("c_nationkey")],
+            [col("n_nationkey")],
+            JoinArgs::default(),
+        )
+        .join(
+            orders,
+            [col("c_custkey")],
+            [col("o_custkey")],
+            JoinArgs::default(),
+        )
+        .rename(["n_name"], ["cust_nation"])
+        .join(
+            lineitem,
+            [col("o_orderkey")],
+            [col("l_orderkey")],
+            JoinArgs::default(),
+        )
+        .join(
+            supplier,
+            [col("l_suppkey")],
+            [col("s_suppkey")],
+            JoinArgs::default(),
+        )
+        .join(
+            n1,
+            [col("s_nationkey")],
+            [col("n_nationkey")],
+            JoinArgs::default(),
+        )
+        .rename(["n_name"], ["supp_nation"]);
+
+    let df = concat([q1, q2], UnionArgs::default())
+        .unwrap()
+        .filter(col("l_shipdate").gt_eq(date1))
+        .filter(col("l_shipdate").lt(date2))
+        .with_columns([
+            (col("l_extendedprice") * (lit(1) - col("l_discount"))).alias("volume"),
+            col("l_shipdate").dt().year().alias("l_year"),
+        ])
+        .group_by([col("supp_nation"), col("cust_nation"), col("l_year")])
+        .agg([sum("volume").alias("revenue")])
+        .sort(
+            ["supp_nation", "cust_nation", "l_year"],
+            SortMultipleOptions::default(),
         );
 
     Ok(df)
