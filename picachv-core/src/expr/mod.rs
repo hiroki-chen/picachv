@@ -2,7 +2,9 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use std::{fmt, vec};
 
-use arrow_array::{Array, Date32Array, Int32Array, LargeStringArray, RecordBatch};
+use arrow_array::{
+    Array, Date32Array, Float64Array, Int32Array, Int64Array, LargeStringArray, RecordBatch,
+};
 use arrow_schema::DataType;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::binary_operator::Operator;
@@ -163,8 +165,12 @@ impl Expr {
                 let col = match col {
                     ColumnIdent::ColumnId(id) => *id,
                     ColumnIdent::ColumnName(name) => {
+                        println!("Schema is {:?}", groups.schema);
+
                         groups.schema.iter().position(|e| e == name).ok_or(
-                            PicachvError::ComputeError("The column does not exist.".into()),
+                            PicachvError::ComputeError(
+                                format!("The column {name} does not exist").into(),
+                            ),
                         )?
                     },
                 };
@@ -286,7 +292,9 @@ impl Expr {
                     ColumnIdent::ColumnId(id) => *id,
                     ColumnIdent::ColumnName(name) => {
                         ctx.schema.iter().position(|e| e == name).ok_or(
-                            PicachvError::ComputeError("The column does not exist.".into()),
+                            PicachvError::ComputeError(
+                                format!("The column {name} does not exist").into(),
+                            ),
                         )?
                     },
                 };
@@ -361,6 +369,16 @@ fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<Vec<AnyValue>>> {
                     let value = array.value(i);
                     row.push(AnyValue::Int32(value));
                 },
+                DataType::Int64 => {
+                    let array = columns[j].as_any().downcast_ref::<Int64Array>().unwrap();
+                    let value = array.value(i);
+                    row.push(AnyValue::Int64(value as _));
+                },
+                DataType::Float64 => {
+                    let array = columns[j].as_any().downcast_ref::<Float64Array>().unwrap();
+                    let value = array.value(i);
+                    row.push(AnyValue::Float64(value.into()));
+                },
                 DataType::Date32 => {
                     let array = columns[j].as_any().downcast_ref::<Date32Array>().unwrap();
                     let value = array.value(i);
@@ -374,7 +392,7 @@ fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<Vec<AnyValue>>> {
                     let value = array.value(i);
                     row.push(AnyValue::String(value.to_string()));
                 },
-                ty => picachv_bail!(InvalidOperation: "{ty} is not supported."),
+                ty => picachv_bail!(InvalidOperation: "{ty} is not supported"),
             }
         }
 

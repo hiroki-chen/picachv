@@ -45,7 +45,7 @@ pub enum Plan {
     /// Projection
     Projection {
         /// Column 'names' as we may apply some transformation on columns.
-        expression: Vec<Uuid>,
+        expressions: Vec<Uuid>,
     },
 
     /// Aggregate and group by
@@ -65,6 +65,14 @@ pub enum Plan {
         projection: Option<Vec<String>>,
         selection: Option<Uuid>,
     },
+
+    /// Horizontal stack: this is a special operation that is used to stack multiple
+    /// dataframes horizontally. The dataframe being appended is evaluated using the
+    /// expressions here.
+    Hstack {
+        cse_expressions: Vec<Uuid>,
+        expressions: Vec<Uuid>,
+    },
 }
 
 impl fmt::Debug for Plan {
@@ -80,7 +88,10 @@ impl Plan {
             Self::Select { predicate, .. } => {
                 write!(f, "{:indent$}FILTER {predicate:?} FROM", "")
             },
-            Self::Projection { expression, .. } => {
+            Self::Projection {
+                expressions: expression,
+                ..
+            } => {
                 write!(f, "{:indent$} SELECT {expression:?} FROM", "")
             },
             Self::DataFrameScan {
@@ -111,6 +122,17 @@ impl Plan {
             Self::Aggregation { keys, aggs, .. } => {
                 write!(f, "{:indent$}AGGREGATE", "")?;
                 write!(f, "\n{:indent$}\t{aggs:?} GROUP BY {keys:?} FROM", "")
+            },
+            Self::Hstack {
+                cse_expressions,
+                expressions,
+            } => {
+                write!(
+                    f,
+                    "{:indent$}HSTACK 
+                {cse_expressions:?} + {expressions:?} FROM",
+                    ""
+                )
             },
         }
     }
@@ -163,7 +185,10 @@ impl Plan {
 
         match self {
             // See the semantics for `apply_proj_in_relation`.
-            Plan::Projection { expression, .. } => {
+            Plan::Projection {
+                expressions: expression,
+                ..
+            } => {
                 let expr_arena = rwlock_unlock!(arena.expr_arena, read);
                 let expression = expression
                     .into_iter()
@@ -252,6 +277,13 @@ impl Plan {
                 new_df.schema = output_schema.clone();
 
                 df_arena.insert(new_df)
+            },
+
+            Plan::Hstack {
+                cse_expressions,
+                expressions,
+            } => {
+                todo!()
             },
         }
     }

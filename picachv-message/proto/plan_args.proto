@@ -43,12 +43,22 @@ message SelectArgument {
 
 message ProjectionArgument {
   // Column 'names' as we may apply some transformation on columns.
-  repeated bytes expression = 1;
+  repeated bytes expressions = 1;
 }
 
 // Some plans do not need to be checked.
 message TransformArgument {
 
+}
+
+// Different from join, this "appends" a dataframe directly to the current
+// dataframe horizontally. 
+message HstackArgument {
+  // common expressions.
+  repeated bytes cse = 1;
+  // Sometimes the new dataframes are just a series of expressions to be evaluated.
+  // Afterwards we append the evaluated results to the current dataframe.
+  repeated bytes expressions = 2;
 }
 
 message AggregateArgument {
@@ -69,7 +79,8 @@ message PlanArgument {
     AggregateArgument aggregate = 3;
     GetDataArgument get_data = 4;
     TransformArgument transform = 5;
+    HstackArgument hstack = 6;
   }
 
-  TransformInfo transform_info = 6;
+  TransformInfo transform_info = 7;
 }

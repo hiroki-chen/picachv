@@ -7,6 +7,7 @@ use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use picachv_core::dataframe::{apply_transform, PolicyGuardedDataFrame};
 use picachv_core::expr::Expr;
+use picachv_core::io::JsonIO;
 use picachv_core::plan::{early_projection_by_id, Plan};
 use picachv_core::udf::Udf;
 use picachv_core::{get_new_uuid, record_batch_from_bytes, rwlock_unlock, Arenas};
@@ -53,6 +54,15 @@ impl Context {
     pub fn register_policy_dataframe(&self, df: PolicyGuardedDataFrame) -> PicachvResult<Uuid> {
         let mut df_arena = rwlock_unlock!(self.arena.df_arena, write);
         df_arena.insert(df)
+    }
+
+    #[tracing::instrument]
+    pub fn register_policy_dataframe_json<P: AsRef<Path> + fmt::Debug>(
+        &self,
+        path: P,
+    ) -> PicachvResult<Uuid> {
+        let df = PolicyGuardedDataFrame::from_json(path.as_ref())?;
+        self.register_policy_dataframe(df)
     }
 
     #[inline]
@@ -160,6 +170,25 @@ impl Context {
 
         expr.reify(rb)?;
         Ok(())
+    }
+
+    #[tracing::instrument]
+    pub fn rename(&self, df_uuid: Uuid, from: &str, to: &str) -> PicachvResult<Uuid> {
+        let mut df_arena = rwlock_unlock!(self.arena.df_arena, write);
+
+        let df = df_arena.get_mut(&df_uuid)?;
+
+        match Arc::get_mut(df) {
+            Some(df) => {
+                df.rename(from, to)?;
+                Ok(df_uuid)
+            },
+            None => {
+                let mut df = (**df).clone();
+                df.rename(from, to)?;
+                df_arena.insert(df)
+            },
+        }
     }
 
     #[inline]

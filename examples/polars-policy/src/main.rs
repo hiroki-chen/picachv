@@ -144,7 +144,7 @@ fn main() -> Result<()> {
     // }
     match example3(&policy) {
         Ok(df) => unreachable!("Result: {}", df),
-        Err(e) => tracing::error!("Error: {}", e),
+        Err(e) => log::error!("Error: {}", e),
     }
 
     Ok(())

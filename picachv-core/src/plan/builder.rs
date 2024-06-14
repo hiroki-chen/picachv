@@ -1,7 +1,7 @@
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::get_data_argument::DataSource;
 use picachv_message::get_data_in_memory::{ById, ByName, ProjectionList};
-use picachv_message::{plan_argument, AggregateArgument};
+use picachv_message::{plan_argument, AggregateArgument, HstackArgument};
 use uuid::Uuid;
 
 use super::Plan;
@@ -78,7 +78,7 @@ impl Plan {
                 // when the caller is constructing the physical expression and physical plan,
                 // and then we can construct the logical plan.
                 let proj_list = proj_arg
-                    .expression
+                    .expressions
                     .into_iter()
                     .map(|expr| {
                         Uuid::from_slice_le(expr.as_slice()).map_err(|_| {
@@ -88,7 +88,7 @@ impl Plan {
                     .collect::<PicachvResult<Vec<_>>>()?;
 
                 Ok(Plan::Projection {
-                    expression: proj_list,
+                    expressions: proj_list,
                 })
             },
 
@@ -132,6 +132,28 @@ impl Plan {
                         "The group by proxy is empty.".into(),
                     ))?,
                     output_schema,
+                })
+            },
+            Argument::Hstack(HstackArgument { cse, expressions }) => {
+                let cse_expressions = cse
+                    .into_iter()
+                    .map(|expr| {
+                        Uuid::from_slice_le(expr.as_slice()).map_err(|_| {
+                            PicachvError::InvalidOperation("The UUID is invalid.".into())
+                        })
+                    })
+                    .collect::<PicachvResult<Vec<_>>>()?;
+                let expressions = expressions
+                    .into_iter()
+                    .map(|expr| {
+                        Uuid::from_slice_le(expr.as_slice()).map_err(|_| {
+                            PicachvError::InvalidOperation("The UUID is invalid.".into())
+                        })
+                    })
+                    .collect::<PicachvResult<Vec<_>>>()?;
+                Ok(Plan::Hstack {
+                    cse_expressions,
+                    expressions,
                 })
             },
             _ => Err(PicachvError::ComputeError("Not implemented!".into())),

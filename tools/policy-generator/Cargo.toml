@@ -4,4 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+clap = { version = "4.5.7", features = ["derive"] }
+indicatif = "0.17.8"
+parquet = "52.0.0"
 picachv-core = { workspace = true }

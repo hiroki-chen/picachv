@@ -119,6 +119,22 @@ impl PolicyGuardedDataFrame {
         Ok(())
     }
 
+    pub fn rename(&mut self, old_name: &str, new_name: &str) -> PicachvResult<()> {
+        println!("renaming {} to {}", old_name, new_name);
+        let idx = self
+            .schema
+            .iter()
+            .position(|s| s == old_name)
+            .ok_or_else(|| {
+                PicachvError::InvalidOperation(
+                    format!("The column {} is not in the schema.", old_name).into(),
+                )
+            })?;
+        self.schema[idx] = new_name.to_string();
+
+        Ok(())
+    }
+
     pub fn new_from_slice(&self, slices: &[usize]) -> PicachvResult<Self> {
         let mut columns = vec![];
         for col in self.columns.iter() {

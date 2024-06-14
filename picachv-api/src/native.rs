@@ -43,7 +43,9 @@ pub fn open_new() -> PicachvResult<Uuid> {
 
 impl_ctx_api!(build_expr, expr_from_args, ctx_id: Uuid, expr_arg: ExprArgument => Uuid);
 impl_ctx_api!(register_policy_dataframe, register_policy_dataframe, ctx_id: Uuid, df: PolicyGuardedDataFrame => Uuid);
+impl_ctx_api!(register_policy_dataframe_json, register_policy_dataframe_json, ctx_id: Uuid, path: &str => Uuid);
 impl_ctx_api!(execute_epilogue, execute_epilogue,
     ctx_id: Uuid, df_uuid: Uuid, plan_arg: Option<PlanArgument> => Uuid);
 impl_ctx_api!(finalize, finalize, ctx_id: Uuid, df_uuid: Uuid => ());
 impl_ctx_api!(reify_expression, reify_expression, ctx_id: Uuid, expr_uuid: Uuid, val: &[u8] => ());
+impl_ctx_api!(rename, rename, ctx_id: Uuid, df_uuid: Uuid, from: &str, to: &str => Uuid);

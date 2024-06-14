@@ -741,12 +741,25 @@ pub struct SelectArgument {
 pub struct ProjectionArgument {
     /// Column 'names' as we may apply some transformation on columns.
     #[prost(bytes = "vec", repeated, tag = "1")]
-    pub expression: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    pub expressions: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 /// Some plans do not need to be checked.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TransformArgument {}
+/// Different from join, this "appends" a dataframe directly to the current
+/// dataframe horizontally.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct HstackArgument {
+    /// common expressions.
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub cse: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    /// Sometimes the new dataframes are just a series of expressions to be evaluated.
+    /// Afterwards we append the evaluated results to the current dataframe.
+    #[prost(bytes = "vec", repeated, tag = "2")]
+    pub expressions: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AggregateArgument {
@@ -767,9 +780,9 @@ pub struct AggregateArgument {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PlanArgument {
-    #[prost(message, optional, tag = "6")]
+    #[prost(message, optional, tag = "7")]
     pub transform_info: ::core::option::Option<TransformInfo>,
-    #[prost(oneof = "plan_argument::Argument", tags = "1, 2, 3, 4, 5")]
+    #[prost(oneof = "plan_argument::Argument", tags = "1, 2, 3, 4, 5, 6")]
     pub argument: ::core::option::Option<plan_argument::Argument>,
 }
 /// Nested message and enum types in `PlanArgument`.
@@ -787,5 +800,7 @@ pub mod plan_argument {
         GetData(super::GetDataArgument),
         #[prost(message, tag = "5")]
         Transform(super::TransformArgument),
+        #[prost(message, tag = "6")]
+        Hstack(super::HstackArgument),
     }
 }

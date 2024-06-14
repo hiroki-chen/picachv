@@ -48,7 +48,7 @@ where
             Some(plan) => Ok(plan),
             None => Err(PicachvError::InvalidOperation(
                 format!(
-                    "The object {uuid} does not exist in the arena {}.",
+                    "get: the object {uuid} does not exist in the arena {}.",
                     self.name
                 )
                 .into(),
@@ -61,7 +61,7 @@ where
             Some(plan) => Ok(plan),
             None => Err(PicachvError::InvalidOperation(
                 format!(
-                    "The object {uuid} does not exist in the arena {}.",
+                    "get_mut: the object {uuid} does not exist in the arena {}.",
                     self.name
                 )
                 .into(),

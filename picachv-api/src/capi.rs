@@ -408,3 +408,41 @@ pub extern "C" fn debug_print_df(
 
     ErrorCode::Success
 }
+
+#[no_mangle]
+pub extern "C" fn register_policy_dataframe_json(
+    ctx_uuid: *const u8,
+    ctx_uuid_len: usize,
+    path: *const u8,
+    path_len: usize,
+    df_uuid: *mut u8,
+    df_uuid_len: usize,
+) -> ErrorCode {
+    let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
+
+    let path = unsafe { std::slice::from_raw_parts(path, path_len) };
+    let path = std::str::from_utf8(path).unwrap();
+
+    let df = try_execute!(PolicyGuardedDataFrame::from_json(path));
+
+    let ctx = match MONITOR_INSTANCE.get() {
+        Some(monitor) => match monitor.get_ctx() {
+            Ok(ctx) => ctx,
+            Err(_) => return ErrorCode::InvalidOperation,
+        },
+        None => return ErrorCode::NoEntry,
+    };
+
+    let ctx = match ctx.get(&ctx_id) {
+        Some(ctx) => ctx,
+        None => return ErrorCode::NoEntry,
+    };
+
+    let res = try_execute!(ctx.register_policy_dataframe(df));
+
+    unsafe {
+        std::ptr::copy_nonoverlapping(res.to_bytes_le().as_ptr(), df_uuid, df_uuid_len);
+    }
+
+    ErrorCode::Success
+}

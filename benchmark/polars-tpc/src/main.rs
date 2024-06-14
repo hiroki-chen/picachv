@@ -5,6 +5,7 @@ use polars::error::{PolarsError, PolarsResult};
 use polars::frame::DataFrame;
 use polars::lazy::native::{init_monitor, open_new};
 use polars::lazy::PicachvError;
+use queries::QueryFactory;
 
 pub mod queries;
 
@@ -13,8 +14,16 @@ pub struct Args {
     #[clap(short, long, default_value = "1", help = "The query number to run")]
     query: usize,
 
-    #[clap(short, long, help = "Whether to enable policy checking", action)]
-    with_policy_checking: bool,
+    #[clap(
+        short,
+        long,
+        default_value = "../../data/tables",
+        help = "The path to the tables"
+    )]
+    tables_path: String,
+
+    #[clap(short, long, help = "The policy path")]
+    policy_path: Option<String>,
 }
 
 fn timer(f: impl FnOnce() -> DataFrame) -> (Duration, DataFrame) {
@@ -27,22 +36,23 @@ fn timer(f: impl FnOnce() -> DataFrame) -> (Duration, DataFrame) {
 
 fn main() -> PolarsResult<()> {
     let args = Args::parse();
+    let qf = QueryFactory::new(&args.tables_path, args.policy_path.as_ref())?;
 
     let query = match args.query {
-        1 => queries::q1(),
-        2 => queries::q2(),
-        3 => queries::q3(),
-        4 => queries::q4(),
-        5 => queries::q5(),
-        6 => queries::q6(),
-        7 => queries::q7(),
+        1 => qf.q1(),
+        2 => qf.q2(),
+        3 => qf.q3(),
+        4 => qf.q4(),
+        5 => qf.q5(),
+        6 => qf.q6(),
+        7 => qf.q7(),
         8..=15 => {
             panic!("Query not implemented");
         },
         _ => panic!("Invalid query number"),
     }?;
 
-    let query = if args.with_policy_checking {
+    let query = if args.policy_path.is_some() {
         match init_monitor() {
             Ok(_) | Err(PicachvError::Already(_)) => (),
             Err(e) => panic!("Error: {:?}", e),
@@ -54,6 +64,8 @@ fn main() -> PolarsResult<()> {
     } else {
         query
     };
+
+    println!("{}", query.explain(true)?);
 
     let (elapsed_time, df) = timer(|| query.collect().unwrap());
 
