@@ -119,6 +119,25 @@ impl PolicyGuardedDataFrame {
         Ok(())
     }
 
+    pub fn reorder(&mut self, perm: &[usize]) -> PicachvResult<()> {
+        picachv_ensure!(
+            perm.len() == self.shape().0,
+            ComputeError: "The length of the permutation array does not match the dataframe",
+        );
+
+        for (src, &dst) in perm.iter().enumerate() {
+            if src != dst {
+                // We swap the rows.
+                self.columns
+                    .iter_mut()
+                    .map(|c| c.policies.swap(src, dst))
+                    .for_each(drop);
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn rename(&mut self, old_name: &str, new_name: &str) -> PicachvResult<()> {
         println!("renaming {} to {}", old_name, new_name);
         println!("{:?}", self.schema);
@@ -519,7 +538,30 @@ pub fn apply_transform(
             },
 
             Information::Reorder(reorder_info) => {
-                todo!("reorder")
+                let mut df_arena = rwlock_unlock!(df_arena, write);
+                let df = df_arena.get_mut(&df_uuid)?;
+                // This is the permutation array where arr[i] = j means that the i-th row should be
+                // placed with the j-th row.
+                let perm = reorder_info
+                    .perm
+                    .into_iter()
+                    .map(|e| e as usize)
+                    .collect::<Vec<_>>();
+
+                // We then apply the transformation.
+                match Arc::get_mut(df) {
+                    Some(df) => {
+                        df.reorder(&perm)?;
+                        // We just re-use the UUID.
+                        Ok(df_uuid)
+                    },
+                    None => {
+                        let mut df = (**df).clone();
+                        df.reorder(&perm)?;
+                        // We insert the new dataframe and this methods returns a new UUID.
+                        df_arena.insert(df)
+                    },
+                }
             },
 
             _ => todo!(),
