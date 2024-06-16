@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use picachv_core::dataframe::{apply_transform, PolicyGuardedDataFrame};
-use picachv_core::expr::Expr;
+use picachv_core::expr::{ColumnIdent, Expr};
 use picachv_core::io::JsonIO;
 use picachv_core::plan::{early_projection_by_id, Plan};
 use picachv_core::udf::Udf;
@@ -144,6 +144,8 @@ impl Context {
     /// Reify an abstract value of the expression with the given values encoded in the bytes.
     ///
     /// The input values are just a serialized Arrow IPC data represented as record batches.
+    /// 
+    /// BUG: The current implementation is somehow flawed.
     #[tracing::instrument]
     pub fn reify_expression(&self, expr_uuid: Uuid, value: &[u8]) -> PicachvResult<()> {
         tracing::debug!("reify_expression: expression uuid = {expr_uuid} ");
@@ -160,15 +162,30 @@ impl Context {
         };
 
         if !expr.needs_reify() {
-            return Err(PicachvError::InvalidOperation(
-                "The expression does not need reify.".into(),
-            ));
+            return Ok(());
         }
 
-        // Convert values into the Arrow record batch.
-        let rb = record_batch_from_bytes(value)?;
+        // Check if it is a column expression.
+        if let Expr::Column(col) = expr {
+            if matches!(col, ColumnIdent::ColumnId(_)) {
+                return Ok(());
+            }
 
-        expr.reify(rb)?;
+            // Replace the column name with the actual value.
+            let idx = usize::from_le_bytes(value.try_into().map_err(|e| {
+                PicachvError::InvalidOperation(
+                    format!("Failed to convert the value into usize: {e}").into(),
+                )
+            })?);
+
+            *expr = Expr::Column(ColumnIdent::ColumnId(idx));
+        } else {
+            // Convert values into the Arrow record batch.
+            let rb = record_batch_from_bytes(value).unwrap();
+
+            expr.reify(rb)?;
+        }
+
         Ok(())
     }
 
@@ -307,7 +324,9 @@ fn enable_tracing<P: AsRef<Path>>(path: P) -> PicachvResult<()> {
         .append(true)
         .open(path)?;
 
-    let debug_log = tracing_subscriber::fmt::layer().with_writer(Arc::new(log_file));
+    let debug_log = tracing_subscriber::fmt::layer()
+        .with_writer(Arc::new(log_file))
+        .with_ansi(false);
 
     tracing_subscriber::registry()
         .with(debug_log)

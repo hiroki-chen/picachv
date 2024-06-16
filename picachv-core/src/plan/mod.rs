@@ -282,10 +282,61 @@ impl Plan {
             Plan::Hstack {
                 cse_expressions,
                 expressions,
-            } => {
-                todo!()
-            },
+            } => do_hstack(arena, active_df_uuid, cse_expressions, expressions, udfs),
         }
+    }
+}
+
+/// Do the horizontal stack operation.
+///
+/// A horizontal stack operation is used to append new columns directly to the existing dataframe
+/// without any join operation. There might be common subexpressions in the expressions that are
+/// evaluated before the actual expressions are evaluated. We split it into two parts: we first
+/// append the common subexpressions to the dataframe and then we evaluate the actual expressions.
+/// The final result is the dataframe with the actual expressions appended.
+#[tracing::instrument]
+fn do_hstack(
+    arena: &Arenas,
+    active_df_uuid: Uuid,
+    cse_expressions: &[Uuid],
+    expressions: &[Uuid],
+    udfs: &HashMap<String, Udf>,
+) -> PicachvResult<Uuid> {
+    let mut df_arena = rwlock_unlock!(arena.df_arena, write);
+    let expr_arena = rwlock_unlock!(arena.expr_arena, read);
+    let df = df_arena.get_mut(&active_df_uuid)?;
+
+    println!("do_stack: {df}");
+
+    let cse_expressions = cse_expressions
+        .into_iter()
+        .map(|e| expr_arena.get(e).cloned())
+        .collect::<PicachvResult<Vec<_>>>()?;
+    let expressions = expressions
+        .into_iter()
+        .map(|e| expr_arena.get(e).cloned())
+        .collect::<PicachvResult<Vec<_>>>()?;
+
+    let new_df = if cse_expressions.is_empty() {
+        do_check_expressions(arena, df, &expressions, udfs)?
+    } else {
+        // First let us collect the common subexpression part.
+        let cse_part = do_check_expressions(arena, df, &cse_expressions, udfs)?;
+        // We then stitch the common subexpression part with the dataframe.
+        let cse_part = PolicyGuardedDataFrame::stitch(df, &cse_part)?;
+        // We then evaluate the actual expressions.
+        do_check_expressions(arena, &cse_part, &expressions, udfs)?
+    };
+
+    // We then add new columns.
+    let new_df = PolicyGuardedDataFrame::stitch(&df, &new_df)?;
+
+    match Arc::get_mut(df) {
+        Some(df) => {
+            *df = new_df;
+            Ok(active_df_uuid)
+        },
+        None => df_arena.insert_arc(Arc::new(new_df)),
     }
 }
 
@@ -333,7 +384,7 @@ fn aggregate_keys(
 fn aggregate_keys_idx(
     df: &PolicyGuardedDataFrame,
     gb_proxy: &GroupByIdx,
-) -> Result<PolicyGuardedDataFrame, picachv_error::PicachvError> {
+) -> PicachvResult<PolicyGuardedDataFrame> {
     let mut columns = vec![];
 
     for col_idx in 0..df.shape().1 {

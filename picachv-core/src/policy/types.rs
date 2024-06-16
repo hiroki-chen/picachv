@@ -1,7 +1,9 @@
+use core::fmt;
 use std::cmp::Ordering;
 use std::hash::Hash;
 use std::time::Duration;
 
+use chrono::DateTime;
 use ordered_float::OrderedFloat;
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::PrimitiveValue;
@@ -42,7 +44,7 @@ impl Ord for DpParam {
 }
 
 /// A type that can represent any value.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AnyValue {
     Boolean(bool),
     String(String),
@@ -58,6 +60,30 @@ pub enum AnyValue {
     Float64(OrderedFloat<f64>),
     Duration(Duration),
     None,
+}
+
+impl fmt::Debug for AnyValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Duration(d) => {
+                let dt = DateTime::from_timestamp_nanos(d.as_nanos() as _);
+                write!(f, "{:?}", dt)
+            },
+            Self::Boolean(b) => write!(f, "{:?}: bool", b),
+            Self::String(s) => write!(f, "{:?}: string", s),
+            Self::UInt8(u) => write!(f, "{:?}: u8", u),
+            Self::UInt16(u) => write!(f, "{:?}: u16", u),
+            Self::UInt32(u) => write!(f, "{:?}: u32", u),
+            Self::UInt64(u) => write!(f, "{:?}: u64", u),
+            Self::Int8(i) => write!(f, "{:?}: i8", i),
+            Self::Int16(i) => write!(f, "{:?}: i16", i),
+            Self::Int32(i) => write!(f, "{:?}: i32", i),
+            Self::Int64(i) => write!(f, "{:?}: i64", i),
+            Self::Float32(v) => write!(f, "{:?}: f32", v),
+            Self::Float64(v) => write!(f, "{:?}: f64", v),
+            Self::None => write!(f, "None"),
+        }
+    }
 }
 
 impl TryFrom<PrimitiveValue> for AnyValue {

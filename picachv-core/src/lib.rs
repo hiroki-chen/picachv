@@ -1,3 +1,5 @@
+#![feature(duration_constructors)]
+
 use std::sync::{Arc, RwLock};
 
 use arena::Arena;
@@ -21,6 +23,7 @@ pub mod plan;
 pub mod policy;
 pub mod udf;
 
+#[derive(Debug)]
 pub struct Arenas {
     pub expr_arena: Arc<RwLock<ExprArena>>,
     pub df_arena: Arc<RwLock<DfArena>>,

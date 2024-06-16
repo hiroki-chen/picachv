@@ -4,8 +4,9 @@ use std::{fmt, vec};
 
 use arrow_array::{
     Array, Date32Array, Float64Array, Int32Array, Int64Array, LargeStringArray, RecordBatch,
+    TimestampNanosecondArray,
 };
-use arrow_schema::DataType;
+use arrow_schema::{DataType, TimeUnit};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::binary_operator::Operator;
 use picachv_message::{binary_operator, ArithmeticBinaryOperator};
@@ -141,7 +142,10 @@ pub enum Expr {
 
 impl Expr {
     pub fn needs_reify(&self) -> bool {
-        matches!(self, Self::Apply { .. } | Self::Agg { .. })
+        matches!(
+            self,
+            Self::Apply { .. } | Self::Agg { .. } | Self::Column(_) | Self::BinaryExpr { .. },
+        )
     }
 
     /// This function checks the policy enforcement for the expression type in aggregation context.
@@ -218,6 +222,27 @@ impl Expr {
                 }
             },
 
+            Expr::BinaryExpr {
+                left,
+                op,
+                right,
+                values,
+            } => {
+                let values = values.clone().ok_or(PicachvError::ComputeError(
+                    format!("{self:?} does not have values reified.").into(),
+                ))?;
+
+                let left = expr_arena.get(left)?;
+                let right = expr_arena.get(right)?;
+
+                for i in 0..groups.shape().0 {
+                    let lhs = left.check_policy_in_row(ctx, i)?;
+                    let rhs = right.check_policy_in_row(ctx, i)?;
+
+                    policies.push(check_policy_binary(&lhs, &rhs, op, &values[i])?);
+                }
+            },
+
             _ => unimplemented!("{self:?} is not yet supported in aggregation context."),
         }
 
@@ -246,7 +271,7 @@ impl Expr {
                 values, // todo.
             } => match values {
                 Some(values) => check_policy_in_row_apply(ctx, name, args, values, idx),
-                None => picachv_bail!(ComputeError: "The values are not reified."),
+                None => picachv_bail!(ComputeError: "The values are not reified for {self:?}"),
             },
 
             Expr::BinaryExpr {
@@ -257,6 +282,7 @@ impl Expr {
             } => {
                 let left = expr_arena.get(left)?;
                 let right = expr_arena.get(right)?;
+
                 let lhs = left.check_policy_in_row(ctx, idx)?;
                 let rhs = right.check_policy_in_row(ctx, idx)?;
 
@@ -269,8 +295,10 @@ impl Expr {
                 }
 
                 let values = values.clone().ok_or(PicachvError::ComputeError(
-                    "The values are not reified.".into(),
+                    format!("The values are not reified for {self:?}").into(),
                 ))?;
+
+                println!("values: {values:?}");
 
                 picachv_ensure!(
                     !values.is_empty() && values[0].len() == 2,
@@ -299,10 +327,12 @@ impl Expr {
                     },
                 };
 
-                picachv_ensure!(
-                    col < ctx.df.shape().1,
-                    ComputeError: "The column is out of bound"
-                );
+                println!("df => {:?}", ctx.df.shape());
+
+                // picachv_ensure!(
+                //     col < ctx.df.shape().1,
+                //     ComputeError: "The column is out of bound. Got {col}, expected {}", ctx.df.shape().1
+                // );
 
                 // For column expression this is an interesting undecidable case
                 // where we cannot determine what operation it will be applied.
@@ -342,6 +372,7 @@ impl Expr {
 
         // Convert the RecordBatch into a vector of AnyValue.
         let values = convert_record_batch(values)?;
+        println!("values: {values:?}");
         values_mut.replace(values);
 
         Ok(())
@@ -382,7 +413,18 @@ fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<Vec<AnyValue>>> {
                 DataType::Date32 => {
                     let array = columns[j].as_any().downcast_ref::<Date32Array>().unwrap();
                     let value = array.value(i);
-                    row.push(AnyValue::Duration(Duration::from_secs(value as _)));
+                    row.push(AnyValue::Duration(Duration::from_days(value as _)));
+                },
+                DataType::Timestamp(timestamp, _) => match timestamp {
+                    TimeUnit::Nanosecond => {
+                        let array = columns[j]
+                            .as_any()
+                            .downcast_ref::<TimestampNanosecondArray>()
+                            .unwrap();
+                        let value = array.value(i);
+                        row.push(AnyValue::Duration(Duration::from_nanos(value as _)));
+                    },
+                    _ => todo!(),
                 },
                 DataType::LargeUtf8 => {
                     let array = columns[j]

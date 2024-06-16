@@ -121,15 +121,17 @@ impl PolicyGuardedDataFrame {
 
     pub fn rename(&mut self, old_name: &str, new_name: &str) -> PicachvResult<()> {
         println!("renaming {} to {}", old_name, new_name);
+        println!("{:?}", self.schema);
         let idx = self
             .schema
             .iter()
             .position(|s| s == old_name)
-            .ok_or_else(|| {
-                PicachvError::InvalidOperation(
-                    format!("The column {} is not in the schema.", old_name).into(),
-                )
-            })?;
+            // .ok_or_else(|| {
+            //     PicachvError::InvalidOperation(
+            //         format!("The column {} is not in the schema.", old_name).into(),
+            //     )
+            // })?;
+            .unwrap();
         self.schema[idx] = new_name.to_string();
 
         Ok(())
@@ -280,7 +282,10 @@ impl PolicyGuardedDataFrame {
     ) -> PicachvResult<PolicyGuardedDataFrame> {
         tracing::debug!("stitching\n{lhs}\n{rhs}");
 
-        picachv_ensure!(lhs.shape().0 == rhs.shape().0, ComputeError: "The number of rows must be the same.");
+        picachv_ensure!(
+            lhs.shape().0 == rhs.shape().0,
+            ComputeError: "The number of rows must be the same: {} != {}", lhs.shape().0, rhs.shape().0
+        );
 
         Ok(PolicyGuardedDataFrame {
             columns: {
@@ -511,6 +516,10 @@ pub fn apply_transform(
                 let new_df = PolicyGuardedDataFrame::join(lhs_df, rhs_df, &join)?;
 
                 df_arena.insert(new_df)
+            },
+
+            Information::Reorder(reorder_info) => {
+                todo!("reorder")
             },
 
             _ => todo!(),
