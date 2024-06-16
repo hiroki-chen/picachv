@@ -245,15 +245,22 @@ impl PolicyLabel {
     }
 
     /// The implementation for the `policy_base_label_eq` function.
+    #[inline]
     pub fn base_eq(&self, other: &Self) -> bool {
-        match (self, other) {
+        matches!(
+            (self, other),
             (PolicyLabel::PolicyBot, PolicyLabel::PolicyBot)
-            | (PolicyLabel::PolicyTransform { .. }, PolicyLabel::PolicyTransform { .. })
-            | (PolicyLabel::PolicyAgg { .. }, PolicyLabel::PolicyAgg { .. })
-            | (PolicyLabel::PolicyNoise { .. }, PolicyLabel::PolicyNoise { .. })
-            | (PolicyLabel::PolicyTop, PolicyLabel::PolicyTop) => true,
-            _ => false,
-        }
+                | (
+                    PolicyLabel::PolicyTransform { .. },
+                    PolicyLabel::PolicyTransform { .. }
+                )
+                | (PolicyLabel::PolicyAgg { .. }, PolicyLabel::PolicyAgg { .. })
+                | (
+                    PolicyLabel::PolicyNoise { .. },
+                    PolicyLabel::PolicyNoise { .. }
+                )
+                | (PolicyLabel::PolicyTop, PolicyLabel::PolicyTop)
+        )
     }
 }
 
@@ -520,7 +527,7 @@ impl Policy<PolicyLabel> {
                     next: next2,
                 },
             ) => {
-                if label1.base_eq(&label2) {
+                if label1.base_eq(label2) {
                     return Ok(Policy::PolicyDeclassify {
                         label: label1.join(label2),
                         next: Box::new(next1.join(next2)?),
@@ -561,11 +568,9 @@ impl<T> PartialEq for Policy<T>
 where
     T: Lattice + Serialize + DeserializeOwned,
 {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
-        match (self.le(other), other.le(self)) {
-            (Ok(true), Ok(true)) => true,
-            _ => false,
-        }
+        matches!((self.le(other), other.le(self)), (Ok(true), Ok(true)))
     }
 }
 

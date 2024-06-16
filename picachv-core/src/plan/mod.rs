@@ -191,7 +191,7 @@ impl Plan {
             } => {
                 let expr_arena = rwlock_unlock!(arena.expr_arena, read);
                 let expression = expression
-                    .into_iter()
+                    .iter()
                     .map(|e| expr_arena.get(e).cloned())
                     .collect::<PicachvResult<Vec<_>>>()?;
 
@@ -213,7 +213,7 @@ impl Plan {
                 ..
             } => {
                 let projected_uuid = match projection {
-                    Some(projection) => early_projection(arena, active_df_uuid, &projection),
+                    Some(projection) => early_projection(arena, active_df_uuid, projection),
                     None => Ok(active_df_uuid),
                 }?;
 
@@ -241,11 +241,11 @@ impl Plan {
             } => {
                 let expr_arena = rwlock_unlock!(arena.expr_arena, read);
                 let keys = keys
-                    .into_iter()
+                    .iter()
                     .map(|e| expr_arena.get(e).cloned())
                     .collect::<PicachvResult<Vec<_>>>()?;
                 let aggs = aggs
-                    .into_iter()
+                    .iter()
                     .map(|e| expr_arena.get(e).cloned())
                     .collect::<PicachvResult<Vec<_>>>()?;
 
@@ -274,7 +274,7 @@ impl Plan {
                 let mut df_arena = rwlock_unlock!(arena.df_arena, write);
                 let second_part = df_arena.get(&second_part)?;
                 let mut new_df = PolicyGuardedDataFrame::stitch(&first_part, second_part)?;
-                new_df.schema = output_schema.clone();
+                new_df.schema.clone_from(output_schema);
 
                 df_arena.insert(new_df)
             },
@@ -309,11 +309,11 @@ fn do_hstack(
     println!("do_stack: {df}");
 
     let cse_expressions = cse_expressions
-        .into_iter()
+        .iter()
         .map(|e| expr_arena.get(e).cloned())
         .collect::<PicachvResult<Vec<_>>>()?;
     let expressions = expressions
-        .into_iter()
+        .iter()
         .map(|e| expr_arena.get(e).cloned())
         .collect::<PicachvResult<Vec<_>>>()?;
 
@@ -329,7 +329,7 @@ fn do_hstack(
     };
 
     // We then add new columns.
-    let new_df = PolicyGuardedDataFrame::stitch(&df, &new_df)?;
+    let new_df = PolicyGuardedDataFrame::stitch(df, &new_df)?;
 
     match Arc::get_mut(df) {
         Some(df) => {
@@ -514,13 +514,13 @@ fn check_expressions_agg_idx(
 
     let mut res = vec![];
     // The semantic requires us to first iterate over the aggregate list.
-    for agg in agg_list.into_iter() {
+    for agg in agg_list.iter() {
         let mut group_res = vec![];
         // Then we need to iterate over the groups.
         for group in gb_proxy.groups.iter() {
             tracing::debug!("check_expressions_agg_idx: group = {group:?}  ");
             let mut ctx = ExpressionEvalContext::new(df.schema.clone(), df, true, udfs, arena);
-            ctx.gb_proxy = Some(&group);
+            ctx.gb_proxy = Some(group);
 
             // For each group we will get the result of the aggregation.
             group_res.push(check_policy_agg(agg, &mut ctx)?);
@@ -554,7 +554,7 @@ fn do_check_expressions(
     let rows = df.shape().0;
     let mut col = vec![];
     let mut ctx = ExpressionEvalContext::new(df.schema.clone(), df, false, udfs, arena);
-    for expr in expression.into_iter() {
+    for expr in expression.iter() {
         let mut cur = vec![];
         for idx in 0..rows {
             let updated_label = expr.check_policy_in_row(&mut ctx, idx)?;
@@ -586,11 +586,9 @@ fn check_expressions(
     if can_replace {
         let _ = std::mem::replace(df, new_df);
         Ok(active_df_uuid)
+    } else if !keep_old {
+        df_arena.insert_arc(new_df)
     } else {
-        if !keep_old {
-            df_arena.insert_arc(new_df)
-        } else {
-            Ok(active_df_uuid)
-        }
+        Ok(active_df_uuid)
     }
 }

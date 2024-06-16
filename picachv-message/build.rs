@@ -13,7 +13,7 @@ fn main() {
     println!("cargo:warning=building protobuf files: {:?}", proto_files);
 
     for proto_file in proto_files.iter() {
-        println!("{}", format!("cargo:rerun-if-changed={}", proto_file));
+        println!("cargo:rerun-if-changed={}", proto_file);
     }
 
     if !proto_files.is_empty() {
@@ -21,7 +21,7 @@ fn main() {
         config.out_dir("./src");
         match config.compile_protos(&proto_files, &["proto"]) {
             Ok(_) => (),
-            Err(e) => panic!("Failed to compile protos: {}", e.to_string()),
+            Err(e) => panic!("Failed to compile protos: {}", e),
         }
     }
 }

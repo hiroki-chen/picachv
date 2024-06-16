@@ -9,7 +9,7 @@ use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::PrimitiveValue;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct DpParam(OrderedFloat<f64>, Option<OrderedFloat<f64>>);
 
 impl DpParam {
@@ -32,7 +32,7 @@ impl PartialEq for DpParam {
 
 impl PartialOrd for DpParam {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.0.partial_cmp(&other.0).unwrap())
+        Some(self.cmp(other))
     }
 }
 

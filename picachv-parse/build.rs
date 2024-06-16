@@ -18,7 +18,7 @@ fn main() {
         .collect::<Vec<_>>();
 
     for grammar_file in grammar_files.iter() {
-        println!("{}", format!("cargo-rerun-if-changed:lang/{grammar_file}"));
+        println!("cargo-rerun-if-changed:lang/{grammar_file}");
 
         Configuration::new()
             .use_cargo_dir_conventions()

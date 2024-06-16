@@ -66,9 +66,7 @@ impl AggExpr {
             | Self::Var(input, _) => input,
         };
 
-        rwlock_unlock!(expr_arena, read)
-            .get(expr_uuid)
-            .map(|e| e.clone())
+        rwlock_unlock!(expr_arena, read).get(expr_uuid).cloned()
     }
 
     pub fn as_groupby_method(&self) -> GroupByMethod {
@@ -206,15 +204,15 @@ impl Expr {
                     .map(|e| expr_arena.get(e))
                     .collect::<PicachvResult<Vec<_>>>()?;
 
-                for i in 0..groups.shape().0 {
+                for (i, value) in values.iter().enumerate().take(groups.shape().0) {
                     let mut p = Default::default();
-                    for j in 0..args.len() {
-                        let arg = args[j].check_policy_in_row(ctx, i)?;
+                    for (j, arg) in args.iter().enumerate() {
+                        let arg = arg.check_policy_in_row(ctx, i)?;
                         p = check_policy_binary_udf(
                             groups.columns[j].policies[i].clone(),
                             arg,
                             &udf_desc.name,
-                            &values[i],
+                            value,
                         )?;
                     }
 
@@ -235,11 +233,11 @@ impl Expr {
                 let left = expr_arena.get(left)?;
                 let right = expr_arena.get(right)?;
 
-                for i in 0..groups.shape().0 {
+                for (i, value) in values.iter().enumerate().take(groups.shape().0) {
                     let lhs = left.check_policy_in_row(ctx, i)?;
                     let rhs = right.check_policy_in_row(ctx, i)?;
 
-                    policies.push(check_policy_binary(&lhs, &rhs, op, &values[i])?);
+                    policies.push(check_policy_binary(&lhs, &rhs, op, value)?);
                 }
             },
 
@@ -392,32 +390,31 @@ fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<Vec<AnyValue>>> {
         let mut row = vec![];
 
         // Iterate each column and convert it into AnyValue.
-        for j in 0..columns.len() {
-            match columns[j].data_type() {
-                // TODO: We can wrap this into a macro?
+        for column in columns.iter() {
+            match column.data_type() {
                 DataType::Int32 => {
-                    let array = columns[j].as_any().downcast_ref::<Int32Array>().unwrap();
+                    let array = column.as_any().downcast_ref::<Int32Array>().unwrap();
                     let value = array.value(i);
                     row.push(AnyValue::Int32(value));
                 },
                 DataType::Int64 => {
-                    let array = columns[j].as_any().downcast_ref::<Int64Array>().unwrap();
+                    let array = column.as_any().downcast_ref::<Int64Array>().unwrap();
                     let value = array.value(i);
                     row.push(AnyValue::Int64(value as _));
                 },
                 DataType::Float64 => {
-                    let array = columns[j].as_any().downcast_ref::<Float64Array>().unwrap();
+                    let array = column.as_any().downcast_ref::<Float64Array>().unwrap();
                     let value = array.value(i);
                     row.push(AnyValue::Float64(value.into()));
                 },
                 DataType::Date32 => {
-                    let array = columns[j].as_any().downcast_ref::<Date32Array>().unwrap();
+                    let array = column.as_any().downcast_ref::<Date32Array>().unwrap();
                     let value = array.value(i);
                     row.push(AnyValue::Duration(Duration::from_days(value as _)));
                 },
                 DataType::Timestamp(timestamp, _) => match timestamp {
                     TimeUnit::Nanosecond => {
-                        let array = columns[j]
+                        let array = column
                             .as_any()
                             .downcast_ref::<TimestampNanosecondArray>()
                             .unwrap();
@@ -427,10 +424,7 @@ fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<Vec<AnyValue>>> {
                     _ => todo!(),
                 },
                 DataType::LargeUtf8 => {
-                    let array = columns[j]
-                        .as_any()
-                        .downcast_ref::<LargeStringArray>()
-                        .unwrap();
+                    let array = column.as_any().downcast_ref::<LargeStringArray>().unwrap();
                     let value = array.value(i);
                     row.push(AnyValue::String(value.to_string()));
                 },
@@ -522,7 +516,7 @@ fn check_policy_binary(
 ) -> PicachvResult<Policy<PolicyLabel>> {
     match op {
         binary_operator::Operator::ComparisonOperator(_)
-        | binary_operator::Operator::LogicalOperator(_) => lhs.join(&rhs),
+        | binary_operator::Operator::LogicalOperator(_) => lhs.join(rhs),
         binary_operator::Operator::ArithmeticOperator(op) => {
             let op = ArithmeticBinaryOperator::try_from(*op).map_err(|_| {
                 PicachvError::ComputeError(
@@ -532,7 +526,7 @@ fn check_policy_binary(
 
             let mut op = BinaryTransformType::try_from(op)?;
 
-            match (policy_ok(&lhs), policy_ok(&rhs)) {
+            match (policy_ok(lhs), policy_ok(rhs)) {
                 // lhs = ∎
                 (true, _) => {
                     op.arg = value[0].clone();
@@ -551,7 +545,7 @@ fn check_policy_binary(
                     lhs.downgrade(p_f)
                 },
 
-                _ => lhs.join(&rhs),
+                _ => lhs.join(rhs),
             }
         },
     }
@@ -669,7 +663,7 @@ pub(crate) fn fold_on_groups(
     let pf = policy_agg_label!(how, groups.len());
     let mut p_output = Policy::PolicyClean;
 
-    for p_cur in groups.into_iter() {
+    for p_cur in groups.iter() {
         let p_after = p_cur.downgrade(pf.clone())?;
         if p_output.le(&p_after)? {
             p_output = p_after;

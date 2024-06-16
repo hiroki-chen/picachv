@@ -1,4 +1,5 @@
 #![feature(duration_constructors)]
+#![allow(clippy::module_inception)]
 
 use std::sync::{Arc, RwLock};
 
@@ -27,6 +28,12 @@ pub mod udf;
 pub struct Arenas {
     pub expr_arena: Arc<RwLock<ExprArena>>,
     pub df_arena: Arc<RwLock<DfArena>>,
+}
+
+impl Default for Arenas {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Arenas {

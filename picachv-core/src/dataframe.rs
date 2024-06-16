@@ -68,8 +68,8 @@ impl From<Vec<Row>> for PolicyGuardedDataFrame {
         let mut columns = vec![];
         for i in 0..value[0].len() {
             let mut policies = vec![];
-            for j in 0..value.len() {
-                policies.push(value[j][i].clone());
+            for cur in value.iter() {
+                policies.push(cur[i].clone());
             }
             columns.push(PolicyGuardedColumn { policies });
         }
@@ -103,7 +103,6 @@ impl fmt::Display for PolicyGuardedDataFrame {
                 .build()
                 .with(Style::rounded())
                 .modify(Rows::new(1..), Alignment::left())
-                .to_string()
         )
     }
 }
@@ -250,7 +249,7 @@ impl PolicyGuardedDataFrame {
                         format!("The column {} is not in the schema.", r.old_name).into(),
                     )
                 })?;
-            rhs.schema[idx] = r.new_name.clone();
+            rhs.schema[idx].clone_from(&r.new_name)
         }
 
         // We then stitch them together.
@@ -335,8 +334,8 @@ impl PolicyGuardedDataFrame {
         let mut columns = vec![];
         for i in 0..inputs[0].columns.len() {
             let mut policies = vec![];
-            for j in 0..inputs.len() {
-                policies.extend(inputs[j].columns[i].policies.clone());
+            for input in inputs.iter() {
+                policies.extend(input.columns[i].policies.clone());
             }
             columns.push(PolicyGuardedColumn { policies });
         }

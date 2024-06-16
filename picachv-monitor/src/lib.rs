@@ -227,6 +227,12 @@ pub struct PicachvMonitor {
     pub(crate) udfs: Arc<RwLock<HashMap<String, Udf>>>,
 }
 
+impl Default for PicachvMonitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PicachvMonitor {
     pub fn new() -> Self {
         if let Err(e) = enable_tracing("./picachv.log") {
@@ -320,7 +326,7 @@ pub static MONITOR_INSTANCE: OnceLock<Arc<PicachvMonitor>> = OnceLock::new();
 fn enable_tracing<P: AsRef<Path>>(path: P) -> PicachvResult<()> {
     let log_file = OpenOptions::new()
         .create(true)
-        .write(true)
+        
         .append(true)
         .open(path)?;
 

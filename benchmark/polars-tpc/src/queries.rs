@@ -23,12 +23,14 @@ impl QueryFactory {
 
         for table in TABLE_NAMES.iter() {
             let path = table_path.as_ref().join(format!("{}.parquet", table));
-            let mut scan_arg = ScanArgsParquet::default();
-            scan_arg.with_policy = with_policy.as_ref().map(|p| {
-                p.as_ref()
-                    .to_path_buf()
-                    .join(format!("{}.parquet.json", table))
-            });
+            let scan_arg = ScanArgsParquet {
+                with_policy: with_policy.as_ref().map(|p| {
+                    p.as_ref()
+                        .to_path_buf()
+                        .join(format!("{}.parquet.json", table))
+                }),
+                ..Default::default()
+            };
 
             let df = LazyFrame::scan_parquet(path, scan_arg)?;
             df_registry.insert(table.to_string(), df);

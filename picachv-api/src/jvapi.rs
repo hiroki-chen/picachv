@@ -1,4 +1,3 @@
-use jni::objects::{JByteArray, JClass};
 use jni::JNIEnv;
 
 #[no_mangle]

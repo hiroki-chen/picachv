@@ -52,7 +52,7 @@ impl PolicyGenerator {
                 // Write the policy to a file
                 println!("Writing policy to file: {}", table);
                 let output_path = format!("{}/{}.json", self.args.output_path, table);
-                df.to_json(&output_path)?;
+                df.to_json(output_path)?;
 
                 Ok(())
             },
