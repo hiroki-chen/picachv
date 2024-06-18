@@ -64,6 +64,7 @@ fn example1(policy: &PolicyGuardedDataFrame) -> Result<DataFrame> {
         .filter(lit(1).lt(col("a")))
         .group_by([col("b")])
         .agg(vec![col("a").sum()])
+        .set_policy_checking(true)
         .set_ctx_id(ctx_id);
     // Error: invalid operation: Possible policy breach detected; abort early.
     // Because we do not apply the policy on the column "b".
@@ -142,7 +143,7 @@ fn main() -> Result<()> {
     //     Ok(df) => tracing::info!("Result: {}", df),
     //     Err(e) => unreachable!("Error: {}", e),
     // }
-    match example3(&policy) {
+    match example1(&policy) {
         Ok(df) => unreachable!("Result: {}", df),
         Err(e) => log::error!("Error: {}", e),
     }

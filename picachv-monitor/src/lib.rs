@@ -144,7 +144,7 @@ impl Context {
     /// Reify an abstract value of the expression with the given values encoded in the bytes.
     ///
     /// The input values are just a serialized Arrow IPC data represented as record batches.
-    /// 
+    ///
     /// BUG: The current implementation is somehow flawed.
     #[tracing::instrument]
     pub fn reify_expression(&self, expr_uuid: Uuid, value: &[u8]) -> PicachvResult<()> {
@@ -324,11 +324,7 @@ impl PicachvMonitor {
 pub static MONITOR_INSTANCE: OnceLock<Arc<PicachvMonitor>> = OnceLock::new();
 
 fn enable_tracing<P: AsRef<Path>>(path: P) -> PicachvResult<()> {
-    let log_file = OpenOptions::new()
-        .create(true)
-        
-        .append(true)
-        .open(path)?;
+    let log_file = OpenOptions::new().create(true).append(true).open(path)?;
 
     let debug_log = tracing_subscriber::fmt::layer()
         .with_writer(Arc::new(log_file))

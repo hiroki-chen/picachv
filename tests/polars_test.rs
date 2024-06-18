@@ -302,6 +302,27 @@ mod polars_tests {
 
         assert!(out.is_ok());
     }
+
+    #[test]
+    fn test_polars_self_join() {
+        let (ctx_id, df) = prepare(example_df1, "../data/simple_policy.json");
+
+        let out = df
+            .clone()
+            .lazy()
+            .group_by([col("b")]).agg(vec![col("a").sum().alias("sum_a")])
+            .join(
+                df.lazy(),
+                [col("sum_a")],
+                [col("a")],
+                JoinArgs::new(JoinType::Inner),
+            )
+            .set_policy_checking(true)
+            .set_ctx_id(ctx_id)
+            .collect();
+
+        assert!(out.is_err());
+    }
 }
 
 #[cfg(test)]
@@ -355,7 +376,11 @@ mod polars_sql_tests {
 
         assert!(out.is_ok());
 
-        let out = out.unwrap().set_ctx_id(ctx_id).collect();
+        let out = out
+            .unwrap()
+            .set_ctx_id(ctx_id)
+            .set_policy_checking(true)
+            .collect();
         println!("{:?}", out);
     }
 }

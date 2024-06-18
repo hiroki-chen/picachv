@@ -119,13 +119,13 @@ impl PolicyGuardedDataFrame {
     }
 
     pub fn reorder(&mut self, perm: &[usize]) -> PicachvResult<()> {
-        picachv_ensure!(
-            perm.len() == self.shape().0,
-            ComputeError: "The length of the permutation array does not match the dataframe",
-        );
-
         for (src, &dst) in perm.iter().enumerate() {
             if src != dst {
+                picachv_ensure!(
+                    dst < self.shape().0,
+                    ComputeError: "The permutation destination {dst} is out of bound.",
+                );
+
                 // We swap the rows.
                 self.columns
                     .iter_mut()
@@ -137,21 +137,8 @@ impl PolicyGuardedDataFrame {
         Ok(())
     }
 
-    pub fn rename(&mut self, old_name: &str, new_name: &str) -> PicachvResult<()> {
-        println!("renaming {} to {}", old_name, new_name);
-        println!("{:?}", self.schema);
-        let idx = self
-            .schema
-            .iter()
-            .position(|s| s == old_name)
-            // .ok_or_else(|| {
-            //     PicachvError::InvalidOperation(
-            //         format!("The column {} is not in the schema.", old_name).into(),
-            //     )
-            // })?;
-            .unwrap();
-        self.schema[idx] = new_name.to_string();
-
+    #[deprecated(note = "This function is not implemented.")]
+    pub fn rename(&mut self, _old_name: &str, _new_name: &str) -> PicachvResult<()> {
         Ok(())
     }
 
@@ -203,8 +190,6 @@ impl PolicyGuardedDataFrame {
         rhs: &PolicyGuardedDataFrame,
         info: &JoinInformation,
     ) -> PicachvResult<Self> {
-        tracing::debug!("joining\n{lhs}\n{rhs} with info\n{info:?}",);
-
         // We select columns according to `left_columns` and `right_columns`.
         let left_columns = info
             .left_columns
@@ -225,6 +210,12 @@ impl PolicyGuardedDataFrame {
             (lhs, rhs)
         };
 
+        println!(
+            "lhs column {} rhs column {}",
+            lhs.columns.len(),
+            rhs.columns.len()
+        );
+
         // Deal with the row join information.
         let left_idx = info
             .row_join_info
@@ -239,23 +230,22 @@ impl PolicyGuardedDataFrame {
         let lhs = lhs.new_from_slice(&left_idx)?;
         let mut rhs = rhs.new_from_slice(&right_idx)?;
 
-        for r in info.renaming_info.iter() {
-            let idx = rhs
-                .schema
-                .iter()
-                .position(|s| s == &r.old_name)
-                .ok_or_else(|| {
-                    PicachvError::InvalidOperation(
-                        format!("The column {} is not in the schema.", r.old_name).into(),
-                    )
-                })?;
-            rhs.schema[idx].clone_from(&r.new_name)
-        }
+        // for r in info.renaming_info.iter() {
+        //     let idx = rhs
+        //         .schema
+        //         .iter()
+        //         .position(|s| s == &r.old_name)
+        //         .ok_or_else(|| {
+        //             PicachvError::InvalidOperation(
+        //                 format!("The column {} is not in the schema.", r.old_name).into(),
+        //             )
+        //         })?;
+        //     rhs.schema[idx].clone_from(&r.new_name)
+        // }
 
         // We then stitch them together.
         let res = PolicyGuardedDataFrame::stitch(&lhs, &rhs)?;
-
-        tracing::debug!("res is {res}");
+        println!("res is {:?}", res.shape());
 
         Ok(res)
     }
@@ -354,8 +344,8 @@ impl PolicyGuardedDataFrame {
         // First make sure if the project list contains valid columns.
         for &col in project_list.iter() {
             picachv_ensure!(
-                col < self.schema.len(),
-                ComputeError: format!("The column {} is not in the schema.", col),
+                col < self.columns.len(),
+                ComputeError: "The column {} is out of bound", col,
             );
         }
 
@@ -363,10 +353,10 @@ impl PolicyGuardedDataFrame {
             .iter()
             .map(|&i| self.columns[i].clone())
             .collect();
-        self.schema = project_list
-            .iter()
-            .map(|&i| self.schema[i].clone())
-            .collect();
+        // self.schema = project_list
+        //     .iter()
+        //     .map(|&i| self.schema[i].clone())
+        //     .collect();
 
         Ok(())
     }
@@ -404,8 +394,6 @@ impl PolicyGuardedDataFrame {
     }
 
     /// This checks if we can safely release this dataframe.
-    ///
-    /// todo: Describe in more detail.
     pub fn finalize(&self) -> PicachvResult<()> {
         tracing::debug!("finalizing\n{self}");
 
