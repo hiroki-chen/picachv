@@ -8,7 +8,7 @@ use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use picachv_core::dataframe::{apply_transform, PolicyGuardedDataFrame};
 use picachv_core::expr::{ColumnIdent, Expr};
 use picachv_core::io::JsonIO;
-use picachv_core::plan::{early_projection_by_id, Plan};
+use picachv_core::plan::{early_projection, Plan};
 use picachv_core::udf::Udf;
 use picachv_core::{get_new_uuid, record_batch_from_bytes, rwlock_unlock, Arenas};
 use picachv_error::{PicachvError, PicachvResult};
@@ -68,7 +68,7 @@ impl Context {
     #[inline]
     #[tracing::instrument]
     pub fn early_projection(&self, df_uuid: Uuid, project_list: &[usize]) -> PicachvResult<Uuid> {
-        early_projection_by_id(&self.arena, df_uuid, project_list)
+        early_projection(&self.arena, df_uuid, project_list)
     }
 
     #[tracing::instrument]
@@ -78,7 +78,6 @@ impl Context {
         ))?;
 
         let expr = Expr::from_args(&self.arena, expr_arg)?;
-        println!("expr_from_args: expr = {expr:?}");
         let mut expr_arena = rwlock_unlock!(self.arena.expr_arena, write);
         let uuid = expr_arena.insert(expr)?;
         tracing::debug!("expr_from_args: uuid = {uuid}");
@@ -166,11 +165,7 @@ impl Context {
         }
 
         // Check if it is a column expression.
-        if let Expr::Column(col) = expr {
-            if matches!(col, ColumnIdent::ColumnId(_)) {
-                return Ok(());
-            }
-
+        if let Expr::Column(_) = expr {
             // Replace the column name with the actual value.
             let idx = usize::from_le_bytes(value.try_into().map_err(|e| {
                 PicachvError::InvalidOperation(
@@ -187,25 +182,6 @@ impl Context {
         }
 
         Ok(())
-    }
-
-    #[tracing::instrument]
-    pub fn rename(&self, df_uuid: Uuid, from: &str, to: &str) -> PicachvResult<Uuid> {
-        let mut df_arena = rwlock_unlock!(self.arena.df_arena, write);
-
-        let df = df_arena.get_mut(&df_uuid)?;
-
-        match Arc::get_mut(df) {
-            Some(df) => {
-                df.rename(from, to)?;
-                Ok(df_uuid)
-            },
-            None => {
-                let mut df = (**df).clone();
-                df.rename(from, to)?;
-                df_arena.insert(df)
-            },
-        }
     }
 
     #[inline]

@@ -35,14 +35,7 @@ fn get_example_df() -> PolicyGuardedDataFrame {
     let col_a = PolicyGuardedColumn::new(p1);
     let col_b = PolicyGuardedColumn::new(p2);
 
-    PolicyGuardedDataFrame::new(
-        df.schema()
-            .get_names()
-            .into_iter()
-            .map(|e| e.to_owned())
-            .collect::<Vec<_>>(),
-        vec![col_a, col_b],
-    )
+    PolicyGuardedDataFrame::new(vec![col_a, col_b])
 }
 
 fn example1(policy: &PolicyGuardedDataFrame) -> Result<DataFrame> {

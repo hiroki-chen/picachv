@@ -18,6 +18,7 @@ pub trait JsonIO: Serialize + DeserializeOwned {
             PicachvError::InvalidOperation(format!("Failed to write JSON: {}", e).into())
         })
     }
+
     fn from_json<P: AsRef<Path>>(path: P) -> PicachvResult<Self> {
         let file = std::fs::File::open(path)?;
         let reader = std::io::BufReader::new(file);

@@ -61,8 +61,8 @@ pub enum Plan {
     },
 
     DataFrameScan {
-        schema: Vec<String>,
-        projection: Option<Vec<String>>,
+        /// The early projected list.
+        projection: Option<Vec<usize>>,
         selection: Option<Uuid>,
     },
 
@@ -95,13 +95,10 @@ impl Plan {
                 write!(f, "{:indent$} SELECT {expression:?} FROM", "")
             },
             Self::DataFrameScan {
-                schema,
                 projection,
                 selection,
-                ..
             } => {
-                let total_columns = schema.len();
-                let mut n_columns = "*".to_string();
+                let mut n_columns: String = "*".to_string();
                 if let Some(columns) = projection {
                     n_columns = format!("{}", columns.len());
                 }
@@ -111,12 +108,8 @@ impl Plan {
                 };
                 write!(
                     f,
-                    "{:indent$}DF {:?}; PROJECT {}/{} COLUMNS; SELECTION: {:?}",
-                    "",
-                    schema.iter().take(4).collect::<Vec<_>>(),
-                    n_columns,
-                    total_columns,
-                    selection,
+                    "{:indent$}DF CAN PROJECT {} COLUMNS; SELECTION: {:?}",
+                    "", n_columns, selection,
                 )
             },
             Self::Aggregation { keys, aggs, .. } => {
@@ -210,7 +203,6 @@ impl Plan {
             Plan::DataFrameScan {
                 selection,
                 projection,
-                ..
             } => {
                 let projected_uuid = match projection {
                     Some(projection) => early_projection(arena, active_df_uuid, projection),
@@ -236,7 +228,6 @@ impl Plan {
                 keys,
                 aggs,
                 gb_proxy,
-                output_schema,
                 ..
             } => {
                 let expr_arena = rwlock_unlock!(arena.expr_arena, read);
@@ -273,9 +264,8 @@ impl Plan {
                 // Combine the two parts.
                 let mut df_arena = rwlock_unlock!(arena.df_arena, write);
                 let second_part = df_arena.get(&second_part)?;
-                let mut new_df = PolicyGuardedDataFrame::stitch(&first_part, second_part)?;
-                new_df.schema.clone_from(output_schema);
 
+                let new_df = PolicyGuardedDataFrame::stitch(&first_part, second_part)?;
                 df_arena.insert(new_df)
             },
 
@@ -305,8 +295,6 @@ fn do_hstack(
     let mut df_arena = rwlock_unlock!(arena.df_arena, write);
     let expr_arena = rwlock_unlock!(arena.expr_arena, read);
     let df = df_arena.get_mut(&active_df_uuid)?;
-
-    println!("do_stack: {df}");
 
     let cse_expressions = cse_expressions
         .iter()
@@ -402,35 +390,10 @@ fn aggregate_keys_idx(
         columns.push(PolicyGuardedColumn { policies: cur });
     }
 
-    Ok(PolicyGuardedDataFrame {
-        schema: df.schema.clone(),
-        columns,
-    })
+    Ok(PolicyGuardedDataFrame { columns })
 }
 
-/// This function is used to apply the projection on the dataframe.
 pub fn early_projection(
-    df_arena: &Arenas,
-    active_df_uuid: Uuid,
-    project_list: &[String],
-) -> PicachvResult<Uuid> {
-    let mut df_arena = rwlock_unlock!(df_arena.df_arena, write);
-    let df = df_arena.get_mut(&active_df_uuid)?;
-
-    match Arc::get_mut(df) {
-        Some(df) => {
-            df.projection(project_list)?;
-            Ok(active_df_uuid)
-        },
-        None => {
-            let mut df = (**df).clone();
-            df.projection(project_list)?;
-            df_arena.insert_arc(Arc::new(df))
-        },
-    }
-}
-
-pub fn early_projection_by_id(
     df_arena: &Arenas,
     active_df_uuid: Uuid,
     project_list: &[usize],
@@ -519,7 +482,7 @@ fn check_expressions_agg_idx(
         // Then we need to iterate over the groups.
         for group in gb_proxy.groups.iter() {
             tracing::debug!("check_expressions_agg_idx: group = {group:?}  ");
-            let mut ctx = ExpressionEvalContext::new(df.schema.clone(), df, true, udfs, arena);
+            let mut ctx = ExpressionEvalContext::new(df, true, udfs, arena);
             ctx.gb_proxy = Some(group);
 
             // For each group we will get the result of the aggregation.
@@ -538,8 +501,6 @@ fn check_expressions_agg_idx(
             .into_iter()
             .map(|col| PolicyGuardedColumn { policies: col })
             .collect(),
-        // We don't need the schema since it is anonymous.
-        schema: Default::default(),
     };
 
     df_arena.insert(df)
@@ -553,7 +514,7 @@ fn do_check_expressions(
 ) -> PicachvResult<PolicyGuardedDataFrame> {
     let rows = df.shape().0;
     let mut col = vec![];
-    let mut ctx = ExpressionEvalContext::new(df.schema.clone(), df, false, udfs, arena);
+    let mut ctx = ExpressionEvalContext::new(df, false, udfs, arena);
     for expr in expression.iter() {
         let mut cur = vec![];
         for idx in 0..rows {
@@ -564,10 +525,7 @@ fn do_check_expressions(
         col.push(PolicyGuardedColumn { policies: cur });
     }
 
-    Ok(PolicyGuardedDataFrame {
-        columns: col,
-        schema: df.schema.clone(),
-    })
+    Ok(PolicyGuardedDataFrame { columns: col })
 }
 
 fn check_expressions(
@@ -581,8 +539,8 @@ fn check_expressions(
     let df = df_arena.get_mut(&active_df_uuid)?;
     let can_replace = Arc::strong_count(df) == 1 && !keep_old;
 
-    let new_df = Arc::new(do_check_expressions(arena, df, expression, udfs)?);
-
+    let new_df: Arc<PolicyGuardedDataFrame> =
+        Arc::new(do_check_expressions(arena, df, expression, udfs)?);
     if can_replace {
         let _ = std::mem::replace(df, new_df);
         Ok(active_df_uuid)

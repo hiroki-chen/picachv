@@ -93,10 +93,14 @@ mod polars_tests {
             .lazy()
             .filter(lit(1).lt(col("b")))
             .select([
-                col("a").cast(DataType::Date).dt().offset_by(lit("5s")),
+                col("a")
+                    .cast(DataType::Date)
+                    .dt()
+                    .offset_by(lit("5s"))
+                    .alias("a_ok"),
                 col("b"),
             ])
-            .group_by([col("a")])
+            .group_by([col("a_ok")])
             .agg(vec![col("b").sum()])
             .set_policy_checking(true)
             .set_ctx_id(ctx_id)
@@ -310,7 +314,8 @@ mod polars_tests {
         let out = df
             .clone()
             .lazy()
-            .group_by([col("b")]).agg(vec![col("a").sum().alias("sum_a")])
+            .group_by([col("b")])
+            .agg(vec![col("a").sum().alias("sum_a")])
             .join(
                 df.lazy(),
                 [col("sum_a")],

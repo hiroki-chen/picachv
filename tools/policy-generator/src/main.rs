@@ -69,7 +69,10 @@ impl PolicyGenerator {
                     let df = self.generate_policy_single(&filename)?;
 
                     // Write the policy to a file
-                    println!("Writing policy to file: {}", path.file_name().to_str().unwrap());
+                    println!(
+                        "Writing policy to file: {}",
+                        path.file_name().to_str().unwrap()
+                    );
                     let output_path = format!(
                         "{}/{}.json",
                         self.args.output_path,
@@ -114,7 +117,7 @@ impl PolicyGenerator {
             names.push(col.name().to_string());
         }
 
-        Ok(PolicyGuardedDataFrame::new(names, columns))
+        Ok(PolicyGuardedDataFrame::new(columns))
     }
 }
 

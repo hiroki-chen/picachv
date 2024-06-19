@@ -20,8 +20,6 @@ use crate::Arenas;
 /// - Γ is not required here although we can add it (not necessary).
 #[allow(unused)]
 pub(crate) struct ExpressionEvalContext<'ctx> {
-    /// The schema of the current expression.
-    pub(crate) schema: Vec<String>,
     /// The current activate data frame.
     pub(crate) df: &'ctx PolicyGuardedDataFrame,
     /// Indicates whether the expression is in an aggregation context.
@@ -36,14 +34,12 @@ pub(crate) struct ExpressionEvalContext<'ctx> {
 
 impl<'ctx> ExpressionEvalContext<'ctx> {
     pub fn new(
-        schema: Vec<String>,
         df: &'ctx PolicyGuardedDataFrame,
         in_agg: bool,
         udfs: &'ctx HashMap<String, Udf>,
         arena: &'ctx Arenas,
     ) -> Self {
         ExpressionEvalContext {
-            schema,
             df,
             in_agg,
             gb_proxy: None,

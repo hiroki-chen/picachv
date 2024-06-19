@@ -166,15 +166,9 @@ impl Expr {
             Expr::Column(col) => {
                 let col = match col {
                     ColumnIdent::ColumnId(id) => *id,
-                    ColumnIdent::ColumnName(name) => {
-                        println!("Schema is {:?}", groups.schema);
-
-                        groups.schema.iter().position(|e| e == name).ok_or(
-                            PicachvError::ComputeError(
-                                format!("The column {name} does not exist").into(),
-                            ),
-                        )?
-                    },
+                    ColumnIdent::ColumnName(name) => picachv_bail!(
+                        ComputeError: "Must reify column `{name}` into index"
+                    ),
                 };
 
                 for i in 0..groups.shape().0 {
@@ -296,8 +290,6 @@ impl Expr {
                     format!("The values are not reified for {self:?}").into(),
                 ))?;
 
-                println!("values: {values:?}");
-
                 picachv_ensure!(
                     !values.is_empty() && values[0].len() == 2,
                     InvalidOperation: "The argument to the binary expression is incorrect"
@@ -316,21 +308,10 @@ impl Expr {
             Expr::Column(col) => {
                 let col = match col {
                     ColumnIdent::ColumnId(id) => *id,
-                    ColumnIdent::ColumnName(name) => {
-                        ctx.schema.iter().position(|e| e == name).ok_or(
-                            PicachvError::ComputeError(
-                                format!("The column {name} does not exist").into(),
-                            ),
-                        )?
-                    },
+                    ColumnIdent::ColumnName(name) => picachv_bail!(
+                        ComputeError: "Must reify column `{name}` into index"
+                    ),
                 };
-
-                println!("df => {:?}", ctx.df.shape());
-
-                // picachv_ensure!(
-                //     col < ctx.df.shape().1,
-                //     ComputeError: "The column is out of bound. Got {col}, expected {}", ctx.df.shape().1
-                // );
 
                 // For column expression this is an interesting undecidable case
                 // where we cannot determine what operation it will be applied.
@@ -370,7 +351,6 @@ impl Expr {
 
         // Convert the RecordBatch into a vector of AnyValue.
         let values = convert_record_batch(values)?;
-        println!("values: {values:?}");
         values_mut.replace(values);
 
         Ok(())

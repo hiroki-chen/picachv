@@ -9,6 +9,7 @@ use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::PrimitiveValue;
 use serde::{Deserialize, Serialize};
 
+#[cfg_attr(feature = "fast_serde", derive(speedy::Readable, speedy::Writable))]
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct DpParam(OrderedFloat<f64>, Option<OrderedFloat<f64>>);
 
@@ -44,6 +45,7 @@ impl Ord for DpParam {
 }
 
 /// A type that can represent any value.
+#[cfg_attr(feature = "fast_serde", derive(speedy::Readable, speedy::Writable))]
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AnyValue {
     Boolean(bool),

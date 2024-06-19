@@ -17,16 +17,12 @@ message GetDataFromFileArgument {
 }
 
 message GetDataInMemory {
-  message ByName { repeated string project_list = 1; }
-  message ById { repeated uint64 project_list = 1; }
+  message ProjectList { repeated uint64 project_list = 1; }
   bytes df_uuid = 1;
   // In case we will have the "selection pushdown" thing.
   optional bytes pred = 2;
   // In case we will have the "projection pushdown" thing.
-  oneof projection_list {
-    ByName by_name = 3;
-    ById by_id = 4;
-  }
+  optional ProjectList project_list = 3;
 }
 
 message GetDataArgument {
@@ -47,17 +43,16 @@ message ProjectionArgument {
 }
 
 // Some plans do not need to be checked.
-message TransformArgument {
-
-}
+message TransformArgument {}
 
 // Different from join, this "appends" a dataframe directly to the current
-// dataframe horizontally. 
+// dataframe horizontally.
 message HstackArgument {
   // common expressions.
   repeated bytes cse = 1;
-  // Sometimes the new dataframes are just a series of expressions to be evaluated.
-  // Afterwards we append the evaluated results to the current dataframe.
+  // Sometimes the new dataframes are just a series of expressions to be
+  // evaluated. Afterwards we append the evaluated results to the current
+  // dataframe.
   repeated bytes expressions = 2;
 }
 

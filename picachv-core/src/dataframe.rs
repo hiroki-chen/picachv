@@ -57,8 +57,6 @@ impl PolicyGuardedColumn {
 /// any data. It is just a way to group columns together.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PolicyGuardedDataFrame {
-    /// The schema
-    pub(crate) schema: Vec<String>,
     /// Policies for the column.
     pub(crate) columns: Vec<PolicyGuardedColumn>,
 }
@@ -74,17 +72,19 @@ impl From<Vec<Row>> for PolicyGuardedDataFrame {
             columns.push(PolicyGuardedColumn { policies });
         }
 
-        PolicyGuardedDataFrame {
-            schema: Vec::new(),
-            columns,
-        }
+        PolicyGuardedDataFrame { columns }
     }
 }
 
 impl fmt::Display for PolicyGuardedDataFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut builder = Builder::new();
-        let mut header = self.schema.clone();
+        let mut header = self
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("column_{}", i))
+            .collect::<Vec<_>>();
         header.insert(0, "index".to_string());
         builder.push_record(header);
 
@@ -108,16 +108,6 @@ impl fmt::Display for PolicyGuardedDataFrame {
 }
 
 impl PolicyGuardedDataFrame {
-    pub fn sanity_check(&self) -> PicachvResult<()> {
-        if self.columns.len() != self.schema.len() {
-            return Err(PicachvError::InvalidOperation(
-                "The number of columns does not match the schema.".into(),
-            ));
-        }
-
-        Ok(())
-    }
-
     pub fn reorder(&mut self, perm: &[usize]) -> PicachvResult<()> {
         for (src, &dst) in perm.iter().enumerate() {
             if src != dst {
@@ -137,11 +127,6 @@ impl PolicyGuardedDataFrame {
         Ok(())
     }
 
-    #[deprecated(note = "This function is not implemented.")]
-    pub fn rename(&mut self, _old_name: &str, _new_name: &str) -> PicachvResult<()> {
-        Ok(())
-    }
-
     pub fn new_from_slice(&self, slices: &[usize]) -> PicachvResult<Self> {
         let mut columns = vec![];
         for col in self.columns.iter() {
@@ -152,10 +137,7 @@ impl PolicyGuardedDataFrame {
             columns.push(PolicyGuardedColumn { policies });
         }
 
-        Ok(PolicyGuardedDataFrame {
-            schema: self.schema.clone(),
-            columns,
-        })
+        Ok(PolicyGuardedDataFrame { columns })
     }
 
     pub fn slice(&self, range: Range<usize>) -> PicachvResult<Self> {
@@ -175,10 +157,7 @@ impl PolicyGuardedDataFrame {
             columns.push(PolicyGuardedColumn { policies });
         }
 
-        Ok(PolicyGuardedDataFrame {
-            schema: self.schema.clone(),
-            columns,
-        })
+        Ok(PolicyGuardedDataFrame { columns })
     }
 
     /// Joins two policy-carrying dataframes.
@@ -228,25 +207,10 @@ impl PolicyGuardedDataFrame {
             .map(|e| e.right_row as usize)
             .collect::<Vec<_>>();
         let lhs = lhs.new_from_slice(&left_idx)?;
-        let mut rhs = rhs.new_from_slice(&right_idx)?;
-
-        // for r in info.renaming_info.iter() {
-        //     let idx = rhs
-        //         .schema
-        //         .iter()
-        //         .position(|s| s == &r.old_name)
-        //         .ok_or_else(|| {
-        //             PicachvError::InvalidOperation(
-        //                 format!("The column {} is not in the schema.", r.old_name).into(),
-        //             )
-        //         })?;
-        //     rhs.schema[idx].clone_from(&r.new_name)
-        // }
+        let rhs = rhs.new_from_slice(&right_idx)?;
 
         // We then stitch them together.
         let res = PolicyGuardedDataFrame::stitch(&lhs, &rhs)?;
-        println!("res is {:?}", res.shape());
-
         Ok(res)
     }
 
@@ -263,10 +227,7 @@ impl PolicyGuardedDataFrame {
             col.push(PolicyGuardedColumn { policies: columns });
         }
 
-        Ok(PolicyGuardedDataFrame {
-            schema: self.schema.clone(),
-            columns: col,
-        })
+        Ok(PolicyGuardedDataFrame { columns: col })
     }
 
     pub fn row(&self, idx: usize) -> PicachvResult<Vec<Policy<PolicyLabel>>> {
@@ -302,7 +263,6 @@ impl PolicyGuardedDataFrame {
 
                 lhs
             },
-            schema: Default::default(),
         })
     }
 
@@ -315,7 +275,6 @@ impl PolicyGuardedDataFrame {
 
         // Ensures that the schemas are the same.
         picachv_ensure!(
-            inputs.iter().all(|df| df.schema == inputs[0].schema) &&
             inputs.iter().all(|df| df.columns.len() == inputs[0].columns.len()),
             ComputeError: "The schemas of the inputs must be the same.",
         );
@@ -330,14 +289,12 @@ impl PolicyGuardedDataFrame {
             columns.push(PolicyGuardedColumn { policies });
         }
 
-        Ok(PolicyGuardedDataFrame {
-            schema: inputs[0].schema.clone(),
-            columns,
-        })
+        Ok(PolicyGuardedDataFrame { columns })
     }
 
-    pub fn new(schema: Vec<String>, columns: Vec<PolicyGuardedColumn>) -> Self {
-        PolicyGuardedDataFrame { schema, columns }
+    #[inline]
+    pub fn new(columns: Vec<PolicyGuardedColumn>) -> Self {
+        PolicyGuardedDataFrame { columns }
     }
 
     pub(crate) fn projection_by_id(&mut self, project_list: &[usize]) -> PicachvResult<()> {
@@ -353,29 +310,7 @@ impl PolicyGuardedDataFrame {
             .iter()
             .map(|&i| self.columns[i].clone())
             .collect();
-        // self.schema = project_list
-        //     .iter()
-        //     .map(|&i| self.schema[i].clone())
-        //     .collect();
-
         Ok(())
-    }
-
-    pub(crate) fn projection(&mut self, project_list: &[String]) -> PicachvResult<()> {
-        // First make sure if the project list contains valid columns.
-        for col in project_list.iter() {
-            picachv_ensure!(
-                self.schema.contains(col),
-                ComputeError: format!("The column {} is not in the schema.", col),
-            );
-        }
-
-        let idx = project_list
-            .iter()
-            .map(|e| self.schema.iter().position(|s| s == e).unwrap())
-            .collect::<Vec<_>>();
-
-        self.projection_by_id(&idx)
     }
 
     /// Convert the [`PolicyGuardedDataFrame`] into a vector of rows.

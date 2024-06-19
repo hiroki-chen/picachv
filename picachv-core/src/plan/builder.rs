@@ -1,6 +1,5 @@
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::get_data_argument::DataSource;
-use picachv_message::get_data_in_memory::{ById, ByName, ProjectionList};
 use picachv_message::{plan_argument, AggregateArgument, HstackArgument};
 use uuid::Uuid;
 
@@ -28,8 +27,8 @@ impl Plan {
                                 )
                             })?;
 
-                        // Get the policy dataframe from the arena.
-                        let df = df_arena.get(&df_uuid)?;
+                        // A sanity check to ensure that the UUID exists in the arena.
+                        df_arena.get(&df_uuid)?;
                         let selection = memory
                             .pred
                             .as_ref()
@@ -41,29 +40,10 @@ impl Plan {
                             })
                             .transpose()?;
 
-                        let projection = match memory.projection_list {
-                            Some(projection_list) => Some(match projection_list {
-                                ProjectionList::ByName(ByName { project_list }) => project_list,
-                                ProjectionList::ById(ById { project_list }) => project_list
-                                    .into_iter()
-                                    .map(|id| {
-                                        df.schema
-                                            .get(id as usize)
-                                            .ok_or_else(|| {
-                                                PicachvError::InvalidOperation(
-                                                    "The column id is out of bound.".into(),
-                                                )
-                                            })
-                                            .cloned()
-                                    })
-                                    .collect::<PicachvResult<Vec<_>>>()?,
-                            }),
-                            None => None,
-                        };
-
                         Ok(Plan::DataFrameScan {
-                            schema: df.schema.clone(),
-                            projection,
+                            projection: memory
+                                .project_list
+                                .map(|e| e.project_list.into_iter().map(|e| e as usize).collect()),
                             selection,
                         })
                     },

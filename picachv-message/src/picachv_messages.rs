@@ -685,31 +685,16 @@ pub struct GetDataInMemory {
     #[prost(bytes = "vec", optional, tag = "2")]
     pub pred: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
     /// In case we will have the "projection pushdown" thing.
-    #[prost(oneof = "get_data_in_memory::ProjectionList", tags = "3, 4")]
-    pub projection_list: ::core::option::Option<get_data_in_memory::ProjectionList>,
+    #[prost(message, optional, tag = "3")]
+    pub project_list: ::core::option::Option<get_data_in_memory::ProjectList>,
 }
 /// Nested message and enum types in `GetDataInMemory`.
 pub mod get_data_in_memory {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct ByName {
-        #[prost(string, repeated, tag = "1")]
-        pub project_list: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct ById {
+    pub struct ProjectList {
         #[prost(uint64, repeated, tag = "1")]
         pub project_list: ::prost::alloc::vec::Vec<u64>,
-    }
-    /// In case we will have the "projection pushdown" thing.
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum ProjectionList {
-        #[prost(message, tag = "3")]
-        ByName(ByName),
-        #[prost(message, tag = "4")]
-        ById(ById),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -755,8 +740,9 @@ pub struct HstackArgument {
     /// common expressions.
     #[prost(bytes = "vec", repeated, tag = "1")]
     pub cse: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-    /// Sometimes the new dataframes are just a series of expressions to be evaluated.
-    /// Afterwards we append the evaluated results to the current dataframe.
+    /// Sometimes the new dataframes are just a series of expressions to be
+    /// evaluated. Afterwards we append the evaluated results to the current
+    /// dataframe.
     #[prost(bytes = "vec", repeated, tag = "2")]
     pub expressions: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
