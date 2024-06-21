@@ -62,6 +62,7 @@ impl Expr {
                     values: None, // must be reified later.
                 })
             },
+            Argument::Count(_) => Ok(Expr::Count),
             Argument::Literal(_) => Ok(Expr::Literal),
             Argument::Apply(ApplyExpr { input_uuids, name }) => {
                 let args = input_uuids

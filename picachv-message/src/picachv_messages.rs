@@ -499,6 +499,9 @@ pub struct WildcardExpr {}
 pub struct LiteralExpr {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CountExpr {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FilterExpr {
     #[prost(bytes = "vec", tag = "1")]
     pub input_uuid: ::prost::alloc::vec::Vec<u8>,
@@ -535,7 +538,7 @@ pub struct ApplyExpr {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExprArgument {
-    #[prost(oneof = "expr_argument::Argument", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9")]
+    #[prost(oneof = "expr_argument::Argument", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
     pub argument: ::core::option::Option<expr_argument::Argument>,
 }
 /// Nested message and enum types in `ExprArgument`.
@@ -561,6 +564,8 @@ pub mod expr_argument {
         Literal(super::LiteralExpr),
         #[prost(message, tag = "9")]
         Apply(super::ApplyExpr),
+        #[prost(message, tag = "10")]
+        Count(super::CountExpr),
     }
 }
 /// This message is used to notify the monitor which rows are dropped.

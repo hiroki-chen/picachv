@@ -11,9 +11,10 @@ macro_rules! impl_ctx_api {
 
             let instance = MONITOR_INSTANCE
                 .get()
-                .ok_or(PicachvError::InvalidOperation(
-                    "Monitor not initialized".into(),
-                ))?;
+                // .ok_or(PicachvError::InvalidOperation(
+                //     "Monitor not initialized".into(),
+                // ))?;
+                .unwrap();
 
             let mut ctx = instance.get_ctx_mut()?;
             let ctx = ctx.get_mut(&$ctx_id).ok_or(PicachvError::InvalidOperation(

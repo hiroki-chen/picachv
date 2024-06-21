@@ -18,6 +18,7 @@ message AliasExpr {
 
 message WildcardExpr {}
 message LiteralExpr {}
+message CountExpr {}
 
 message FilterExpr {
   bytes input_uuid = 1;
@@ -52,5 +53,6 @@ message ExprArgument {
     UnaryExpr unary = 7;
     LiteralExpr literal = 8;
     ApplyExpr apply = 9;
+    CountExpr count = 10;
   }
 }

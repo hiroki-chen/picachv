@@ -11,7 +11,7 @@ group_by_helper: groups Idx(GroupsIdx { sorted: false, first: [2, 0, 1, 3], all:
 in proxy_to_arg: gb GroupsIdx { sorted: false, first: [2, 0, 1, 3], all: [UnitVec: [1409383744], UnitVec: [1409377136], UnitVec: [1409299040], UnitVec: [1409383552]] }
 ```
 
-[ ] Add an optional feature for `polars` so that we can do the comparsion.
+[x] Add an optional feature for `polars` so that we can do the comparsion.
 [x] Reify expressions for aggregates.
   - [x] Seems we need to modify the design of the `Expr` struct; it cannot "own" the expression and it must be a weak reference?
 [x] Implement join: how to "transform"?
@@ -19,10 +19,14 @@ in proxy_to_arg: gb GroupsIdx { sorted: false, first: [2, 0, 1, 3], all: [UnitVe
 [x] Add group size checking.
 
 [ ] Support more binary expressions.
-[ ] Support `Order By` which re-arranges the dataframe.
+[x] Support `Order By` which re-arranges the dataframe.
 ## Integration with DuckDB
 
 [x] Design and implement all the FFI APIs for C/C++ family.
 
+
+## Optimizations
+[ ] Policy compression
+[ ] Faster de- and serialization.
 ## Misc
 [ ] Add a licence?

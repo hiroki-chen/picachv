@@ -174,10 +174,11 @@ impl QueryFactory {
             )
             .filter(col("o_orderdate").lt(date.clone()))
             .filter(col("l_shipdate").gt(date))
+            .with_columns(
+                [(col("l_extendedprice") * (lit(1) - col("l_discount"))).alias("revenue")],
+            )
             .group_by([col("o_orderkey"), col("o_orderdate"), col("o_shippriority")])
-            .agg([(col("l_extendedprice") * (lit(1) - col("l_discount")))
-                .alias("revenue")
-                .sum()])
+            .agg([sum("revenue")])
             .select(&[
                 col("o_orderkey").alias("l_orderkey"),
                 col("revenue"),
