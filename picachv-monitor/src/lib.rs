@@ -14,8 +14,6 @@ use picachv_core::{get_new_uuid, record_batch_from_bytes, rwlock_unlock, Arenas}
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::{plan_argument, ExprArgument, PlanArgument};
 use prost::Message;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
 
 /// An activate context for the data analysis.
@@ -302,12 +300,14 @@ pub static MONITOR_INSTANCE: OnceLock<Arc<PicachvMonitor>> = OnceLock::new();
 fn enable_tracing<P: AsRef<Path>>(path: P) -> PicachvResult<()> {
     let log_file = OpenOptions::new().create(true).append(true).open(path)?;
 
-    let debug_log = tracing_subscriber::fmt::layer()
-        .with_writer(Arc::new(log_file))
-        .with_ansi(false);
+    // let debug_log = tracing_subscriber::fmt::layer()
+    //     .with_writer(Arc::new(log_file))
+    //     .with_ansi(false);
 
-    tracing_subscriber::registry()
-        .with(debug_log)
-        .try_init()
-        .map_err(|e| PicachvError::Already(e.to_string().into()))
+    // tracing_subscriber::registry()
+    //     .with(debug_log)
+    //     .try_init()
+    //     .map_err(|e| PicachvError::Already(e.to_string().into()))
+
+    Ok(())
 }

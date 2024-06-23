@@ -340,8 +340,6 @@ impl Expr {
     }
 
     pub fn reify(&mut self, values: RecordBatch) -> PicachvResult<()> {
-        tracing::debug!("reifying {values:?} for {self:?}");
-
         let values_mut = match self {
             Expr::Apply { values, .. }
             | Expr::BinaryExpr { values, .. }

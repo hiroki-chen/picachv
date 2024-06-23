@@ -9,6 +9,7 @@ use picachv_error::{picachv_bail, picachv_ensure, PicachvResult};
 use picachv_message::group_by_idx::Groups;
 use picachv_message::group_by_proxy::GroupBy;
 use picachv_message::{GroupByIdx, GroupByProxy, GroupBySlice};
+use rayon::prelude::*;
 use uuid::Uuid;
 
 use crate::dataframe::{PolicyGuardedColumn, PolicyGuardedDataFrame};
@@ -296,12 +297,14 @@ fn do_hstack(
     let expr_arena = rwlock_unlock!(arena.expr_arena, read);
     let df = df_arena.get_mut(&active_df_uuid)?;
 
+    println!("df shape => {:?}", df.shape());
+
     let cse_expressions = cse_expressions
-        .iter()
+        .par_iter()
         .map(|e| expr_arena.get(e).cloned())
         .collect::<PicachvResult<Vec<_>>>()?;
     let expressions = expressions
-        .iter()
+        .par_iter()
         .map(|e| expr_arena.get(e).cloned())
         .collect::<PicachvResult<Vec<_>>>()?;
 
@@ -343,7 +346,7 @@ fn convert_slice_to_idx(slice: &GroupBySlice) -> PicachvResult<GroupByIdx> {
 
     Ok(GroupByIdx {
         groups: group_map
-            .into_iter()
+            .into_par_iter()
             .map(|e| Groups {
                 first: e.0,
                 group: e.1,
@@ -373,22 +376,29 @@ fn aggregate_keys_idx(
     df: &PolicyGuardedDataFrame,
     gb_proxy: &GroupByIdx,
 ) -> PicachvResult<PolicyGuardedDataFrame> {
-    let mut columns = vec![];
+    let columns = (0..df.shape().1).into_par_iter().map(|col_idx| {
+        let cur = gb_proxy
+            .groups
+            .par_iter()
+            .map(|group| {
+                group.group.par_iter().fold(|| Ok(Policy::PolicyClean), |mut acc, idx| {
+                    picachv_ensure!(
+                        (*idx as usize) < df.columns[col_idx].policies.len(),
+                        ComputeError: "The index {idx} is out of range {}", df.columns[col_idx].policies.len()
+                    );
+                    let p = df.columns[col_idx].policies[*idx as usize].clone();
+                    acc = Ok(acc?.join(&p)?);
+                    acc
+                })
+                .reduce(|| Ok(Policy::PolicyClean), |mut acc, next| {
+                    acc = Ok(acc?.join(&next?)?);
+                    acc
+                })
+            })
+            .collect::<PicachvResult<Vec<_>>>()?;
 
-    for col_idx in 0..df.shape().1 {
-        let mut cur = vec![];
-        for group in gb_proxy.groups.iter() {
-            let mut policy = Policy::PolicyClean;
-
-            for idx in group.group.iter() {
-                let p = df.columns[col_idx].policies[*idx as usize].clone();
-                policy = policy.join(&p)?;
-            }
-
-            cur.push(policy);
-        }
-        columns.push(PolicyGuardedColumn { policies: cur });
-    }
+        Ok(PolicyGuardedColumn { policies: cur })
+    }).collect::<PicachvResult<Vec<_>>>()?;
 
     Ok(PolicyGuardedDataFrame { columns })
 }
@@ -428,6 +438,7 @@ fn check_policy_agg(
 
     let agg_expr = match expr {
         Expr::Agg { expr, .. } => expr,
+        Expr::Count => return Ok(Policy::PolicyClean),
         _ => {
             // We must ensure that the expression being checked is an aggregation expression.
             picachv_bail!(ComputeError: "The expression {expr:?} is not an aggregation expression.")
@@ -475,23 +486,21 @@ fn check_expressions_agg_idx(
     let mut df_arena = rwlock_unlock!(arena.df_arena, write);
     let df = df_arena.get(&active_df_uuid)?;
 
-    let mut res = vec![];
-    // The semantic requires us to first iterate over the aggregate list.
-    for agg in agg_list.iter() {
-        let mut group_res = vec![];
-        // Then we need to iterate over the groups.
-        for group in gb_proxy.groups.iter() {
-            tracing::debug!("check_expressions_agg_idx: group = {group:?}  ");
-            let mut ctx = ExpressionEvalContext::new(df, true, udfs, arena);
-            ctx.gb_proxy = Some(group);
+    let res = agg_list
+        .par_iter()
+        .map(|agg| {
+            gb_proxy
+                .groups
+                .par_iter()
+                .map(|group| {
+                    let mut ctx = ExpressionEvalContext::new(df, true, udfs, arena);
+                    ctx.gb_proxy = Some(group);
 
-            // For each group we will get the result of the aggregation.
-            group_res.push(check_policy_agg(agg, &mut ctx)?);
-        }
-
-        // Then for each expression, we add it to the result.
-        res.push(group_res);
-    }
+                    check_policy_agg(agg, &mut ctx)
+                })
+                .collect::<PicachvResult<Vec<_>>>()
+        })
+        .collect::<PicachvResult<Vec<_>>>()?;
 
     tracing::debug!("check_expressions_agg: res = {res:?}");
 
@@ -513,17 +522,22 @@ fn do_check_expressions(
     udfs: &HashMap<String, Udf>,
 ) -> PicachvResult<PolicyGuardedDataFrame> {
     let rows = df.shape().0;
-    let mut col = vec![];
-    let mut ctx = ExpressionEvalContext::new(df, false, udfs, arena);
-    for expr in expression.iter() {
-        let mut cur = vec![];
-        for idx in 0..rows {
-            let updated_label = expr.check_policy_in_row(&mut ctx, idx)?;
-            cur.push(updated_label);
-        }
+    let col = expression
+        .par_iter()
+        .map(|expr| {
+            let cur = (0..rows)
+                .into_par_iter()
+                .map(|idx| {
+                    expr.check_policy_in_row(
+                        &mut ExpressionEvalContext::new(df, false, udfs, arena),
+                        idx,
+                    )
+                })
+                .collect::<PicachvResult<Vec<_>>>()?;
 
-        col.push(PolicyGuardedColumn { policies: cur });
-    }
+            Ok(PolicyGuardedColumn { policies: cur })
+        })
+        .collect::<PicachvResult<Vec<_>>>()?;
 
     Ok(PolicyGuardedDataFrame { columns: col })
 }

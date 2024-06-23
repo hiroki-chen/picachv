@@ -6,6 +6,7 @@ use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::group_by_idx::Groups;
 use picachv_message::transform_info::Information;
 use picachv_message::{JoinInformation, TransformInfo};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tabled::builder::Builder;
 use tabled::settings::object::Rows;
@@ -55,7 +56,7 @@ impl PolicyGuardedColumn {
 /// This [`PolicyGuardedDataFrame`] is just a conceptual wrapper around a vector of
 /// [`PolicyGuardedColumn`]s. It is not a real data structure; it does not contain
 /// any data. It is just a way to group columns together.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct PolicyGuardedDataFrame {
     /// Policies for the column.
     pub(crate) columns: Vec<PolicyGuardedColumn>,
@@ -78,6 +79,12 @@ impl From<Vec<Row>> for PolicyGuardedDataFrame {
 
 impl fmt::Display for PolicyGuardedDataFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl fmt::Debug for PolicyGuardedDataFrame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut builder = Builder::new();
         let mut header = self
             .columns
@@ -88,7 +95,7 @@ impl fmt::Display for PolicyGuardedDataFrame {
         header.insert(0, "index".to_string());
         builder.push_record(header);
 
-        for i in 0..self.shape().0 {
+        for i in (0..self.shape().0).take(15) {
             let mut row = vec![i.to_string()];
             for j in 0..self.shape().1 {
                 row.push(format!("{}", self.columns[j].policies[i]));
@@ -98,7 +105,7 @@ impl fmt::Display for PolicyGuardedDataFrame {
 
         write!(
             f,
-            "{}",
+            "\n{}",
             builder
                 .build()
                 .with(Style::rounded())
@@ -109,33 +116,29 @@ impl fmt::Display for PolicyGuardedDataFrame {
 
 impl PolicyGuardedDataFrame {
     pub fn reorder(&mut self, perm: &[usize]) -> PicachvResult<()> {
-        for (src, &dst) in perm.iter().enumerate() {
-            if src != dst {
-                picachv_ensure!(
-                    dst < self.shape().0,
-                    ComputeError: "The permutation destination {dst} is out of bound.",
-                );
-
-                // We swap the rows.
-                self.columns
-                    .iter_mut()
-                    .map(|c| c.policies.swap(src, dst))
-                    .for_each(drop);
-            }
-        }
+        self.columns.par_iter_mut().for_each(|c| {
+            let policies = perm
+                .par_iter()
+                .map(|&i| c.policies[i].clone())
+                .collect::<Vec<_>>();
+            c.policies = policies;
+        });
 
         Ok(())
     }
 
     pub fn new_from_slice(&self, slices: &[usize]) -> PicachvResult<Self> {
-        let mut columns = vec![];
-        for col in self.columns.iter() {
-            let mut policies = vec![];
-            for &i in slices.iter() {
-                policies.push(col.policies[i].clone());
-            }
-            columns.push(PolicyGuardedColumn { policies });
-        }
+        let columns = self
+            .columns
+            .par_iter()
+            .map(|c| {
+                let policies = slices
+                    .par_iter()
+                    .map(|&i| c.policies[i].clone())
+                    .collect::<Vec<_>>();
+                PolicyGuardedColumn { policies }
+            })
+            .collect::<Vec<_>>();
 
         Ok(PolicyGuardedDataFrame { columns })
     }
@@ -170,44 +173,54 @@ impl PolicyGuardedDataFrame {
         info: &JoinInformation,
     ) -> PicachvResult<Self> {
         // We select columns according to `left_columns` and `right_columns`.
-        let left_columns = info
-            .left_columns
-            .iter()
-            .map(|e| *e as usize)
-            .collect::<Vec<_>>();
-        let right_columns = info
-            .right_columns
-            .iter()
-            .map(|e| *e as usize)
-            .collect::<Vec<_>>();
-
-        let (lhs, rhs) = {
-            let mut lhs = lhs.clone();
-            let mut rhs = rhs.clone();
-            lhs.projection_by_id(&left_columns)?;
-            rhs.projection_by_id(&right_columns)?;
-            (lhs, rhs)
+        let left_columns = || {
+            info.left_columns
+                .par_iter()
+                .map(|e| *e as usize)
+                .collect::<Vec<_>>()
+        };
+        let right_columns = || {
+            info.right_columns
+                .par_iter()
+                .map(|e| *e as usize)
+                .collect::<Vec<_>>()
         };
 
-        println!(
-            "lhs column {} rhs column {}",
-            lhs.columns.len(),
-            rhs.columns.len()
+        let (left_columns, right_columns) = rayon::join(left_columns, right_columns);
+        let (lhs, rhs) = rayon::join(
+            || {
+                let mut lhs = lhs.clone();
+                lhs.projection_by_id(&left_columns)?;
+                PicachvResult::Ok(lhs)
+            },
+            || {
+                let mut rhs = rhs.clone();
+                rhs.projection_by_id(&right_columns)?;
+                PicachvResult::Ok(rhs)
+            },
         );
 
-        // Deal with the row join information.
-        let left_idx = info
-            .row_join_info
-            .iter()
-            .map(|e| e.left_row as usize)
-            .collect::<Vec<_>>();
-        let right_idx = info
-            .row_join_info
-            .iter()
-            .map(|e| e.right_row as usize)
-            .collect::<Vec<_>>();
-        let lhs = lhs.new_from_slice(&left_idx)?;
-        let rhs = rhs.new_from_slice(&right_idx)?;
+        let (lhs, rhs) = (lhs?, rhs?);
+
+        let (lhs, rhs) = rayon::join(
+            || {
+                let left_idx = info
+                    .row_join_info
+                    .par_iter()
+                    .map(|e| e.left_row as usize)
+                    .collect::<Vec<_>>();
+                lhs.new_from_slice(&left_idx)
+            },
+            || {
+                let right_idx = info
+                    .row_join_info
+                    .par_iter()
+                    .map(|e| e.right_row as usize)
+                    .collect::<Vec<_>>();
+                rhs.new_from_slice(&right_idx)
+            },
+        );
+        let (lhs, rhs) = (lhs?, rhs?);
 
         // We then stitch them together.
         let res = PolicyGuardedDataFrame::stitch(&lhs, &rhs)?;
@@ -216,16 +229,18 @@ impl PolicyGuardedDataFrame {
 
     /// According to the `groups` struct, fetch the group of columns.
     pub fn groups(&self, groups: &Groups) -> PicachvResult<Self> {
-        let mut col = vec![];
-        for i in 0..self.columns.len() {
-            let mut columns = vec![];
-
-            for g in groups.group.iter() {
-                columns.push(self.columns[i].policies[*g as usize].clone());
-            }
-
-            col.push(PolicyGuardedColumn { policies: columns });
-        }
+        let col = self
+            .columns
+            .par_iter()
+            .map(|c| {
+                let policies = groups
+                    .group
+                    .par_iter()
+                    .map(|g| c.policies[*g as usize].clone())
+                    .collect::<Vec<_>>();
+                PolicyGuardedColumn { policies }
+            })
+            .collect::<Vec<_>>();
 
         Ok(PolicyGuardedDataFrame { columns: col })
     }
@@ -251,6 +266,14 @@ impl PolicyGuardedDataFrame {
     ) -> PicachvResult<PolicyGuardedDataFrame> {
         tracing::debug!("stitching\n{lhs}\n{rhs}");
 
+        if lhs.columns.is_empty() {
+            // semi edge case.
+            return Ok(rhs.clone());
+        } else if rhs.columns.is_empty() {
+            // semi edge case.
+            return Ok(lhs.clone());
+        }
+
         picachv_ensure!(
             lhs.shape().0 == rhs.shape().0,
             ComputeError: "The number of rows must be the same: {} != {}", lhs.shape().0, rhs.shape().0
@@ -275,7 +298,7 @@ impl PolicyGuardedDataFrame {
 
         // Ensures that the schemas are the same.
         picachv_ensure!(
-            inputs.iter().all(|df| df.columns.len() == inputs[0].columns.len()),
+            inputs.par_iter().all(|df| df.columns.len() == inputs[0].columns.len()),
             ComputeError: "The schemas of the inputs must be the same.",
         );
 
@@ -307,7 +330,7 @@ impl PolicyGuardedDataFrame {
         }
 
         self.columns = project_list
-            .iter()
+            .par_iter()
             .map(|&i| self.columns[i].clone())
             .collect();
         Ok(())
@@ -333,19 +356,12 @@ impl PolicyGuardedDataFrame {
         tracing::debug!("finalizing\n{self}");
 
         for c in self.columns.iter() {
-            for p in c.policies.iter() {
-                match p {
-                    Policy::PolicyClean => continue,
-                    _ => {
-                        return Err(PicachvError::InvalidOperation(
-                            format!(
-                                "Possible policy breach detected; abort early.\n\nThe required policy is\n{self}",
-                            )
-                            .into(),
-                        ))
-                    },
-                }
-            }
+            picachv_ensure!(
+                c.policies.par_iter().all(
+                    |p| matches!(p, Policy::PolicyClean),
+                ),
+                ComputeError: "Possible policy breach detected; abort early.\n\nThe required policy is\n{self}",
+            );
         }
 
         Ok(())
@@ -361,25 +377,25 @@ impl PolicyGuardedDataFrame {
 
     /// Apply the filter.
     pub fn filter(&mut self, pred: &[bool]) -> PicachvResult<()> {
-        if pred.len() != self.shape().0 {
-            return Err(PicachvError::InvalidOperation(
-                "The length of the predicate does not match the dataframe.".into(),
-            ));
-        }
+        picachv_ensure!(
+            pred.len() == self.shape().0,
+            ComputeError: "The length of the predicate does not match the dataframe: {} != {}", pred.len(), self.shape().0,
+        );
 
-        let mut columns = vec![];
-        for c in self.columns.iter() {
-            let mut new_policies = vec![];
-            c.policies.iter().zip(pred.iter()).for_each(|(p, b)| {
-                if *b {
-                    new_policies.push(p.clone());
-                }
-            });
-            columns.push(PolicyGuardedColumn {
-                policies: new_policies,
-            });
-        }
-        self.columns = columns;
+        self.columns = self
+            .columns
+            .par_iter()
+            .map(|c| {
+                let policies = c
+                    .policies
+                    .par_iter()
+                    .zip(pred.par_iter())
+                    .filter_map(|(p, b)| if *b { Some(p.clone()) } else { None })
+                    .collect::<Vec<_>>();
+
+                PolicyGuardedColumn { policies }
+            })
+            .collect();
 
         Ok(())
     }
@@ -410,6 +426,7 @@ pub fn apply_transform(
                 let new_uuid = match Arc::get_mut(df) {
                     Some(df) => {
                         df.filter(&pred.filter)?;
+                        println!("after filtering: df.shape() = {:?}", df.shape());
                         // We just re-use the UUID.
                         df_uuid
                     },
@@ -428,7 +445,7 @@ pub fn apply_transform(
                 let mut df_arena = rwlock_unlock!(df_arena, write);
 
                 let involved_dfs = [&union_info.lhs_df_uuid, &union_info.rhs_df_uuid]
-                    .iter()
+                    .par_iter()
                     .map(|uuid| {
                         let uuid = Uuid::from_slice_le(uuid)
                             .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
@@ -466,8 +483,8 @@ pub fn apply_transform(
                 // placed with the j-th row.
                 let perm = reorder_info
                     .perm
-                    .into_iter()
-                    .map(|e| e as usize)
+                    .par_iter()
+                    .map(|e| *e as usize)
                     .collect::<Vec<_>>();
 
                 // We then apply the transformation.

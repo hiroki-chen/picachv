@@ -302,13 +302,14 @@ impl QueryFactory {
         let discount2 = lit(0.07);
         let quantity = lit(24);
 
-        let df = lineitem.filter(col("l_shipdate").gt_eq(date1));
-        // .filter(col("l_shipdate").lt(date2))
-        // .filter(col("l_discount").gt_eq(discount1))
-        // .filter(col("l_discount").lt(discount2))
-        // .filter(col("l_quantity").lt(quantity));
-        // .with_columns([(col("l_extendedprice") * col("l_discount")).alias("revenue")])
-        // .select([sum("revenue")]);
+        let df = lineitem
+            .filter(col("l_shipdate").gt_eq(date1))
+            .filter(col("l_shipdate").lt(date2))
+            .filter(col("l_discount").gt_eq(discount1))
+            .filter(col("l_discount").lt(discount2))
+            .filter(col("l_quantity").lt(quantity))
+            .with_columns([(col("l_extendedprice") * col("l_discount")).alias("revenue")])
+            .select([sum("revenue")]);
 
         Ok(df)
     }
@@ -417,6 +418,84 @@ impl QueryFactory {
                 ["supp_nation", "cust_nation", "l_year"],
                 SortMultipleOptions::default(),
             );
+
+        Ok(df)
+    }
+
+    pub fn q8(&self) -> PolarsResult<LazyFrame> {
+        let customer = self.df_registry.get("customer").cloned().unwrap();
+        let lineitem = self.df_registry.get("lineitem").cloned().unwrap();
+        let nation = self.df_registry.get("nation").cloned().unwrap();
+        let orders = self.df_registry.get("orders").cloned().unwrap();
+        let part = self.df_registry.get("part").cloned().unwrap();
+        let region = self.df_registry.get("region").cloned().unwrap();
+        let supplier = self.df_registry.get("supplier").cloned().unwrap();
+
+        let brazil = lit("BRAZIL");
+        let america = lit("AMERICA");
+        let eas = lit("ECONOMY ANODIZED STEEL");
+        let date1 = lit(NaiveDate::from_ymd_opt(1995, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap());
+        let date2 = lit(NaiveDate::from_ymd_opt(1996, 12, 31)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap());
+
+        let n1 = nation
+            .clone()
+            .select([col("n_nationkey"), col("n_regionkey")]);
+        let n2 = nation.select([col("n_nationkey"), col("n_name")]);
+
+        let df = part
+            .join(
+                lineitem,
+                [col("p_partkey")],
+                [col("l_partkey")],
+                JoinArgs::default(),
+            )
+            .join(
+                supplier,
+                [col("l_suppkey")],
+                [col("s_suppkey")],
+                JoinArgs::default(),
+            )
+            .join(
+                orders,
+                [col("l_orderkey")],
+                [col("o_orderkey")],
+                JoinArgs::default(),
+            )
+            .join(
+                customer,
+                [col("o_custkey")],
+                [col("c_custkey")],
+                JoinArgs::default(),
+            )
+            .join(
+                n1,
+                [col("c_nationkey")],
+                [col("n_nationkey")],
+                JoinArgs::default(),
+            )
+            .join(
+                region,
+                [col("n_regionkey")],
+                [col("r_regionkey")],
+                JoinArgs::default(),
+            )
+            .filter(col("r_name").eq(america))
+            .join(
+                n2,
+                [col("s_nationkey")],
+                [col("n_nationkey")],
+                JoinArgs::default(),
+            )
+            .filter(col("o_orderdate").gt_eq(date1))
+            .filter(col("o_orderdate").gt(date2))
+            .filter(col("p_type").eq(eas))
+            .select([col("o_orderdate").dt().year().alias("o_year")]);
 
         Ok(df)
     }
