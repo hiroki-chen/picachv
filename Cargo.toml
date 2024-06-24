@@ -28,6 +28,7 @@ picachv-monitor = { path = "picachv-monitor", default-features = false }
 arrow-ipc = "51.0.0"
 arrow-array = "51.0.0"
 arrow-schema = { version = "51.0.0", features = ["serde"] }
+arrow-select = "51.0.0"
 chrono = "0.4.38"
 num_enum = { version = "0.7.2" }
 ordered-float = { version = "4.2.0", features = ["serde"] }

@@ -20,11 +20,13 @@ pub trait JsonIO: Serialize + DeserializeOwned {
     }
 
     fn from_json<P: AsRef<Path>>(path: P) -> PicachvResult<Self> {
+        let now = std::time::Instant::now();
         let file = std::fs::File::open(path)?;
         let reader = std::io::BufReader::new(file);
         let result = serde_json::from_reader(reader).map_err(|e| {
             PicachvError::InvalidOperation(format!("Failed to read JSON: {}", e).into())
         })?;
+        println!("Time to read JSON: {:?}", now.elapsed());
         Ok(result)
     }
 

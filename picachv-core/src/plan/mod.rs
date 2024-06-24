@@ -297,8 +297,6 @@ fn do_hstack(
     let expr_arena = rwlock_unlock!(arena.expr_arena, read);
     let df = df_arena.get_mut(&active_df_uuid)?;
 
-    println!("df shape => {:?}", df.shape());
-
     let cse_expressions = cse_expressions
         .par_iter()
         .map(|e| expr_arena.get(e).cloned())
@@ -521,6 +519,8 @@ fn do_check_expressions(
     expression: &[Arc<Expr>],
     udfs: &HashMap<String, Udf>,
 ) -> PicachvResult<PolicyGuardedDataFrame> {
+    let now = std::time::Instant::now();
+
     let rows = df.shape().0;
     let col = expression
         .par_iter()
@@ -538,6 +538,8 @@ fn do_check_expressions(
             Ok(PolicyGuardedColumn { policies: cur })
         })
         .collect::<PicachvResult<Vec<_>>>()?;
+
+    println!("do_check_expressions: elapsed = {:?}", now.elapsed());
 
     Ok(PolicyGuardedDataFrame { columns: col })
 }

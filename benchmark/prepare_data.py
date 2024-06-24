@@ -88,21 +88,26 @@ table_columns = {
     ],
 }
 
+
 def dbgen() -> None:
-    ret = subprocess.run(["make", "-C", "dbgen", "dbgen"], stdout=subprocess.PIPE, check=True)
+    ret = subprocess.run(
+        ["make", "-C", "dbgen", "dbgen"], stdout=subprocess.PIPE, check=True
+    )
     if ret.returncode != 0:
         print("Error running dbgen")
         print(ret.stdout)
         return
-    
+
     # Generate tables.
     os.chdir("dbgen")
-    ret = subprocess.run(["./dbgen", "-vf", "-s", "1"], stdout=subprocess.PIPE, check=True)
+    ret = subprocess.run(
+        ["./dbgen", "-vf", "-s", "1"], stdout=subprocess.PIPE, check=True
+    )
     if ret.returncode != 0:
         print("Error running dbgen")
         return
     ret = subprocess.Popen("mv *.tbl ../../data/tables", shell=True)
-    os.chdir('..')
+    os.chdir("..")
 
 
 def main(perecntage: float, skip_dbgen: bool) -> None:
@@ -124,9 +129,9 @@ def main(perecntage: float, skip_dbgen: bool) -> None:
         # Drop empty last column because CSV ends with a separator
         lf = lf.select(columns)
 
-        if table_name in ["lineitem", "orders", "part", "partsupp"]:
-            print("Get the first {} rows".format(int(lf.with_row_index().last().collect().row(0)[0] * perecntage)))
-            lf = lf.select(columns).limit()
+        if table_name in ["lineitem", "orders", "part", "partsupp", "customer"]:
+            num = int(lf.select(pl.len()).collect().item())
+            lf = lf.limit(int(num * perecntage))
 
         lf.sink_parquet(settings.dataset_base_dir / f"{table_name}.parquet")
         lf.sink_csv(settings.dataset_base_dir / f"{table_name}.csv")
@@ -148,7 +153,7 @@ if __name__ == "__main__":
         action="store_true",
         help="Skip dbgen step",
     )
-    
+
     args = parser.parse_args()
-    
+
     main(args.percentage, args.skip_dbgen)

@@ -148,7 +148,7 @@ impl Context {
         tracing::debug!("reify_expression: expression uuid = {expr_uuid} ");
 
         let mut expr_arena = rwlock_unlock!(self.arena.expr_arena, write);
-        let expr = expr_arena.get_mut(&expr_uuid)?;
+        let expr = expr_arena.get_mut(&expr_uuid).expect("???");
         let expr = match Arc::get_mut(expr) {
             Some(expr) => expr,
             None => {

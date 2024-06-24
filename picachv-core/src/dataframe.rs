@@ -426,7 +426,6 @@ pub fn apply_transform(
                 let new_uuid = match Arc::get_mut(df) {
                     Some(df) => {
                         df.filter(&pred.filter)?;
-                        println!("after filtering: df.shape() = {:?}", df.shape());
                         // We just re-use the UUID.
                         df_uuid
                     },

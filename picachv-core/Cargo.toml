@@ -16,6 +16,7 @@ picachv-message = { workspace = true }
 arrow-ipc = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
+arrow-select = { workspace = true }
 chrono = { workspace = true }
 tabled = { version = "0.15.0" }
 tracing = { workspace = true }

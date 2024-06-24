@@ -82,20 +82,18 @@ pub fn arrays_into_bytes(arrays: Vec<Arc<dyn Array>>) -> PicachvResult<Vec<u8>> 
 
 /// Decode the bytes into the record batch.
 pub fn record_batch_from_bytes(value: &[u8]) -> PicachvResult<RecordBatch> {
-    let mut ipc_reader = StreamReader::try_new(value, None).map_err(|e| {
+    let ipc_reader = StreamReader::try_new(value, None).map_err(|e| {
         PicachvError::InvalidOperation(format!("Failed to create IPC reader. {e}").into())
     })?;
 
+    let schema = ipc_reader.schema();
+
     let rb = ipc_reader
-        .next()
-        .transpose()
-        .map_err(|e| {
-            PicachvError::InvalidOperation(format!("Failed to read the record batch. {e}").into())
-        })?
-        .ok_or(PicachvError::InvalidOperation(
-            "The record batch is empty.".into(),
-        ))?;
-    Ok(rb)
+        .map(|e| e.map_err(|e| PicachvError::ComputeError(e.to_string().into())))
+        .collect::<PicachvResult<Vec<_>>>()?;
+
+    arrow_select::concat::concat_batches(&schema, &rb)
+        .map_err(|e| PicachvError::ComputeError(format!("Failed to concat batches. {e}").into()))
 }
 
 #[cfg(test)]

@@ -10,6 +10,7 @@ use arrow_schema::{DataType, TimeUnit};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::binary_operator::Operator;
 use picachv_message::{binary_operator, ArithmeticBinaryOperator};
+use rayon::prelude::*;
 use uuid::Uuid;
 
 use crate::arena::Arena;
@@ -153,7 +154,6 @@ impl Expr {
         &self,
         ctx: &mut ExpressionEvalContext,
     ) -> PicachvResult<Vec<Policy<PolicyLabel>>> {
-        let mut policies = vec![];
         let expr_arena = rwlock_unlock!(ctx.arena.expr_arena, read);
 
         // Extract the groups as a sub-dataframe.
@@ -171,17 +171,18 @@ impl Expr {
                     ),
                 };
 
-                for i in 0..groups.shape().0 {
-                    policies.push(
+                (0..groups.shape().0)
+                    .into_par_iter()
+                    .map(|i| {
                         groups.columns[col]
                             .policies
                             .get(i)
                             .ok_or(PicachvError::ComputeError(
                                 "The column does not exist.".into(),
-                            ))?
-                            .clone(),
-                    )
-                }
+                            ))
+                            .map(|p| p.clone())
+                    })
+                    .collect::<PicachvResult<Vec<_>>>()
             },
 
             Expr::Apply {
@@ -198,20 +199,25 @@ impl Expr {
                     .map(|e| expr_arena.get(e))
                     .collect::<PicachvResult<Vec<_>>>()?;
 
-                for (i, value) in values.iter().enumerate().take(groups.shape().0) {
-                    let mut p = Default::default();
-                    for (j, arg) in args.iter().enumerate() {
-                        let arg = arg.check_policy_in_row(ctx, i)?;
-                        p = check_policy_binary_udf(
-                            groups.columns[j].policies[i].clone(),
-                            arg,
-                            &udf_desc.name,
-                            value,
-                        )?;
-                    }
+                values
+                    .par_iter()
+                    .take(groups.shape().0)
+                    .enumerate()
+                    .map(|(i, value)| {
+                        let mut p = Default::default();
+                        for (j, arg) in args.iter().enumerate() {
+                            let arg = arg.check_policy_in_row(ctx, i)?;
+                            p = check_policy_binary_udf(
+                                groups.columns[j].policies[i].clone(),
+                                arg,
+                                &udf_desc.name,
+                                value,
+                            )?;
+                        }
 
-                    policies.push(p);
-                }
+                        Ok(p)
+                    })
+                    .collect::<PicachvResult<Vec<_>>>()
             },
 
             Expr::BinaryExpr {
@@ -227,18 +233,24 @@ impl Expr {
                 let left = expr_arena.get(left)?;
                 let right = expr_arena.get(right)?;
 
-                for (i, value) in values.iter().enumerate().take(groups.shape().0) {
-                    let lhs = left.check_policy_in_row(ctx, i)?;
-                    let rhs = right.check_policy_in_row(ctx, i)?;
+                values
+                    .par_iter()
+                    .take(groups.shape().0)
+                    .enumerate()
+                    .map(|(i, value)| {
+                        let (lhs, rhs) = rayon::join(
+                            || left.check_policy_in_row(ctx, i),
+                            || right.check_policy_in_row(ctx, i),
+                        );
+                        let (lhs, rhs) = (lhs?, rhs?);
 
-                    policies.push(check_policy_binary(&lhs, &rhs, op, value)?);
-                }
+                        check_policy_binary(&lhs, &rhs, op, value)
+                    })
+                    .collect::<PicachvResult<Vec<_>>>()
             },
 
             _ => unimplemented!("{self:?} is not yet supported in aggregation context."),
         }
-
-        Ok(policies)
     }
 
     /// This function checks the policy enforcement for the expression type (not within aggregation!).
@@ -247,7 +259,7 @@ impl Expr {
     /// Note that since the check occurs at the tuple level!
     pub(crate) fn check_policy_in_row(
         &self,
-        ctx: &mut ExpressionEvalContext,
+        ctx: &ExpressionEvalContext,
         idx: usize,
     ) -> PicachvResult<Policy<PolicyLabel>> {
         let expr_arena = rwlock_unlock!(ctx.arena.expr_arena, read);
@@ -275,8 +287,10 @@ impl Expr {
                 let left = expr_arena.get(left)?;
                 let right = expr_arena.get(right)?;
 
-                let lhs = left.check_policy_in_row(ctx, idx)?;
-                let rhs = right.check_policy_in_row(ctx, idx)?;
+                let lhs = || left.check_policy_in_row(ctx, idx);
+                let rhs = || right.check_policy_in_row(ctx, idx);
+                let (lhs, rhs) = rayon::join(lhs, rhs);
+                let (lhs, rhs) = (lhs?, rhs?);
 
                 if matches!(
                     op,
@@ -349,7 +363,9 @@ impl Expr {
 
         // Convert the RecordBatch into a vector of AnyValue.
         let values = convert_record_batch(values)?;
+        println!("reify: values {}", values[0].len());
         values_mut.replace(values);
+
 
         Ok(())
     }
@@ -591,7 +607,7 @@ fn check_policy_unary_udf(
 
 /// This function handles the UDF case.
 fn check_policy_in_row_apply(
-    ctx: &mut ExpressionEvalContext,
+    ctx: &ExpressionEvalContext,
     udf_name: &str,
     args: &[Uuid],
     values: &[Vec<AnyValue>],
@@ -599,7 +615,7 @@ fn check_policy_in_row_apply(
 ) -> PicachvResult<Policy<PolicyLabel>> {
     let args = {
         let expr_arena = rwlock_unlock!(ctx.arena.expr_arena, read);
-        args.iter()
+        args.par_iter()
             .map(|e| expr_arena.get(e).cloned())
             .collect::<PicachvResult<Vec<_>>>()?
     };
