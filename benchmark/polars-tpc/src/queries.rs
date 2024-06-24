@@ -309,7 +309,10 @@ impl QueryFactory {
             .filter(col("l_discount").lt(discount2))
             .filter(col("l_quantity").lt(quantity))
             .with_columns([(col("l_extendedprice") * col("l_discount")).alias("revenue")])
-            .select([sum("revenue")]);
+            // a workaround solution for anonymous function.
+            // which is implemented in the future.
+            .group_by([col("*").exclude(["revenue"])])
+            .agg([sum("revenue")]);
 
         Ok(df)
     }
