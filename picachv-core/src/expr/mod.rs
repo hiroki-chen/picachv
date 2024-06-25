@@ -137,13 +137,24 @@ pub enum Expr {
         // A type-erased array of values reified by the caller.
         values: Option<Vec<Vec<AnyValue>>>,
     },
+    /// a ? b : c
+    Ternary {
+        cond: Uuid,
+        cond_values: Option<Vec<bool>>, // should be boolean values.
+        then: Uuid,
+        otherwise: Uuid,
+    },
 }
 
 impl Expr {
     pub fn needs_reify(&self) -> bool {
         matches!(
             self,
-            Self::Apply { .. } | Self::Agg { .. } | Self::Column(_) | Self::BinaryExpr { .. },
+            Self::Apply { .. }
+                | Self::Agg { .. }
+                | Self::Column(_)
+                | Self::BinaryExpr { .. }
+                | Self::Ternary { .. },
         )
     }
 
@@ -153,7 +164,7 @@ impl Expr {
     pub(crate) fn check_policy_in_group(
         &self,
         ctx: &mut ExpressionEvalContext,
-    ) -> PicachvResult<Vec<Policy<PolicyLabel>>> {
+    ) -> PicachvResult<Vec<Policy>> {
         let expr_arena = rwlock_unlock!(ctx.arena.expr_arena, read);
 
         // Extract the groups as a sub-dataframe.
@@ -261,7 +272,7 @@ impl Expr {
         &self,
         ctx: &ExpressionEvalContext,
         idx: usize,
-    ) -> PicachvResult<Policy<PolicyLabel>> {
+    ) -> PicachvResult<Policy> {
         let expr_arena = rwlock_unlock!(ctx.arena.expr_arena, read);
 
         match self {
@@ -348,6 +359,19 @@ impl Expr {
             Expr::Agg { .. } => Err(PicachvError::ComputeError(
                 "Aggregation expression is not allowed in row context.".into(),
             )),
+            Expr::Ternary {
+                cond,
+                cond_values,
+                then,
+                otherwise,
+            } => {
+                picachv_ensure!(
+                    cond_values.is_some(),
+                    ComputeError: "The condition values are not reified"
+                );
+
+                todo!()
+            },
             // todo.
             _ => Ok(Default::default()),
         }
@@ -363,9 +387,7 @@ impl Expr {
 
         // Convert the RecordBatch into a vector of AnyValue.
         let values = convert_record_batch(values)?;
-        println!("reify: values {}", values[0].len());
         values_mut.replace(values);
-
 
         Ok(())
     }
@@ -489,6 +511,12 @@ impl fmt::Debug for Expr {
                 args,
                 values,
             } => write!(f, "{udf_desc:?}({args:?} + values {values:?})"),
+            Self::Ternary {
+                cond,
+                then,
+                otherwise,
+                ..
+            } => write!(f, "{cond:?} ? {then:?} : {otherwise:?}"),
         }
     }
 }
@@ -499,15 +527,13 @@ impl fmt::Display for Expr {
     }
 }
 
-impl ExprArena {}
-
 // The checking logic seems identical to the one in `expr.rs`.
 fn check_policy_binary(
-    lhs: &Policy<PolicyLabel>,
-    rhs: &Policy<PolicyLabel>,
+    lhs: &Policy,
+    rhs: &Policy,
     op: &Operator,
     value: &[AnyValue],
-) -> PicachvResult<Policy<PolicyLabel>> {
+) -> PicachvResult<Policy> {
     match op {
         binary_operator::Operator::ComparisonOperator(_)
         | binary_operator::Operator::LogicalOperator(_) => lhs.join(rhs),
@@ -546,11 +572,11 @@ fn check_policy_binary(
 }
 
 fn check_policy_binary_udf(
-    lhs: Policy<PolicyLabel>,
-    rhs: Policy<PolicyLabel>,
+    lhs: Policy,
+    rhs: Policy,
     udf_name: &str,
     values: &[AnyValue],
-) -> PicachvResult<Policy<PolicyLabel>> {
+) -> PicachvResult<Policy> {
     picachv_ensure!(
         values.len() == 2,
         ComputeError: "Checking policy for UDF requires two values."
@@ -593,9 +619,9 @@ fn check_policy_binary_udf(
 }
 
 fn check_policy_unary_udf(
-    arg: Policy<PolicyLabel>,
+    arg: Policy,
     udf_name: &str,
-) -> PicachvResult<Policy<PolicyLabel>> {
+) -> PicachvResult<Policy> {
     match policy_ok(&arg) {
         true => Ok(Policy::PolicyClean),
         false => {
@@ -612,7 +638,7 @@ fn check_policy_in_row_apply(
     args: &[Uuid],
     values: &[Vec<AnyValue>],
     idx: usize,
-) -> PicachvResult<Policy<PolicyLabel>> {
+) -> PicachvResult<Policy> {
     let args = {
         let expr_arena = rwlock_unlock!(ctx.arena.expr_arena, read);
         args.par_iter()
@@ -648,9 +674,9 @@ fn check_policy_in_row_apply(
 ///
 /// See `eval_agg` in `expression.v`.
 pub(crate) fn fold_on_groups(
-    groups: &[Policy<PolicyLabel>],
+    groups: &[Policy],
     how: GroupByMethod,
-) -> PicachvResult<Policy<PolicyLabel>> {
+) -> PicachvResult<Policy> {
     // Construct the operator.
     tracing::debug!("{how:?} {}", groups.len());
 

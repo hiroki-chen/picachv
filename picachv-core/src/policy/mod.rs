@@ -63,7 +63,7 @@ mod tests {
         } => PolicyLabel::PolicyBot)
         .unwrap();
         let policy_str = serde_json::to_string(&prev).unwrap();
-        let cur: Policy<PolicyLabel> = serde_json::from_str(&policy_str).unwrap();
+        let cur: Policy = serde_json::from_str(&policy_str).unwrap();
         assert_eq!(prev, cur);
     }
 

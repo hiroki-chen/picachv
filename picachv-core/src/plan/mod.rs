@@ -428,7 +428,7 @@ pub fn early_projection(
 fn check_policy_agg(
     expr: &Expr,
     ctx: &mut ExpressionEvalContext,
-) -> PicachvResult<Policy<PolicyLabel>> {
+) -> PicachvResult<Policy> {
     picachv_ensure!(
         ctx.in_agg,
         ComputeError: "The expression is not in an aggregation context."
@@ -521,6 +521,7 @@ fn do_check_expressions(
 ) -> PicachvResult<PolicyGuardedDataFrame> {
     let now = std::time::Instant::now();
 
+    println!("expr: {expression:?}");
     let rows = df.shape().0;
     let col = expression
         .par_iter()

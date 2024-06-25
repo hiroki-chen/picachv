@@ -26,11 +26,13 @@ ordered-float = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+speedy = { workspace = true, optional = true }
 uuid = { workspace = true }
 
 typetag = "0.2.16"
 parse_duration = "2.1.1"
 
 [features]
-default = ["arena_for_plan"]
+default = ["arena_for_plan", "fast_bin"]
+fast_bin = ["speedy", "ordered-float/speedy"]
 arena_for_plan = []

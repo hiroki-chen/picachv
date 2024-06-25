@@ -1,8 +1,14 @@
+use std::fs;
+use std::io::Write;
 use std::path::Path;
 
 use picachv_error::{PicachvError, PicachvResult};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+#[cfg(feature = "fast_bin")]
+use speedy::{Readable, Writable};
+
+use crate::dataframe::PolicyGuardedDataFrame;
 
 pub trait JsonIO: Serialize + DeserializeOwned {
     fn to_json<P: AsRef<Path>>(&self, path: P) -> PicachvResult<()> {
@@ -38,3 +44,32 @@ pub trait JsonIO: Serialize + DeserializeOwned {
 }
 
 impl<T> JsonIO for T where T: Serialize + DeserializeOwned {}
+
+#[cfg(feature = "fast_bin")]
+pub trait BinIo: Serialize + DeserializeOwned {
+    fn to_bytes<P: AsRef<Path>>(&self, path: P) -> PicachvResult<()>;
+    fn from_bytes<P: AsRef<Path>>(path: P) -> PicachvResult<Self>;
+}
+
+#[cfg(feature = "fast_bin")]
+impl BinIo for PolicyGuardedDataFrame {
+    fn to_bytes<P: AsRef<Path>>(&self, path: P) -> PicachvResult<()> {
+        let mut file = std::fs::File::create(path)?;
+        let bytes = self.write_to_vec().map_err(|e| {
+            PicachvError::InvalidOperation(format!("Failed to serialize binary: {}", e).into())
+        })?;
+        file.write_all(&bytes).map_err(|e| {
+            PicachvError::InvalidOperation(format!("Failed to write binary: {}", e).into())
+        })?;
+        Ok(())
+    }
+
+    fn from_bytes<P: AsRef<Path>>(path: P) -> PicachvResult<Self> {
+        let bytes = fs::read(path).map_err(|e| {
+            PicachvError::InvalidOperation(format!("Failed to read binary: {}", e).into())
+        })?;
+        PolicyGuardedDataFrame::read_from_buffer(&bytes).map_err(|e| {
+            PicachvError::InvalidOperation(format!("Failed to deserialize binary: {}", e).into())
+        })
+    }
+}

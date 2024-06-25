@@ -17,7 +17,7 @@ use crate::arena::Arena;
 use crate::policy::{Policy, PolicyLabel};
 use crate::rwlock_unlock;
 
-pub type Row = Vec<Policy<PolicyLabel>>;
+pub type Row = Vec<Policy>;
 
 pub type DfArena = Arena<PolicyGuardedDataFrame>;
 
@@ -41,12 +41,13 @@ pub type DfArena = Arena<PolicyGuardedDataFrame>;
 /// - In order to be consistent with the formal model, we should make it indexed by
 ///   identifiers like UUIDs?
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub struct PolicyGuardedColumn {
-    pub(crate) policies: Vec<Policy<PolicyLabel>>,
+    pub(crate) policies: Vec<Policy>,
 }
 
 impl PolicyGuardedColumn {
-    pub fn new(policies: Vec<Policy<PolicyLabel>>) -> Self {
+    pub fn new(policies: Vec<Policy>) -> Self {
         PolicyGuardedColumn { policies }
     }
 }
@@ -57,6 +58,7 @@ impl PolicyGuardedColumn {
 /// [`PolicyGuardedColumn`]s. It is not a real data structure; it does not contain
 /// any data. It is just a way to group columns together.
 #[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub struct PolicyGuardedDataFrame {
     /// Policies for the column.
     pub(crate) columns: Vec<PolicyGuardedColumn>,
@@ -245,7 +247,7 @@ impl PolicyGuardedDataFrame {
         Ok(PolicyGuardedDataFrame { columns: col })
     }
 
-    pub fn row(&self, idx: usize) -> PicachvResult<Vec<Policy<PolicyLabel>>> {
+    pub fn row(&self, idx: usize) -> PicachvResult<Vec<Policy>> {
         picachv_ensure!(
             idx < self.shape().0,
             ComputeError: "The index is out of bound.",

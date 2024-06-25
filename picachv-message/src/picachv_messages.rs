@@ -537,8 +537,21 @@ pub struct ApplyExpr {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TernaryExpr {
+    #[prost(bytes = "vec", tag = "1")]
+    pub cond_uuid: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub then_uuid: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "3")]
+    pub else_uuid: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExprArgument {
-    #[prost(oneof = "expr_argument::Argument", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
+    #[prost(
+        oneof = "expr_argument::Argument",
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11"
+    )]
     pub argument: ::core::option::Option<expr_argument::Argument>,
 }
 /// Nested message and enum types in `ExprArgument`.
@@ -566,6 +579,8 @@ pub mod expr_argument {
         Apply(super::ApplyExpr),
         #[prost(message, tag = "10")]
         Count(super::CountExpr),
+        #[prost(message, tag = "11")]
+        Ternary(super::TernaryExpr),
     }
 }
 /// This message is used to notify the monitor which rows are dropped.

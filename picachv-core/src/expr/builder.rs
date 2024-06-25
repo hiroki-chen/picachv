@@ -1,6 +1,6 @@
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::column_specifier::Column;
-use picachv_message::{expr_argument, AggExpr, ApplyExpr};
+use picachv_message::{expr_argument, AggExpr, ApplyExpr, TernaryExpr};
 use uuid::Uuid;
 
 use super::Expr;
@@ -126,6 +126,33 @@ impl Expr {
                     },
                     Err(e) => picachv_bail!(ComputeError: "{e}"),
                 }
+            },
+
+            Argument::Ternary(TernaryExpr {
+                cond_uuid,
+                then_uuid,
+                else_uuid,
+            }) => {
+                let cond_uuid = Uuid::from_slice_le(&cond_uuid)
+                    .map_err(|_| PicachvError::InvalidOperation("The UUID is invalid.".into()))?;
+                let then_uuid = Uuid::from_slice_le(&then_uuid)
+                    .map_err(|_| PicachvError::InvalidOperation("The UUID is invalid.".into()))?;
+                let else_uuid = Uuid::from_slice_le(&else_uuid)
+                    .map_err(|_| PicachvError::InvalidOperation("The UUID is invalid.".into()))?;
+
+                picachv_ensure!(
+                    expr_arena.contains_key(&cond_uuid)
+                        && expr_arena.contains_key(&then_uuid)
+                        && expr_arena.contains_key(&else_uuid),
+                    InvalidOperation: "The UUID is invalid."
+                );
+
+                Ok(Expr::Ternary {
+                    cond: cond_uuid,
+                    then: then_uuid,
+                    otherwise: else_uuid,
+                    cond_values: None, // reified later.
+                })
             },
 
             _ => todo!(),

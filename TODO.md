@@ -28,5 +28,6 @@ in proxy_to_arg: gb GroupsIdx { sorted: false, first: [2, 0, 1, 3], all: [UnitVe
 ## Optimizations
 [ ] Policy compression
 [ ] Faster de- and serialization.
+[x] Parallelism
 ## Misc
 [ ] Add a licence?

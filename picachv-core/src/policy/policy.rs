@@ -6,7 +6,6 @@ use std::sync::OnceLock;
 use ordered_float::OrderedFloat;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::ArithmeticBinaryOperator;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use super::lattice::Lattice;
@@ -14,10 +13,10 @@ use super::types::{AnyValue, DpParam};
 use crate::build_policy;
 use crate::constants::GroupByMethod;
 
-pub const P_CLEAN: Policy<PolicyLabel> = Policy::PolicyClean;
+pub const P_CLEAN: Policy = Policy::PolicyClean;
 
-pub fn p_bot() -> &'static Policy<PolicyLabel> {
-    static POLICY: OnceLock<Policy<PolicyLabel>> = OnceLock::new();
+pub fn p_bot() -> &'static Policy {
+    static POLICY: OnceLock<Policy> = OnceLock::new();
     POLICY.get_or_init(|| Policy::PolicyDeclassify {
         label: PolicyLabel::PolicyBot,
         next: Box::new(Policy::PolicyClean),
@@ -25,24 +24,27 @@ pub fn p_bot() -> &'static Policy<PolicyLabel> {
 }
 
 #[inline(always)]
-pub fn policy_ok(p: &Policy<PolicyLabel>) -> bool {
+pub fn policy_ok(p: &Policy) -> bool {
     p == &P_CLEAN || p == p_bot()
 }
 
 /// Denotes the privacy schemes that should be applied to the result and/or the dataset.
 #[derive(Clone, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub enum PrivacyScheme {
     /// Differential privacy with a given set of parameters (`epsilon`, `delta`).
     DifferentialPrivacy(DpParam),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub struct UnaryTransformType {
     /// The name of the operation.
     pub name: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub struct BinaryTransformType {
     pub name: String,
     // What about the type??
@@ -50,14 +52,15 @@ pub struct BinaryTransformType {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub enum TransformType {
     Unary(UnaryTransformType),
     Binary(BinaryTransformType),
-    // TODO: Not sure what it looks like.
     Others,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub struct AggType {
     pub how: GroupByMethod,
     /// The size of the group.
@@ -131,10 +134,14 @@ pub trait SetLike {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub struct TransformOps(pub HashSet<TransformType>);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub struct AggOps(pub HashSet<AggType>);
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub struct PrivacyOp(pub PrivacyScheme);
 
 impl SetLike for TransformOps {
@@ -199,6 +206,7 @@ impl SetLike for PrivacyOp {
 
 /// The full-fledged policy label with downgrading operators attached.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub enum PolicyLabel {
     PolicyBot,
     PolicyTransform { ops: TransformOps },
@@ -209,17 +217,14 @@ pub enum PolicyLabel {
 
 /// Denotes the policy that is applied to each individual cell.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum Policy<T>
-where
-    T: Lattice + Serialize,
-{
+#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
+pub enum Policy {
     /// No policy is applied.
     PolicyClean,
     /// A declassfiication policy is applied.
     PolicyDeclassify {
         /// The label of the policy.
-        label: T,
+        label: PolicyLabel,
         /// The next policy in the chain.
         next: Box<Self>,
     },
@@ -396,19 +401,13 @@ impl Lattice for PolicyLabel {
     }
 }
 
-impl<T> Default for Policy<T>
-where
-    T: Lattice + Serialize + DeserializeOwned,
-{
+impl Default for Policy {
     fn default() -> Self {
         Self::PolicyClean
     }
 }
 
-impl<T> Policy<T>
-where
-    T: Lattice + Serialize + DeserializeOwned,
-{
+impl Policy {
     /// Constructs a new policy.
     pub fn new() -> Self {
         Self::default()
@@ -441,7 +440,7 @@ where
     /// ```
     ///
     /// As the above example shows, the policy chain is constructed from top to bottom.
-    pub fn cons(self, label: T) -> PicachvResult<Self> {
+    pub fn cons(self, label: PolicyLabel) -> PicachvResult<Self> {
         match &self {
             Policy::PolicyClean => Ok(Self::PolicyDeclassify {
                 label,
@@ -489,7 +488,7 @@ where
     }
 }
 
-impl Policy<PolicyLabel> {
+impl Policy {
     /// Since this function is called only after we have decided that p_cur ⪯ p_f which means that
     /// the current policy is less or equal to the operation we are about to apply, we can safely
     /// assume that the operation is allowed. So, this function's logic is simple as there are
@@ -564,20 +563,14 @@ impl Policy<PolicyLabel> {
     }
 }
 
-impl<T> PartialEq for Policy<T>
-where
-    T: Lattice + Serialize + DeserializeOwned,
-{
+impl PartialEq for Policy {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         matches!((self.le(other), other.le(self)), (Ok(true), Ok(true)))
     }
 }
 
-impl<T> PartialOrd for Policy<T>
-where
-    T: Lattice + Serialize + DeserializeOwned,
-{
+impl PartialOrd for Policy {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self.le(other), other.le(self)) {
             (Ok(true), Ok(true)) => Some(std::cmp::Ordering::Equal),
@@ -588,10 +581,7 @@ where
     }
 }
 
-impl<T> fmt::Display for Policy<T>
-where
-    T: fmt::Display + Lattice + Serialize + DeserializeOwned,
-{
+impl fmt::Display for Policy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Policy::PolicyClean => write!(f, "∅"),

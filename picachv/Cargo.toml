@@ -16,3 +16,4 @@ picachv-message = { workspace = true }
 default = []
 python = ["picachv-api/python"]
 java = ["picachv-api/java"]
+fast_bin = ["picachv-core/fast_bin"]

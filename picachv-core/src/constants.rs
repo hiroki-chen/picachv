@@ -18,6 +18,7 @@ pub enum LogicalPlanType {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub enum QuantileInterpolOptions {
     #[default]
     Nearest,
@@ -127,6 +128,7 @@ pub enum UnaryOperator {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub enum GroupByMethod {
     Min,
     NanMin,

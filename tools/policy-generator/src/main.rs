@@ -1,13 +1,29 @@
 use std::error::Error;
+use std::fmt::Display;
 use std::fs::{self, File};
 use std::result::Result;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use picachv_core::dataframe::{PolicyGuardedColumn, PolicyGuardedDataFrame};
-use picachv_core::io::JsonIO;
+use picachv_core::io::{BinIo, JsonIO};
 use picachv_core::policy::Policy;
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+pub enum Format {
+    Json,
+    Bin,
+}
+
+impl Display for Format {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Format::Json => write!(f, "json"),
+            Format::Bin => write!(f, "bin"),
+        }
+    }
+}
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -31,6 +47,13 @@ pub struct Args {
         help = "The table name of the parquet file. Leaving empty means all tables in the directory will be processed."
     )]
     table_name: Option<String>,
+    #[clap(
+        short,
+        long,
+        default_value = "Json",
+        help = "The format of the policy file"
+    )]
+    format: Format,
 }
 
 /// A simple generator that produces dummy policies for testing.
@@ -51,8 +74,13 @@ impl PolicyGenerator {
 
                 // Write the policy to a file
                 println!("Writing policy to file: {}", table);
-                let output_path = format!("{}/{}.json", self.args.output_path, table);
-                df.to_json(output_path)?;
+                let output_path =
+                    format!("{}/{}.{}", self.args.output_path, table, self.args.format);
+
+                match self.args.format {
+                    Format::Json => df.to_json(&output_path)?,
+                    Format::Bin => df.to_bytes(&output_path)?,
+                }
 
                 Ok(())
             },
@@ -74,11 +102,16 @@ impl PolicyGenerator {
                         path.file_name().to_str().unwrap()
                     );
                     let output_path = format!(
-                        "{}/{}.json",
+                        "{}/{}.{}",
                         self.args.output_path,
-                        path.file_name().to_str().unwrap()
+                        path.file_name().to_str().unwrap(),
+                        self.args.format
                     );
-                    df.to_json(&output_path)?;
+
+                    match self.args.format {
+                        Format::Json => df.to_json(&output_path)?,
+                        Format::Bin => df.to_bytes(&output_path)?,
+                    }
                 }
 
                 Ok(())

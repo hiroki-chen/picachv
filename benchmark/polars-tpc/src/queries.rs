@@ -27,7 +27,7 @@ impl QueryFactory {
                 with_policy: with_policy.as_ref().map(|p| {
                     p.as_ref()
                         .to_path_buf()
-                        .join(format!("{}.parquet.json", table))
+                        .join(format!("{}.parquet.bin", table))
                 }),
                 ..Default::default()
             };
@@ -498,7 +498,66 @@ impl QueryFactory {
             .filter(col("o_orderdate").gt_eq(date1))
             .filter(col("o_orderdate").gt(date2))
             .filter(col("p_type").eq(eas))
-            .select([col("o_orderdate").dt().year().alias("o_year")]);
+            .select([
+                col("o_orderdate").dt().year().alias("o_year"),
+                (col("l_extendedprice") * (lit(1) - col("l_discount"))).alias("volume"),
+                col("n_name").alias("nation"),
+            ])
+            .with_columns([when(col("nation").eq(brazil))
+                .then(lit(1))
+                .otherwise(lit(0))
+                .alias("_tmp")])
+            .group_by([col("o_year")])
+            .agg([(sum("_tmp") / sum("volume")).round(2).alias("mkt_share")]);
+
+        Ok(df)
+    }
+
+    pub fn q9(&self) -> PolarsResult<LazyFrame> {
+        let lineitem = self.df_registry.get("lineitem").cloned().unwrap();
+        let nation = self.df_registry.get("nation").cloned().unwrap();
+        let orders = self.df_registry.get("orders").cloned().unwrap();
+        let part = self.df_registry.get("part").cloned().unwrap();
+        let partsupp = self.df_registry.get("partsupp").cloned().unwrap();
+        let supplier = self.df_registry.get("supplier").cloned().unwrap();
+
+        let df = part
+            .join(
+                partsupp,
+                [col("p_partkey")],
+                [col("ps_partkey")],
+                JoinArgs::default(),
+            )
+            .join(
+                supplier,
+                [col("ps_suppkey")],
+                [col("s_suppkey")],
+                JoinArgs::default(),
+            )
+            .join(
+                lineitem,
+                [col("p_partkey"), col("ps_suppkey")],
+                [col("ps_suppkey"), col("s_suppkey")],
+                JoinArgs::default(),
+            )
+            .join(
+                orders,
+                [col("l_orderkey")],
+                [col("o_orderkey")],
+                JoinArgs::default(),
+            )
+            .join(
+                nation,
+                [col("s_nationkey")],
+                [col("n_nationkey")],
+                JoinArgs::default(),
+            )
+            .filter(col("p_name").str().contains(lit("green"), true))
+            .select([
+                col("n_name").alias("nation"),
+                col("o_orderdate").dt().year().alias("o_year"),
+                (col("l_extendedprice") * (lit(1) - col("l_discount"))).alias("volume"),
+            ]);
 
         Ok(df)
     }

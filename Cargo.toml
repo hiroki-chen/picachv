@@ -36,6 +36,7 @@ prost = { version = "0.12" }
 rayon = { version = "1.10.0" }
 serde = { version = "1.0.198", features = ["derive", "rc"] }
 serde_json = "1.0.116"
+speedy = "0.8.7"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 uuid = { version = "1.8.0", features = [
