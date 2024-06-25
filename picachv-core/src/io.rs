@@ -65,11 +65,15 @@ impl BinIo for PolicyGuardedDataFrame {
     }
 
     fn from_bytes<P: AsRef<Path>>(path: P) -> PicachvResult<Self> {
+        let now = std::time::Instant::now();
         let bytes = fs::read(path).map_err(|e| {
             PicachvError::InvalidOperation(format!("Failed to read binary: {}", e).into())
         })?;
-        PolicyGuardedDataFrame::read_from_buffer(&bytes).map_err(|e| {
+        let res = PolicyGuardedDataFrame::read_from_buffer(&bytes).map_err(|e| {
             PicachvError::InvalidOperation(format!("Failed to deserialize binary: {}", e).into())
-        })
+        })?;
+
+        println!("Time to read binary: {:?}", now.elapsed());
+        Ok(res)
     }
 }

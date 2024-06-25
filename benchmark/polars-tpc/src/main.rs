@@ -47,7 +47,15 @@ fn main() -> PolarsResult<()> {
         6 => qf.q6(),
         7 => qf.q7(),
         8 => qf.q8(),
-        9..=15 => {
+        9 => qf.q9(),
+        10 => qf.q10(),
+        11 => qf.q11(),
+        12 => qf.q12(),
+        13 => qf.q13(),
+        14 => qf.q14(),
+        15 => qf.q15(),
+        // 16 => qf.q16(),
+        16..=22 => {
             panic!("Query not implemented");
         },
         _ => panic!("Invalid query number"),

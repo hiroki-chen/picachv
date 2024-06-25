@@ -14,7 +14,7 @@ use tabled::settings::{Alignment, Style};
 use uuid::Uuid;
 
 use crate::arena::Arena;
-use crate::policy::{Policy, PolicyLabel};
+use crate::policy::Policy;
 use crate::rwlock_unlock;
 
 pub type Row = Vec<Policy>;
@@ -64,20 +64,20 @@ pub struct PolicyGuardedDataFrame {
     pub(crate) columns: Vec<PolicyGuardedColumn>,
 }
 
-impl From<Vec<Row>> for PolicyGuardedDataFrame {
-    fn from(value: Vec<Row>) -> Self {
-        let mut columns = vec![];
-        for i in 0..value[0].len() {
-            let mut policies = vec![];
-            for cur in value.iter() {
-                policies.push(cur[i].clone());
-            }
-            columns.push(PolicyGuardedColumn { policies });
-        }
+// impl From<Vec<Row>> for PolicyGuardedDataFrame {
+//     fn from(value: Vec<Row>) -> Self {
+//         let mut columns = vec![];
+//         for i in 0..value[0].len() {
+//             let mut policies = vec![];
+//             for cur in value.iter() {
+//                 policies.push(cur[i].clone());
+//             }
+//             columns.push(PolicyGuardedColumn { policies });
+//         }
 
-        PolicyGuardedDataFrame { columns }
-    }
-}
+//         PolicyGuardedDataFrame { columns }
+//     }
+// }
 
 impl fmt::Display for PolicyGuardedDataFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -253,12 +253,11 @@ impl PolicyGuardedDataFrame {
             ComputeError: "The index is out of bound.",
         );
 
-        let mut row = vec![];
-        for i in 0..self.shape().1 {
-            row.push(self.columns[i].policies[idx].clone());
-        }
-
-        Ok(row)
+        Ok(self
+            .columns
+            .par_iter()
+            .map(|c| c.policies[idx].clone())
+            .collect::<Vec<_>>())
     }
 
     /// Stitch two dataframes (veritcally).

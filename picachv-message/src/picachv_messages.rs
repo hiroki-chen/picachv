@@ -390,6 +390,8 @@ pub enum GroupByMethod {
     First = 6,
     Last = 7,
     Sum = 8,
+    /// avoid name
+    Len = 9,
 }
 impl GroupByMethod {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -407,6 +409,7 @@ impl GroupByMethod {
             GroupByMethod::First => "First",
             GroupByMethod::Last => "Last",
             GroupByMethod::Sum => "Sum",
+            GroupByMethod::Len => "Len",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -421,6 +424,7 @@ impl GroupByMethod {
             "First" => Some(Self::First),
             "Last" => Some(Self::Last),
             "Sum" => Some(Self::Sum),
+            "Len" => Some(Self::Len),
             _ => None,
         }
     }

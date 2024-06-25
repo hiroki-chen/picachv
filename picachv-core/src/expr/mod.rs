@@ -3,8 +3,8 @@ use std::time::Duration;
 use std::{fmt, vec};
 
 use arrow_array::{
-    Array, Date32Array, Float64Array, Int32Array, Int64Array, LargeStringArray, RecordBatch,
-    TimestampNanosecondArray,
+    Array, BooleanArray, Date32Array, Float64Array, Int32Array, Int64Array, LargeStringArray,
+    RecordBatch, TimestampNanosecondArray,
 };
 use arrow_schema::{DataType, TimeUnit};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
@@ -17,7 +17,7 @@ use crate::arena::Arena;
 use crate::constants::GroupByMethod;
 use crate::policy::context::ExpressionEvalContext;
 use crate::policy::types::AnyValue;
-use crate::policy::{policy_ok, BinaryTransformType, Policy, PolicyLabel, TransformType};
+use crate::policy::{policy_ok, BinaryTransformType, Policy, TransformType};
 use crate::udf::Udf;
 use crate::{
     build_unary_expr, cast, policy_agg_label, policy_binary_transform_label,
@@ -206,7 +206,7 @@ impl Expr {
                 ))?;
 
                 let args = args
-                    .iter()
+                    .par_iter()
                     .map(|e| expr_arena.get(e))
                     .collect::<PicachvResult<Vec<_>>>()?;
 
@@ -360,17 +360,33 @@ impl Expr {
                 "Aggregation expression is not allowed in row context.".into(),
             )),
             Expr::Ternary {
-                cond,
                 cond_values,
                 then,
                 otherwise,
+                ..
             } => {
                 picachv_ensure!(
                     cond_values.is_some(),
                     ComputeError: "The condition values are not reified"
                 );
 
-                todo!()
+                let then = expr_arena.get(then)?;
+                let otherwise = expr_arena.get(otherwise)?;
+
+                let mut cond_values = cond_values.clone().ok_or(PicachvError::ComputeError(
+                    "The condition values are not reified".into(),
+                ))?;
+
+                if cond_values.len() == 1 {
+                    cond_values = vec![cond_values[0]; ctx.df.shape().0];
+                }
+
+                let then = || then.check_policy_in_row(ctx, idx);
+                let otherwise = || otherwise.check_policy_in_row(ctx, idx);
+                let (then, otherwise) = rayon::join(then, otherwise);
+                let (then, otherwise) = (then?, otherwise?);
+
+                Ok(if cond_values[idx] { then } else { otherwise })
             },
             // todo.
             _ => Ok(Default::default()),
@@ -394,62 +410,67 @@ impl Expr {
 }
 
 fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<Vec<AnyValue>>> {
-    let mut rows = vec![];
+    let now = std::time::Instant::now();
+
     let columns = rb.columns();
 
     if columns.is_empty() {
-        return Ok(rows);
+        return Ok(vec![]);
     }
 
     // Iterate over the rows.
-    for i in 0..rb.num_rows() {
-        let mut row = vec![];
-
-        // Iterate each column and convert it into AnyValue.
-        for column in columns.iter() {
-            match column.data_type() {
-                DataType::Int32 => {
-                    let array = column.as_any().downcast_ref::<Int32Array>().unwrap();
-                    let value = array.value(i);
-                    row.push(AnyValue::Int32(value));
-                },
-                DataType::Int64 => {
-                    let array = column.as_any().downcast_ref::<Int64Array>().unwrap();
-                    let value = array.value(i);
-                    row.push(AnyValue::Int64(value as _));
-                },
-                DataType::Float64 => {
-                    let array = column.as_any().downcast_ref::<Float64Array>().unwrap();
-                    let value = array.value(i);
-                    row.push(AnyValue::Float64(value.into()));
-                },
-                DataType::Date32 => {
-                    let array = column.as_any().downcast_ref::<Date32Array>().unwrap();
-                    let value = array.value(i);
-                    row.push(AnyValue::Duration(Duration::from_days(value as _)));
-                },
-                DataType::Timestamp(timestamp, _) => match timestamp {
-                    TimeUnit::Nanosecond => {
-                        let array = column
-                            .as_any()
-                            .downcast_ref::<TimestampNanosecondArray>()
-                            .unwrap();
+    let rows = (0..rb.num_rows())
+        .into_par_iter()
+        .map(|i| {
+            columns
+                .into_par_iter()
+                .map(|column| match column.data_type() {
+                    DataType::Int32 => {
+                        let array = column.as_any().downcast_ref::<Int32Array>().unwrap();
                         let value = array.value(i);
-                        row.push(AnyValue::Duration(Duration::from_nanos(value as _)));
+                        Ok(AnyValue::Int32(value))
                     },
-                    _ => todo!(),
-                },
-                DataType::LargeUtf8 => {
-                    let array = column.as_any().downcast_ref::<LargeStringArray>().unwrap();
-                    let value = array.value(i);
-                    row.push(AnyValue::String(value.to_string()));
-                },
-                ty => picachv_bail!(InvalidOperation: "{ty} is not supported"),
-            }
-        }
-
-        rows.push(row);
-    }
+                    DataType::Int64 => {
+                        let array = column.as_any().downcast_ref::<Int64Array>().unwrap();
+                        let value = array.value(i);
+                        Ok(AnyValue::Int64(value as _))
+                    },
+                    DataType::Float64 => {
+                        let array = column.as_any().downcast_ref::<Float64Array>().unwrap();
+                        let value = array.value(i);
+                        Ok(AnyValue::Float64(value.into()))
+                    },
+                    DataType::Date32 => {
+                        let array = column.as_any().downcast_ref::<Date32Array>().unwrap();
+                        let value = array.value(i);
+                        Ok(AnyValue::Duration(Duration::from_days(value as _)))
+                    },
+                    DataType::Timestamp(timestamp, _) => match timestamp {
+                        TimeUnit::Nanosecond => {
+                            let array = column
+                                .as_any()
+                                .downcast_ref::<TimestampNanosecondArray>()
+                                .unwrap();
+                            let value = array.value(i);
+                            Ok(AnyValue::Duration(Duration::from_nanos(value as _)))
+                        },
+                        _ => todo!(),
+                    },
+                    DataType::LargeUtf8 => {
+                        let array = column.as_any().downcast_ref::<LargeStringArray>().unwrap();
+                        let value = array.value(i);
+                        Ok(AnyValue::String(value.to_string()))
+                    },
+                    DataType::Boolean => {
+                        let array = column.as_any().downcast_ref::<BooleanArray>().unwrap();
+                        let value = array.value(i);
+                        Ok(AnyValue::Boolean(value))
+                    },
+                    ty => picachv_bail!(InvalidOperation: "{ty} is not supported"),
+                })
+                .collect::<PicachvResult<Vec<_>>>()
+        })
+        .collect::<PicachvResult<Vec<_>>>()?;
 
     Ok(rows)
 }
@@ -618,10 +639,7 @@ fn check_policy_binary_udf(
     }
 }
 
-fn check_policy_unary_udf(
-    arg: Policy,
-    udf_name: &str,
-) -> PicachvResult<Policy> {
+fn check_policy_unary_udf(arg: Policy, udf_name: &str) -> PicachvResult<Policy> {
     match policy_ok(&arg) {
         true => Ok(Policy::PolicyClean),
         false => {
@@ -673,22 +691,42 @@ fn check_policy_in_row_apply(
 /// This functons folds the policies on the groups to check this operation is allowed.
 ///
 /// See `eval_agg` in `expression.v`.
-pub(crate) fn fold_on_groups(
-    groups: &[Policy],
-    how: GroupByMethod,
-) -> PicachvResult<Policy> {
+pub(crate) fn fold_on_groups(groups: &[Policy], how: GroupByMethod) -> PicachvResult<Policy> {
     // Construct the operator.
     tracing::debug!("{how:?} {}", groups.len());
 
     let pf = policy_agg_label!(how, groups.len());
-    let mut p_output = Policy::PolicyClean;
 
-    for p_cur in groups.iter() {
-        let p_after = p_cur.downgrade(pf.clone())?;
-        if p_output.le(&p_after)? {
-            p_output = p_after;
-        }
-    }
-
-    Ok(p_output)
+    groups
+        .par_iter()
+        .fold(
+            || Ok(Policy::PolicyClean),
+            |p_output, p_cur| {
+                let p_after = p_cur.downgrade(pf.clone())?;
+                match p_output {
+                    Ok(p_output) => {
+                        if p_output.le(&p_after)? {
+                            Ok(p_after)
+                        } else {
+                            Ok(p_output)
+                        }
+                    },
+                    Err(e) => Err(e),
+                }
+            },
+        )
+        .reduce(
+            || Ok(Policy::PolicyClean),
+            |p_output, p_cur| match (p_output, p_cur) {
+                (Ok(p_output), Ok(p_cur)) => {
+                    if p_output.le(&p_cur)? {
+                        Ok(p_cur)
+                    } else {
+                        Ok(p_output)
+                    }
+                },
+                (Err(e), _) => Err(e),
+                (_, Err(e)) => Err(e),
+            },
+        )
 }

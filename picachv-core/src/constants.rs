@@ -161,6 +161,9 @@ impl TryFrom<picachv_message::GroupByMethod> for GroupByMethod {
             picachv_message::GroupByMethod::First => Ok(GroupByMethod::First),
             picachv_message::GroupByMethod::Last => Ok(GroupByMethod::Last),
             picachv_message::GroupByMethod::Sum => Ok(GroupByMethod::Sum),
+            picachv_message::GroupByMethod::Len => Ok(GroupByMethod::Count {
+                include_nulls: true,
+            }),
         }
     }
 }

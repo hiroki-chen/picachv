@@ -5,6 +5,8 @@ use polars::lazy::uuid::Uuid;
 use polars::lazy::PicachvError;
 use polars::prelude::*;
 
+// FIXME: The json is broken. Regenerate them
+
 fn example_df1() -> DataFrame {
     df! {
         "a" => &[2, 3, 3, 1, 5],

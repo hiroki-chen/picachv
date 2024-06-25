@@ -508,7 +508,9 @@ impl QueryFactory {
                 .otherwise(lit(0))
                 .alias("_tmp")])
             .group_by([col("o_year")])
-            .agg([(sum("_tmp") / sum("volume")).round(2).alias("mkt_share")]);
+            .agg([sum("_tmp").alias("a"), sum("volume").alias("b")]);
+
+        let df = df.select([(col("a") / col("b")).round(2).alias("mkt_share")]);
 
         Ok(df)
     }
@@ -537,7 +539,7 @@ impl QueryFactory {
             .join(
                 lineitem,
                 [col("p_partkey"), col("ps_suppkey")],
-                [col("ps_suppkey"), col("s_suppkey")],
+                [col("l_partkey"), col("l_suppkey")],
                 JoinArgs::default(),
             )
             .join(
@@ -556,8 +558,272 @@ impl QueryFactory {
             .select([
                 col("n_name").alias("nation"),
                 col("o_orderdate").dt().year().alias("o_year"),
-                (col("l_extendedprice") * (lit(1) - col("l_discount"))).alias("volume"),
+                (col("l_extendedprice") * (lit(1) - col("l_discount"))
+                    - col("ps_supplycost") * col("l_quantity"))
+                .alias("amount"),
+            ])
+            .group_by([col("nation"), col("o_year")])
+            .agg([sum("amount").alias("sum_profit")])
+            .sort(
+                ["nation", "o_year"],
+                SortMultipleOptions::new().with_order_descendings([false, true]),
+            );
+
+        Ok(df)
+    }
+
+    pub fn q10(&self) -> PolarsResult<LazyFrame> {
+        let customer = self.df_registry.get("customer").cloned().unwrap();
+        let lineitem = self.df_registry.get("lineitem").cloned().unwrap();
+        let nation = self.df_registry.get("nation").cloned().unwrap();
+        let orders = self.df_registry.get("orders").cloned().unwrap();
+
+        let date1 = lit(NaiveDate::from_ymd_opt(1993, 10, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap());
+        let date2 = lit(NaiveDate::from_ymd_opt(1994, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap());
+
+        let df = customer
+            .join(
+                orders,
+                [col("c_custkey")],
+                [col("o_custkey")],
+                JoinArgs::default(),
+            )
+            .join(
+                lineitem,
+                [col("o_orderkey")],
+                [col("l_orderkey")],
+                JoinArgs::default(),
+            )
+            .join(
+                nation,
+                [col("c_nationkey")],
+                [col("n_nationkey")],
+                JoinArgs::default(),
+            )
+            .filter(col("o_orderdate").lt(date2))
+            .filter(col("o_orderdate").gt_eq(date1))
+            .filter(col("l_returnflag").eq(lit("R")))
+            .group_by([
+                col("c_custkey"),
+                col("c_name"),
+                col("c_acctbal"),
+                col("c_phone"),
+                col("n_name"),
+                col("c_address"),
+                col("c_comment"),
+            ])
+            .agg([(col("l_extendedprice") - (lit(1) - col("l_discount")))
+                .sum()
+                .alias("revenue")])
+            .select([col("*")])
+            .sort(["revenue"], Default::default())
+            .limit(20);
+
+        Ok(df)
+    }
+
+    pub fn q11(&self) -> PolarsResult<LazyFrame> {
+        let nation = self.df_registry.get("nation").cloned().unwrap();
+        let partsupp = self.df_registry.get("partsupp").cloned().unwrap();
+        let supplier = self.df_registry.get("supplier").cloned().unwrap();
+
+        let germany = lit("GERMANY");
+        let per = lit(0.0001);
+
+        let df1 = partsupp
+            .join(
+                supplier,
+                [col("ps_suppkey")],
+                [col("s_suppkey")],
+                JoinArgs::default(),
+            )
+            .join(
+                nation.filter(col("n_name").eq(germany)),
+                [col("s_nationkey")],
+                [col("n_nationkey")],
+                JoinArgs::default(),
+            );
+
+        let df = df1
+            .clone()
+            .group_by([col("*").exclude(["ps_supplycost", "ps_availqty"])])
+            .agg([(col("ps_supplycost") * col("ps_availqty"))
+                .sum()
+                .alias("tmp")]);
+
+        let df = df1
+            .group_by(["ps_partkey"])
+            .agg([(col("ps_supplycost") * col("ps_availqty"))
+                .sum()
+                .alias("value")])
+            .cross_join(df)
+            .filter(col("value").gt(col("tmp") * per))
+            .select([col("ps_partkey"), col("value")])
+            .sort(["value"], Default::default());
+
+        Ok(df)
+    }
+
+    pub fn q12(&self) -> PolarsResult<LazyFrame> {
+        let lineitem = self.df_registry.get("lineitem").cloned().unwrap();
+        let orders = self.df_registry.get("orders").cloned().unwrap();
+
+        let mail = lit("MAIL");
+        let ship = lit("SHIP");
+        let date1 = lit(NaiveDate::from_ymd_opt(1994, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap());
+        let date2 = lit(NaiveDate::from_ymd_opt(1995, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap());
+        let high = lit(Series::from_iter(vec![
+            String::from("1-URGENT"),
+            String::from("2-HIGH"),
+        ]));
+
+        let df = orders
+            .join(
+                lineitem,
+                [col("o_orderkey")],
+                [col("l_orderkey")],
+                JoinArgs::default(),
+            )
+            .filter((col("l_shipmode").eq(mail)).or(col("l_shipmode").eq(ship)))
+            .filter(col("l_commitdate").lt(col("l_receiptdate")))
+            .filter(col("l_shipdate").lt(col("l_commitdate")))
+            .filter(col("l_receiptdate").gt_eq(date1))
+            .filter(col("l_receiptdate").lt(date2))
+            .with_columns([
+                when(col("o_orderpriority").is_in(high.clone()))
+                    .then(lit(1))
+                    .otherwise(lit(0))
+                    .alias("high_line_count"),
+                when(not(col("o_orderpriority").is_in(high)))
+                    .then(lit(1))
+                    .otherwise(lit(0))
+                    .alias("low_line_count"),
+            ])
+            .group_by(["l_shipmode"])
+            .agg([sum("high_line_count"), sum("low_line_count")])
+            .sort(["l_shipmode"], Default::default());
+
+        Ok(df)
+    }
+
+    pub fn q13(&self) -> PolarsResult<LazyFrame> {
+        let customer = self.df_registry.get("customer").cloned().unwrap();
+        let orders = self.df_registry.get("orders").cloned().unwrap();
+
+        let orders = orders.filter(
+            col("o_comment")
+                .str()
+                .contains(lit("special.*reequests"), true),
+        );
+        let df = customer
+            .join(
+                orders,
+                [col("c_custkey")],
+                [col("o_custkey")],
+                JoinArgs::new(JoinType::Inner), //todo. should be left outer join.
+            )
+            .group_by(["c_custkey"])
+            .agg([col("o_orderkey").count().alias("c_count")])
+            .group_by(["c_count"])
+            .agg([len()])
+            .select([col("c_count"), col("len").alias("custdist")])
+            .sort(
+                ["custdist", "c_count"],
+                SortMultipleOptions::new().with_order_descendings([true, true]),
+            );
+
+        Ok(df)
+    }
+
+    pub fn q14(&self) -> PolarsResult<LazyFrame> {
+        let lineitem = self.df_registry.get("lineitem").cloned().unwrap();
+        let part = self.df_registry.get("part").cloned().unwrap();
+
+        let date1 = lit(NaiveDate::from_ymd_opt(1995, 9, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap());
+        let date2 = lit(NaiveDate::from_ymd_opt(1995, 10, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap());
+
+        let df = lineitem
+            .join(
+                part,
+                [col("l_partkey")],
+                [col("p_partkey")],
+                JoinArgs::default(),
+            )
+            .filter(col("l_shipdate").lt(date2))
+            .filter(col("l_shipdate").gt_eq(date1))
+            .select([
+                (lit(100.00)
+                    * when(col("p_type").str().contains(lit("PROMO*"), false))
+                        .then(col("l_extendedprice") * (lit(1) - col("l_discount")))
+                        .otherwise(lit(0)))
+                .alias("a"),
+                (col("l_extendedprice") * (lit(1) - col("l_discount"))).alias("b"),
             ]);
+
+        let df = df
+            .group_by(["a", "b"])
+            .agg([sum("a").alias("c"), sum("b").alias("d")]);
+        let df = df.select([(col("c") / col("d")).alias("promo_revenue")]);
+
+        Ok(df)
+    }
+
+    pub fn q15(&self) -> PolarsResult<LazyFrame> {
+        let lineitem = self.df_registry.get("lineitem").cloned().unwrap();
+        let supplier = self.df_registry.get("supplier").cloned().unwrap();
+
+        let date1 = lit(NaiveDate::from_ymd_opt(1996, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap());
+        let date2 = lit(NaiveDate::from_ymd_opt(1996, 4, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap());
+
+        let revenue = lineitem
+            .filter(col("l_shipdate").gt_eq(date1))
+            .filter(col("l_shipdate").lt(date2))
+            .group_by(["l_suppkey"])
+            .agg([(col("l_extendedprice") * (lit(1) - col("l_discount")))
+                .sum()
+                .alias("total_revenue")])
+            .select([col("l_suppkey").alias("supplier_no"), col("total_revenue")]);
+
+        let df = supplier
+            .join(
+                revenue,
+                [col("s_suppkey")],
+                [col("supplier_no")],
+                JoinArgs::default(),
+            )
+            .with_columns([col("total_revenue").round(2)])
+            .select([
+                col("s_suppkey"),
+                col("s_name"),
+                col("s_address"),
+                col("s_phone"),
+                col("total_revenue"),
+            ])
+            .sort(["s_suppkey"], Default::default());
 
         Ok(df)
     }

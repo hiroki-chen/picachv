@@ -121,7 +121,10 @@ impl Expr {
                             },
                             values: None,
                         }),
-
+                        picachv_message::GroupByMethod::Len => Ok(Expr::Agg {
+                            expr: crate::expr::AggExpr::Count(uuid, true),
+                            values: None,
+                        }),
                         _ => todo!(),
                     },
                     Err(e) => picachv_bail!(ComputeError: "{e}"),

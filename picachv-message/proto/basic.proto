@@ -134,6 +134,8 @@ enum GroupByMethod {
   First = 6;
   Last = 7;
   Sum = 8;
+  // avoid name
+  Len = 9;
 }
 
 enum ExprType {

@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::dataframe::{PolicyGuardedColumn, PolicyGuardedDataFrame};
 use crate::expr::{fold_on_groups, Expr};
 use crate::policy::context::ExpressionEvalContext;
-use crate::policy::{Policy, PolicyLabel};
+use crate::policy::Policy;
 use crate::udf::Udf;
 use crate::{rwlock_unlock, Arenas};
 
@@ -185,7 +185,7 @@ impl Plan {
             } => {
                 let expr_arena = rwlock_unlock!(arena.expr_arena, read);
                 let expression = expression
-                    .iter()
+                    .par_iter()
                     .map(|e| expr_arena.get(e).cloned())
                     .collect::<PicachvResult<Vec<_>>>()?;
 
@@ -233,11 +233,11 @@ impl Plan {
             } => {
                 let expr_arena = rwlock_unlock!(arena.expr_arena, read);
                 let keys = keys
-                    .iter()
+                    .par_iter()
                     .map(|e| expr_arena.get(e).cloned())
                     .collect::<PicachvResult<Vec<_>>>()?;
                 let aggs = aggs
-                    .iter()
+                    .par_iter()
                     .map(|e| expr_arena.get(e).cloned())
                     .collect::<PicachvResult<Vec<_>>>()?;
 
@@ -330,6 +330,7 @@ fn do_hstack(
 }
 
 fn convert_slice_to_idx(slice: &GroupBySlice) -> PicachvResult<GroupByIdx> {
+    println!("this???");
     let mut group_map = HashMap::<u64, Vec<u64>>::new();
 
     for (idx, group) in slice.groups.iter().enumerate() {
@@ -425,10 +426,7 @@ pub fn early_projection(
 /// Thus function enforces the policy for the aggregation expressions.
 ///
 /// Implements the semantic of `apply_fold_on_groups_once` in `semantics.v`.
-fn check_policy_agg(
-    expr: &Expr,
-    ctx: &mut ExpressionEvalContext,
-) -> PicachvResult<Policy> {
+fn check_policy_agg(expr: &Expr, ctx: &mut ExpressionEvalContext) -> PicachvResult<Policy> {
     picachv_ensure!(
         ctx.in_agg,
         ComputeError: "The expression is not in an aggregation context."
@@ -521,7 +519,6 @@ fn do_check_expressions(
 ) -> PicachvResult<PolicyGuardedDataFrame> {
     let now = std::time::Instant::now();
 
-    println!("expr: {expression:?}");
     let rows = df.shape().0;
     let col = expression
         .par_iter()
