@@ -7,4 +7,8 @@ edition = "2021"
 clap = { version = "4.5.7", features = ["derive"] }
 indicatif = "0.17.8"
 parquet = "52.0.0"
-picachv-core = { workspace = true, features = ["fast_bin"] }
+picachv-core = { workspace = true, features = [
+  "fast_bin",
+  "json",
+  "use_parquet",
+] }

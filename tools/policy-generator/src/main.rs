@@ -7,13 +7,14 @@ use clap::{Parser, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use picachv_core::dataframe::{PolicyGuardedColumn, PolicyGuardedDataFrame};
-use picachv_core::io::{BinIo, JsonIO};
+use picachv_core::io::{BinIo, JsonIO, ParquetIO};
 use picachv_core::policy::Policy;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub enum Format {
     Json,
     Bin,
+    Parquet,
 }
 
 impl Display for Format {
@@ -21,6 +22,7 @@ impl Display for Format {
         match self {
             Format::Json => write!(f, "json"),
             Format::Bin => write!(f, "bin"),
+            Format::Parquet => write!(f, "parquet"),
         }
     }
 }
@@ -74,12 +76,15 @@ impl PolicyGenerator {
 
                 // Write the policy to a file
                 println!("Writing policy to file: {}", table);
-                let output_path =
-                    format!("{}/{}.{}", self.args.output_path, table, self.args.format);
+                let output_path = format!(
+                    "{}/{}.policy.{}",
+                    self.args.output_path, table, self.args.format
+                );
 
                 match self.args.format {
                     Format::Json => df.to_json(&output_path)?,
                     Format::Bin => df.to_bytes(&output_path)?,
+                    Format::Parquet => df.to_parquet(&output_path)?,
                 }
 
                 Ok(())
@@ -102,7 +107,7 @@ impl PolicyGenerator {
                         path.file_name().to_str().unwrap()
                     );
                     let output_path = format!(
-                        "{}/{}.{}",
+                        "{}/{}.policy.{}",
                         self.args.output_path,
                         path.file_name().to_str().unwrap(),
                         self.args.format
@@ -111,6 +116,7 @@ impl PolicyGenerator {
                     match self.args.format {
                         Format::Json => df.to_json(&output_path)?,
                         Format::Bin => df.to_bytes(&output_path)?,
+                        Format::Parquet => df.to_parquet(&output_path)?,
                     }
                 }
 

@@ -1,4 +1,6 @@
 #![feature(duration_constructors)]
+#![feature(lazy_cell)]
+#![feature(iterator_try_collect)]
 #![allow(clippy::module_inception)]
 
 use std::sync::{Arc, RwLock};
@@ -22,6 +24,7 @@ pub mod io;
 pub mod macros;
 pub mod plan;
 pub mod policy;
+pub mod thread_pool;
 pub mod udf;
 
 #[derive(Debug)]

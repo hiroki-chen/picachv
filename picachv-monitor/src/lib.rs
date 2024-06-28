@@ -7,7 +7,7 @@ use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use picachv_core::dataframe::{apply_transform, PolicyGuardedDataFrame};
 use picachv_core::expr::{ColumnIdent, Expr};
-use picachv_core::io::{BinIo, JsonIO};
+use picachv_core::io::{BinIo, JsonIO, ParquetIO};
 use picachv_core::plan::{early_projection, Plan};
 use picachv_core::udf::Udf;
 use picachv_core::{get_new_uuid, record_batch_from_bytes, rwlock_unlock, Arenas};
@@ -69,6 +69,17 @@ impl Context {
         path: P,
     ) -> PicachvResult<Uuid> {
         let df = PolicyGuardedDataFrame::from_bytes(path.as_ref())?;
+        self.register_policy_dataframe(df)
+    }
+
+    #[tracing::instrument]
+    pub fn register_policy_dataframe_parquet<P: AsRef<Path> + fmt::Debug>(
+        &self,
+        path: P,
+        projection: &[usize],
+        selection: Option<&[bool]>,
+    ) -> PicachvResult<Uuid> {
+        let df = PolicyGuardedDataFrame::from_parquet(path.as_ref(), projection, selection)?;
         self.register_policy_dataframe(df)
     }
 

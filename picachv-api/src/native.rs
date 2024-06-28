@@ -46,6 +46,7 @@ impl_ctx_api!(build_expr, expr_from_args, ctx_id: Uuid, expr_arg: ExprArgument =
 impl_ctx_api!(register_policy_dataframe, register_policy_dataframe, ctx_id: Uuid, df: PolicyGuardedDataFrame => Uuid);
 impl_ctx_api!(register_policy_dataframe_json, register_policy_dataframe_json, ctx_id: Uuid, path: &str => Uuid);
 impl_ctx_api!(register_policy_dataframe_bin, register_policy_dataframe_bin, ctx_id: Uuid, path: &str => Uuid);
+impl_ctx_api!(register_policy_dataframe_parquet, register_policy_dataframe_parquet, ctx_id: Uuid, path: &str, projection: &[usize], predicate: Option<&[bool]> => Uuid);
 impl_ctx_api!(execute_epilogue, execute_epilogue,
     ctx_id: Uuid, df_uuid: Uuid, plan_arg: Option<PlanArgument> => Uuid);
 impl_ctx_api!(finalize, finalize, ctx_id: Uuid, df_uuid: Uuid => ());

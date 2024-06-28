@@ -27,7 +27,7 @@ impl QueryFactory {
                 with_policy: with_policy.as_ref().map(|p| {
                     p.as_ref()
                         .to_path_buf()
-                        .join(format!("{}.parquet.bin", table))
+                        .join(format!("{}.parquet.policy.parquet", table))
                 }),
                 ..Default::default()
             };

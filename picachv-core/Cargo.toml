@@ -23,6 +23,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 num_enum = { workspace = true }
 ordered-float = { workspace = true }
+parquet = { workspace = true, optional = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -33,6 +34,8 @@ typetag = "0.2.16"
 parse_duration = "2.1.1"
 
 [features]
-default = ["arena_for_plan", "fast_bin"]
+default = ["arena_for_plan", "fast_bin", "use_parquet", "json"]
+json = []
+use_parquet = ["parquet", "fast_bin"]
 fast_bin = ["speedy", "ordered-float/speedy"]
 arena_for_plan = []

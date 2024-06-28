@@ -407,10 +407,39 @@ impl Default for Policy {
     }
 }
 
+// From iterator of labels to policy.
+impl FromIterator<PolicyLabel> for Policy {
+    fn from_iter<T: IntoIterator<Item = PolicyLabel>>(iter: T) -> Self {
+        let mut labels = iter.into_iter();
+        let mut res = Policy::PolicyClean;
+
+        while let Some(label) = labels.next() {
+            res = Policy::PolicyDeclassify {
+                label,
+                next: Box::new(res),
+            };
+        }
+
+        res
+    }
+}
+
 impl Policy {
     /// Constructs a new policy.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn to_vec(&self) -> Vec<PolicyLabel> {
+        let mut res = vec![];
+        let mut cur = self;
+
+        while let Policy::PolicyDeclassify { label, next } = cur {
+            res.push(label.clone());
+            cur = next.as_ref();
+        }
+
+        res
     }
 
     /// For a policy to be valid, it must be "downgrading".

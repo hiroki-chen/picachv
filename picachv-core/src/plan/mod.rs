@@ -16,6 +16,7 @@ use crate::dataframe::{PolicyGuardedColumn, PolicyGuardedDataFrame};
 use crate::expr::{fold_on_groups, Expr};
 use crate::policy::context::ExpressionEvalContext;
 use crate::policy::Policy;
+use crate::thread_pool::THREAD_POOL;
 use crate::udf::Udf;
 use crate::{rwlock_unlock, Arenas};
 
@@ -250,17 +251,22 @@ impl Plan {
                 //
                 // See the semantics for `eval_aggregate` as well as `eval_groupby_having` and
                 // `apply_fold_in_groups` in `semantics.v`.
-                let first_part = {
+                let first_part = || {
                     let df_arena = rwlock_unlock!(arena.df_arena, read);
                     let df = df_arena.get(&active_df_uuid)?;
                     let df = do_check_expressions(arena, df, &keys, udfs)?;
 
                     aggregate_keys(&df, gb_proxy)
-                }?;
+                };
                 // This is in fact `apply_fold_on_groups`, but for the sake of naming consistency
                 // we use `check_expressions_agg`.
                 let second_part =
-                    check_expressions_agg(arena, active_df_uuid, &aggs, gb_proxy, udfs)?;
+                    || check_expressions_agg(arena, active_df_uuid, &aggs, gb_proxy, udfs);
+
+                let (first_part, second_part) =
+                    THREAD_POOL.install(|| rayon::join(first_part, second_part));
+                let first_part = first_part?;
+                let second_part = second_part?;
 
                 // Combine the two parts.
                 let mut df_arena = rwlock_unlock!(arena.df_arena, write);
@@ -375,8 +381,8 @@ fn aggregate_keys_idx(
     df: &PolicyGuardedDataFrame,
     gb_proxy: &GroupByIdx,
 ) -> PicachvResult<PolicyGuardedDataFrame> {
-    let columns = (0..df.shape().1).into_par_iter().map(|col_idx| {
-        let cur = gb_proxy
+    let columns =THREAD_POOL.install(|| (0..df.shape().1).into_par_iter().map(|col_idx| {
+        let cur =  gb_proxy
             .groups
             .par_iter()
             .map(|group| {
@@ -397,7 +403,7 @@ fn aggregate_keys_idx(
             .collect::<PicachvResult<Vec<_>>>()?;
 
         Ok(PolicyGuardedColumn { policies: cur })
-    }).collect::<PicachvResult<Vec<_>>>()?;
+    }).collect::<PicachvResult<Vec<_>>>())?;
 
     Ok(PolicyGuardedDataFrame { columns })
 }
@@ -482,21 +488,23 @@ fn check_expressions_agg_idx(
     let mut df_arena = rwlock_unlock!(arena.df_arena, write);
     let df = df_arena.get(&active_df_uuid)?;
 
-    let res = agg_list
-        .par_iter()
-        .map(|agg| {
-            gb_proxy
-                .groups
-                .par_iter()
-                .map(|group| {
-                    let mut ctx = ExpressionEvalContext::new(df, true, udfs, arena);
-                    ctx.gb_proxy = Some(group);
+    let res = THREAD_POOL.install(|| {
+        agg_list
+            .par_iter()
+            .map(|agg| {
+                gb_proxy
+                    .groups
+                    .par_iter()
+                    .map(|group| {
+                        let mut ctx = ExpressionEvalContext::new(df, true, udfs, arena);
+                        ctx.gb_proxy = Some(group);
 
-                    check_policy_agg(agg, &mut ctx)
-                })
-                .collect::<PicachvResult<Vec<_>>>()
-        })
-        .collect::<PicachvResult<Vec<_>>>()?;
+                        check_policy_agg(agg, &mut ctx)
+                    })
+                    .collect::<PicachvResult<Vec<_>>>()
+            })
+            .collect::<PicachvResult<Vec<_>>>()
+    })?;
 
     tracing::debug!("check_expressions_agg: res = {res:?}");
 
@@ -520,22 +528,24 @@ fn do_check_expressions(
     let now = std::time::Instant::now();
 
     let rows = df.shape().0;
-    let col = expression
-        .par_iter()
-        .map(|expr| {
-            let cur = (0..rows)
-                .into_par_iter()
-                .map(|idx| {
-                    expr.check_policy_in_row(
-                        &mut ExpressionEvalContext::new(df, false, udfs, arena),
-                        idx,
-                    )
-                })
-                .collect::<PicachvResult<Vec<_>>>()?;
+    let col = THREAD_POOL.install(|| {
+        expression
+            .par_iter()
+            .map(|expr| {
+                let cur = (0..rows)
+                    .into_par_iter()
+                    .map(|idx| {
+                        expr.check_policy_in_row(
+                            &mut ExpressionEvalContext::new(df, false, udfs, arena),
+                            idx,
+                        )
+                    })
+                    .collect::<PicachvResult<Vec<_>>>()?;
 
-            Ok(PolicyGuardedColumn { policies: cur })
-        })
-        .collect::<PicachvResult<Vec<_>>>()?;
+                Ok(PolicyGuardedColumn { policies: cur })
+            })
+            .collect::<PicachvResult<Vec<_>>>()
+    })?;
 
     println!("do_check_expressions: elapsed = {:?}", now.elapsed());
 

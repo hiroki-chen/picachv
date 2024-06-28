@@ -2,12 +2,14 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::{Arc, RwLock};
 
+use arrow_array::{BinaryArray, RecordBatch};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::group_by_idx::Groups;
 use picachv_message::transform_info::Information;
 use picachv_message::{JoinInformation, TransformInfo};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use speedy::Readable;
 use tabled::builder::Builder;
 use tabled::settings::object::Rows;
 use tabled::settings::{Alignment, Style};
@@ -16,6 +18,7 @@ use uuid::Uuid;
 use crate::arena::Arena;
 use crate::policy::Policy;
 use crate::rwlock_unlock;
+use crate::thread_pool::THREAD_POOL;
 
 pub type Row = Vec<Policy>;
 
@@ -40,7 +43,7 @@ pub type DfArena = Arena<PolicyGuardedDataFrame>;
 /// - Perhaps we can even make the policy guarded data frame a bitmap or something.
 /// - In order to be consistent with the formal model, we should make it indexed by
 ///   identifiers like UUIDs?
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub struct PolicyGuardedColumn {
     pub(crate) policies: Vec<Policy>,
@@ -57,27 +60,12 @@ impl PolicyGuardedColumn {
 /// This [`PolicyGuardedDataFrame`] is just a conceptual wrapper around a vector of
 /// [`PolicyGuardedColumn`]s. It is not a real data structure; it does not contain
 /// any data. It is just a way to group columns together.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub struct PolicyGuardedDataFrame {
     /// Policies for the column.
     pub(crate) columns: Vec<PolicyGuardedColumn>,
 }
-
-// impl From<Vec<Row>> for PolicyGuardedDataFrame {
-//     fn from(value: Vec<Row>) -> Self {
-//         let mut columns = vec![];
-//         for i in 0..value[0].len() {
-//             let mut policies = vec![];
-//             for cur in value.iter() {
-//                 policies.push(cur[i].clone());
-//             }
-//             columns.push(PolicyGuardedColumn { policies });
-//         }
-
-//         PolicyGuardedDataFrame { columns }
-//     }
-// }
 
 impl fmt::Display for PolicyGuardedDataFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -118,29 +106,60 @@ impl fmt::Debug for PolicyGuardedDataFrame {
 
 impl PolicyGuardedDataFrame {
     pub fn reorder(&mut self, perm: &[usize]) -> PicachvResult<()> {
-        self.columns.par_iter_mut().for_each(|c| {
-            let policies = perm
-                .par_iter()
-                .map(|&i| c.policies[i].clone())
-                .collect::<Vec<_>>();
-            c.policies = policies;
+        THREAD_POOL.install(|| {
+            self.columns.par_iter_mut().for_each(|c| {
+                let policies = perm
+                    .par_iter()
+                    .map(|&i| c.policies[i].clone())
+                    .collect::<Vec<_>>();
+                c.policies = policies;
+            })
         });
 
         Ok(())
     }
 
+    /// Constructs a new [`PolicyGuardedDataFrame`] from a [`RecordBatch`].
+    pub fn new_from_record_batch(rb: RecordBatch) -> PicachvResult<Self> {
+        let columns = THREAD_POOL.install(|| {
+            rb.columns()
+                .par_iter()
+                .map(|c| {
+                    let policies = c
+                        .as_any()
+                        .downcast_ref::<BinaryArray>()
+                        .ok_or(PicachvError::InvalidOperation(
+                            "Failed to downcast to BinaryArray.".into(),
+                        ))?
+                        .iter()
+                        .map(|e| {
+                            Policy::read_from_buffer(e.unwrap())
+                                .map_err(|e| PicachvError::InvalidOperation(e.to_string().into()))
+                        })
+                        .collect::<PicachvResult<Vec<_>>>()?;
+                    Ok(PolicyGuardedColumn { policies })
+                })
+                .collect::<PicachvResult<Vec<_>>>()
+        })?;
+
+        Ok(PolicyGuardedDataFrame { columns })
+    }
+
+    /// Constructs a new [`PolicyGuardedDataFrame`] from the slice of the original
+    /// object according to the `slices` parameter.
     pub fn new_from_slice(&self, slices: &[usize]) -> PicachvResult<Self> {
-        let columns = self
-            .columns
-            .par_iter()
-            .map(|c| {
-                let policies = slices
-                    .par_iter()
-                    .map(|&i| c.policies[i].clone())
-                    .collect::<Vec<_>>();
-                PolicyGuardedColumn { policies }
-            })
-            .collect::<Vec<_>>();
+        let columns = THREAD_POOL.install(|| {
+            self.columns
+                .par_iter()
+                .map(|c| {
+                    let policies = slices
+                        .par_iter()
+                        .map(|&i| c.policies[i].clone())
+                        .collect::<Vec<_>>();
+                    PolicyGuardedColumn { policies }
+                })
+                .collect::<Vec<_>>()
+        });
 
         Ok(PolicyGuardedDataFrame { columns })
     }
@@ -188,40 +207,45 @@ impl PolicyGuardedDataFrame {
                 .collect::<Vec<_>>()
         };
 
-        let (left_columns, right_columns) = rayon::join(left_columns, right_columns);
-        let (lhs, rhs) = rayon::join(
-            || {
-                let mut lhs = lhs.clone();
-                lhs.projection_by_id(&left_columns)?;
-                PicachvResult::Ok(lhs)
-            },
-            || {
-                let mut rhs = rhs.clone();
-                rhs.projection_by_id(&right_columns)?;
-                PicachvResult::Ok(rhs)
-            },
-        );
+        let (left_columns, right_columns) =
+            THREAD_POOL.install(|| rayon::join(left_columns, right_columns));
+        let (lhs, rhs) = THREAD_POOL.install(|| {
+            rayon::join(
+                || {
+                    let mut lhs = lhs.clone();
+                    lhs.projection_by_id(&left_columns)?;
+                    PicachvResult::Ok(lhs)
+                },
+                || {
+                    let mut rhs = rhs.clone();
+                    rhs.projection_by_id(&right_columns)?;
+                    PicachvResult::Ok(rhs)
+                },
+            )
+        });
 
         let (lhs, rhs) = (lhs?, rhs?);
 
-        let (lhs, rhs) = rayon::join(
-            || {
-                let left_idx = info
-                    .row_join_info
-                    .par_iter()
-                    .map(|e| e.left_row as usize)
-                    .collect::<Vec<_>>();
-                lhs.new_from_slice(&left_idx)
-            },
-            || {
-                let right_idx = info
-                    .row_join_info
-                    .par_iter()
-                    .map(|e| e.right_row as usize)
-                    .collect::<Vec<_>>();
-                rhs.new_from_slice(&right_idx)
-            },
-        );
+        let (lhs, rhs) = THREAD_POOL.install(|| {
+            rayon::join(
+                || {
+                    let left_idx = info
+                        .row_join_info
+                        .par_iter()
+                        .map(|e| e.left_row as usize)
+                        .collect::<Vec<_>>();
+                    lhs.new_from_slice(&left_idx)
+                },
+                || {
+                    let right_idx = info
+                        .row_join_info
+                        .par_iter()
+                        .map(|e| e.right_row as usize)
+                        .collect::<Vec<_>>();
+                    rhs.new_from_slice(&right_idx)
+                },
+            )
+        });
         let (lhs, rhs) = (lhs?, rhs?);
 
         // We then stitch them together.
@@ -231,18 +255,19 @@ impl PolicyGuardedDataFrame {
 
     /// According to the `groups` struct, fetch the group of columns.
     pub fn groups(&self, groups: &Groups) -> PicachvResult<Self> {
-        let col = self
-            .columns
-            .par_iter()
-            .map(|c| {
-                let policies = groups
-                    .group
-                    .par_iter()
-                    .map(|g| c.policies[*g as usize].clone())
-                    .collect::<Vec<_>>();
-                PolicyGuardedColumn { policies }
-            })
-            .collect::<Vec<_>>();
+        let col = THREAD_POOL.install(|| {
+            self.columns
+                .par_iter()
+                .map(|c| {
+                    let policies = groups
+                        .group
+                        .par_iter()
+                        .map(|g| c.policies[*g as usize].clone())
+                        .collect::<Vec<_>>();
+                    PolicyGuardedColumn { policies }
+                })
+                .collect::<Vec<_>>()
+        });
 
         Ok(PolicyGuardedDataFrame { columns: col })
     }
@@ -253,11 +278,14 @@ impl PolicyGuardedDataFrame {
             ComputeError: "The index is out of bound.",
         );
 
-        Ok(self
-            .columns
-            .par_iter()
-            .map(|c| c.policies[idx].clone())
-            .collect::<Vec<_>>())
+        let res = THREAD_POOL.install(|| {
+            self.columns
+                .par_iter()
+                .map(|c| c.policies[idx].clone())
+                .collect::<Vec<_>>()
+        });
+
+        Ok(res)
     }
 
     /// Stitch two dataframes (veritcally).
@@ -330,10 +358,12 @@ impl PolicyGuardedDataFrame {
             );
         }
 
-        self.columns = project_list
-            .par_iter()
-            .map(|&i| self.columns[i].clone())
-            .collect();
+        self.columns = THREAD_POOL.install(|| {
+            project_list
+                .par_iter()
+                .map(|&i| self.columns[i].clone())
+                .collect()
+        });
         Ok(())
     }
 
@@ -383,20 +413,21 @@ impl PolicyGuardedDataFrame {
             ComputeError: "The length of the predicate does not match the dataframe: {} != {}", pred.len(), self.shape().0,
         );
 
-        self.columns = self
-            .columns
-            .par_iter()
-            .map(|c| {
-                let policies = c
-                    .policies
-                    .par_iter()
-                    .zip(pred.par_iter())
-                    .filter_map(|(p, b)| if *b { Some(p.clone()) } else { None })
-                    .collect::<Vec<_>>();
+        self.columns = THREAD_POOL.install(|| {
+            self.columns
+                .par_iter()
+                .map(|c| {
+                    let policies = c
+                        .policies
+                        .par_iter()
+                        .zip(pred.par_iter())
+                        .filter_map(|(p, b)| if *b { Some(p.clone()) } else { None })
+                        .collect::<Vec<_>>();
 
-                PolicyGuardedColumn { policies }
-            })
-            .collect();
+                    PolicyGuardedColumn { policies }
+                })
+                .collect()
+        });
 
         Ok(())
     }

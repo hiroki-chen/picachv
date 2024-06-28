@@ -18,6 +18,7 @@ use crate::constants::GroupByMethod;
 use crate::policy::context::ExpressionEvalContext;
 use crate::policy::types::AnyValue;
 use crate::policy::{policy_ok, BinaryTransformType, Policy, TransformType};
+use crate::thread_pool::THREAD_POOL;
 use crate::udf::Udf;
 use crate::{
     build_unary_expr, cast, policy_agg_label, policy_binary_transform_label,
@@ -184,19 +185,20 @@ impl Expr {
                         ComputeError: "Must reify column `{name}` into index"
                     ),
                 };
-
-                (0..groups.shape().0)
-                    .into_par_iter()
-                    .map(|i| {
-                        groups.columns[col]
-                            .policies
-                            .get(i)
-                            .ok_or(PicachvError::ComputeError(
-                                "The column does not exist.".into(),
-                            ))
-                            .map(|p| p.clone())
-                    })
-                    .collect::<PicachvResult<Vec<_>>>()
+                THREAD_POOL.install(|| {
+                    (0..groups.shape().0)
+                        .into_par_iter()
+                        .map(|i| {
+                            groups.columns[col]
+                                .policies
+                                .get(i)
+                                .ok_or(PicachvError::ComputeError(
+                                    "The column does not exist.".into(),
+                                ))
+                                .map(|p| p.clone())
+                        })
+                        .collect::<PicachvResult<Vec<_>>>()
+                })
             },
 
             Expr::Apply {
@@ -303,7 +305,7 @@ impl Expr {
 
                 let lhs = || left.check_policy_in_row(ctx, idx);
                 let rhs = || right.check_policy_in_row(ctx, idx);
-                let (lhs, rhs) = rayon::join(lhs, rhs);
+                let (lhs, rhs) = THREAD_POOL.install(|| rayon::join(lhs, rhs));
                 let (lhs, rhs) = (lhs?, rhs?);
 
                 if matches!(
@@ -386,7 +388,7 @@ impl Expr {
 
                 let then = || then.check_policy_in_row(ctx, idx);
                 let otherwise = || otherwise.check_policy_in_row(ctx, idx);
-                let (then, otherwise) = rayon::join(then, otherwise);
+                let (then, otherwise) = THREAD_POOL.install(|| rayon::join(then, otherwise));
                 let (then, otherwise) = (then?, otherwise?);
 
                 Ok(if cond_values[idx] { then } else { otherwise })
@@ -412,9 +414,7 @@ impl Expr {
     }
 }
 
-fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<Vec<AnyValue>>> {
-    let now = std::time::Instant::now();
-
+pub(crate) fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<Vec<AnyValue>>> {
     let columns = rb.columns();
 
     if columns.is_empty() {
@@ -422,63 +422,65 @@ fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<Vec<AnyValue>>> {
     }
 
     // Iterate over the rows.
-    let rows = (0..rb.num_rows())
-        .into_par_iter()
-        .map(|i| {
-            columns
-                .into_par_iter()
-                .map(|column| match column.data_type() {
-                    DataType::Int32 => {
-                        let array = column.as_any().downcast_ref::<Int32Array>().unwrap();
-                        let value = array.value(i);
-                        Ok(AnyValue::Int32(value))
-                    },
-                    DataType::UInt32 => {
-                        let array = column.as_any().downcast_ref::<UInt32Array>().unwrap();
-                        let value = array.value(i);
-                        Ok(AnyValue::UInt32(value as _))
-                    }
-                    DataType::Int64 => {
-                        let array = column.as_any().downcast_ref::<Int64Array>().unwrap();
-                        let value = array.value(i);
-                        Ok(AnyValue::Int64(value as _))
-                    },
-                    DataType::Float64 => {
-                        let array = column.as_any().downcast_ref::<Float64Array>().unwrap();
-                        let value = array.value(i);
-                        Ok(AnyValue::Float64(value.into()))
-                    },
-                    DataType::Date32 => {
-                        let array = column.as_any().downcast_ref::<Date32Array>().unwrap();
-                        let value = array.value(i);
-                        Ok(AnyValue::Duration(Duration::from_days(value as _)))
-                    },
-                    DataType::Timestamp(timestamp, _) => match timestamp {
-                        TimeUnit::Nanosecond => {
-                            let array = column
-                                .as_any()
-                                .downcast_ref::<TimestampNanosecondArray>()
-                                .unwrap();
+    let rows = THREAD_POOL.install(|| {
+        (0..rb.num_rows())
+            .into_par_iter()
+            .map(|i| {
+                columns
+                    .into_par_iter()
+                    .map(|column| match column.data_type() {
+                        DataType::Int32 => {
+                            let array = column.as_any().downcast_ref::<Int32Array>().unwrap();
                             let value = array.value(i);
-                            Ok(AnyValue::Duration(Duration::from_nanos(value as _)))
+                            Ok(AnyValue::Int32(value))
                         },
-                        _ => todo!(),
-                    },
-                    DataType::LargeUtf8 => {
-                        let array = column.as_any().downcast_ref::<LargeStringArray>().unwrap();
-                        let value = array.value(i);
-                        Ok(AnyValue::String(value.to_string()))
-                    },
-                    DataType::Boolean => {
-                        let array = column.as_any().downcast_ref::<BooleanArray>().unwrap();
-                        let value = array.value(i);
-                        Ok(AnyValue::Boolean(value))
-                    },
-                    ty => picachv_bail!(InvalidOperation: "{ty} is not supported"),
-                })
-                .collect::<PicachvResult<Vec<_>>>()
-        })
-        .collect::<PicachvResult<Vec<_>>>()?;
+                        DataType::UInt32 => {
+                            let array = column.as_any().downcast_ref::<UInt32Array>().unwrap();
+                            let value = array.value(i);
+                            Ok(AnyValue::UInt32(value as _))
+                        },
+                        DataType::Int64 => {
+                            let array = column.as_any().downcast_ref::<Int64Array>().unwrap();
+                            let value = array.value(i);
+                            Ok(AnyValue::Int64(value as _))
+                        },
+                        DataType::Float64 => {
+                            let array = column.as_any().downcast_ref::<Float64Array>().unwrap();
+                            let value = array.value(i);
+                            Ok(AnyValue::Float64(value.into()))
+                        },
+                        DataType::Date32 => {
+                            let array = column.as_any().downcast_ref::<Date32Array>().unwrap();
+                            let value = array.value(i);
+                            Ok(AnyValue::Duration(Duration::from_days(value as _)))
+                        },
+                        DataType::Timestamp(timestamp, _) => match timestamp {
+                            TimeUnit::Nanosecond => {
+                                let array = column
+                                    .as_any()
+                                    .downcast_ref::<TimestampNanosecondArray>()
+                                    .unwrap();
+                                let value = array.value(i);
+                                Ok(AnyValue::Duration(Duration::from_nanos(value as _)))
+                            },
+                            _ => todo!(),
+                        },
+                        DataType::LargeUtf8 => {
+                            let array = column.as_any().downcast_ref::<LargeStringArray>().unwrap();
+                            let value = array.value(i);
+                            Ok(AnyValue::String(value.to_string()))
+                        },
+                        DataType::Boolean => {
+                            let array = column.as_any().downcast_ref::<BooleanArray>().unwrap();
+                            let value = array.value(i);
+                            Ok(AnyValue::Boolean(value))
+                        },
+                        ty => picachv_bail!(InvalidOperation: "{ty} is not supported"),
+                    })
+                    .collect::<PicachvResult<Vec<_>>>()
+            })
+            .collect::<PicachvResult<Vec<_>>>()
+    })?;
 
     Ok(rows)
 }
@@ -705,36 +707,38 @@ pub(crate) fn fold_on_groups(groups: &[Policy], how: GroupByMethod) -> PicachvRe
 
     let pf = policy_agg_label!(how, groups.len());
 
-    groups
-        .par_iter()
-        .fold(
-            || Ok(Policy::PolicyClean),
-            |p_output, p_cur| {
-                let p_after = p_cur.downgrade(pf.clone())?;
-                match p_output {
-                    Ok(p_output) => {
-                        if p_output.le(&p_after)? {
-                            Ok(p_after)
+    THREAD_POOL.install(|| {
+        groups
+            .par_iter()
+            .fold(
+                || Ok(Policy::PolicyClean),
+                |p_output, p_cur| {
+                    let p_after = p_cur.downgrade(pf.clone())?;
+                    match p_output {
+                        Ok(p_output) => {
+                            if p_output.le(&p_after)? {
+                                Ok(p_after)
+                            } else {
+                                Ok(p_output)
+                            }
+                        },
+                        Err(e) => Err(e),
+                    }
+                },
+            )
+            .reduce(
+                || Ok(Policy::PolicyClean),
+                |p_output, p_cur| match (p_output, p_cur) {
+                    (Ok(p_output), Ok(p_cur)) => {
+                        if p_output.le(&p_cur)? {
+                            Ok(p_cur)
                         } else {
                             Ok(p_output)
                         }
                     },
-                    Err(e) => Err(e),
-                }
-            },
-        )
-        .reduce(
-            || Ok(Policy::PolicyClean),
-            |p_output, p_cur| match (p_output, p_cur) {
-                (Ok(p_output), Ok(p_cur)) => {
-                    if p_output.le(&p_cur)? {
-                        Ok(p_cur)
-                    } else {
-                        Ok(p_output)
-                    }
+                    (Err(e), _) => Err(e),
+                    (_, Err(e)) => Err(e),
                 },
-                (Err(e), _) => Err(e),
-                (_, Err(e)) => Err(e),
-            },
-        )
+            )
+    })
 }
