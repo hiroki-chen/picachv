@@ -54,6 +54,9 @@ fn main() -> PolarsResult<()> {
         13 => qf.q13(),
         14 => qf.q14(),
         15 => qf.q15(),
+        18 => qf.q18(),
+        19 => qf.q19(),
+        21 => qf.q21(),
         // 16 => qf.q16(),
         16..=22 => {
             panic!("Query not implemented");

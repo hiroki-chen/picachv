@@ -4,7 +4,7 @@ use std::{fmt, vec};
 
 use arrow_array::{
     Array, BooleanArray, Date32Array, Float64Array, Int32Array, Int64Array, LargeStringArray,
-    RecordBatch, TimestampNanosecondArray,
+    RecordBatch, TimestampNanosecondArray, UInt32Array,
 };
 use arrow_schema::{DataType, TimeUnit};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
@@ -81,6 +81,9 @@ impl AggExpr {
             Self::Mean(_) => GroupByMethod::Mean,
             Self::Implode(_) => GroupByMethod::Implode,
             Self::Sum(_) => GroupByMethod::Sum,
+            Self::Count(_, incl) => GroupByMethod::Count {
+                include_nulls: *incl,
+            },
             _ => unimplemented!(),
         }
     }
@@ -430,6 +433,11 @@ fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<Vec<AnyValue>>> {
                         let value = array.value(i);
                         Ok(AnyValue::Int32(value))
                     },
+                    DataType::UInt32 => {
+                        let array = column.as_any().downcast_ref::<UInt32Array>().unwrap();
+                        let value = array.value(i);
+                        Ok(AnyValue::UInt32(value as _))
+                    }
                     DataType::Int64 => {
                         let array = column.as_any().downcast_ref::<Int64Array>().unwrap();
                         let value = array.value(i);

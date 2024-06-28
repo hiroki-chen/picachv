@@ -7,3 +7,7 @@ Since the original implementation of TPC-H is not very tailored to our specific 
 ## Layout
 
 - `dbgen`: The official implementation of the table generation code from TPC-H.
+
+## Unsupported TPC-H Queries
+
+So far we don't support `LEFT OUTER JOIN` so the following queries: Q16, Q17, Q20, Q22.
