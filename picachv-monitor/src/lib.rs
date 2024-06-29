@@ -178,11 +178,11 @@ impl Context {
                 let plan = Plan::from_args(&self.arena, arg)?;
                 let df_uuid = if self.options.enable_profiling {
                     PROFILER.profile(
-                        || plan.check_executor(&self.arena, df_uuid, &self.udfs),
+                        || plan.check_executor(&self.arena, df_uuid, &self.udfs, &self.options),
                         "check_executor".into(),
                     )
                 } else {
-                    plan.check_executor(&self.arena, df_uuid, &self.udfs)
+                    plan.check_executor(&self.arena, df_uuid, &self.udfs, &self.options)
                 }?;
 
                 if let Some(ti) = plan_arg.transform_info {

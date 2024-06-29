@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::fmt;
 use std::hash::Hash;
-use std::sync::OnceLock;
+use std::sync::{Arc, LazyLock};
 
 use ordered_float::OrderedFloat;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
@@ -16,11 +16,12 @@ use crate::constants::GroupByMethod;
 pub const P_CLEAN: Policy = Policy::PolicyClean;
 
 pub fn p_bot() -> &'static Policy {
-    static POLICY: OnceLock<Policy> = OnceLock::new();
-    POLICY.get_or_init(|| Policy::PolicyDeclassify {
-        label: PolicyLabel::PolicyBot,
-        next: Box::new(Policy::PolicyClean),
-    })
+    static POLICY: LazyLock<Policy> = LazyLock::new(|| Policy::PolicyDeclassify {
+        label: Arc::new(PolicyLabel::PolicyBot),
+        next: Arc::new(Policy::PolicyClean),
+    });
+
+    &POLICY
 }
 
 #[inline(always)]
@@ -30,29 +31,29 @@ pub fn policy_ok(p: &Policy) -> bool {
 
 /// Denotes the privacy schemes that should be applied to the result and/or the dataset.
 #[derive(Clone, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
+
 pub enum PrivacyScheme {
     /// Differential privacy with a given set of parameters (`epsilon`, `delta`).
     DifferentialPrivacy(DpParam),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
+
 pub struct UnaryTransformType {
     /// The name of the operation.
     pub name: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
+
 pub struct BinaryTransformType {
     pub name: String,
     // What about the type??
-    pub arg: AnyValue,
+    pub arg: Arc<AnyValue>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
+
 pub enum TransformType {
     Unary(UnaryTransformType),
     Binary(BinaryTransformType),
@@ -60,7 +61,7 @@ pub enum TransformType {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
+
 pub struct AggType {
     pub how: GroupByMethod,
     /// The size of the group.
@@ -134,14 +135,14 @@ pub trait SetLike {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
+
 pub struct TransformOps(pub HashSet<TransformType>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
+
 pub struct AggOps(pub HashSet<AggType>);
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
+
 pub struct PrivacyOp(pub PrivacyScheme);
 
 impl SetLike for TransformOps {
@@ -206,7 +207,7 @@ impl SetLike for PrivacyOp {
 
 /// The full-fledged policy label with downgrading operators attached.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
+
 pub enum PolicyLabel {
     PolicyBot,
     PolicyTransform { ops: TransformOps },
@@ -217,16 +218,16 @@ pub enum PolicyLabel {
 
 /// Denotes the policy that is applied to each individual cell.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
+
 pub enum Policy {
     /// No policy is applied.
     PolicyClean,
     /// A declassfiication policy is applied.
     PolicyDeclassify {
         /// The label of the policy.
-        label: PolicyLabel,
+        label: Arc<PolicyLabel>,
         /// The next policy in the chain.
-        next: Box<Self>,
+        next: Arc<Self>,
     },
 }
 
@@ -415,8 +416,8 @@ impl FromIterator<PolicyLabel> for Policy {
 
         for label in labels {
             res = Policy::PolicyDeclassify {
-                label,
-                next: Box::new(res),
+                label: Arc::new(label),
+                next: Arc::new(res),
             };
         }
 
@@ -430,7 +431,7 @@ impl Policy {
         Self::default()
     }
 
-    pub fn to_vec(&self) -> Vec<PolicyLabel> {
+    pub fn to_vec(&self) -> Vec<Arc<PolicyLabel>> {
         let mut res = vec![];
         let mut cur = self;
 
@@ -469,20 +470,27 @@ impl Policy {
     /// ```
     ///
     /// As the above example shows, the policy chain is constructed from top to bottom.
-    pub fn cons(self, label: PolicyLabel) -> PicachvResult<Self> {
-        match &self {
+    pub fn cons(self, label: Arc<PolicyLabel>) -> PicachvResult<Self> {
+        match self {
             Policy::PolicyClean => Ok(Self::PolicyDeclassify {
                 label,
-                next: Box::new(self),
+                next: Arc::new(self),
             }),
             Policy::PolicyDeclassify {
                 label: cur,
                 next: p,
             } => match cur.flowsto(&label) {
-                false => Ok(Self::PolicyDeclassify {
-                    label: cur.clone(),
-                    next: Box::new(p.clone().cons(label)?),
-                }),
+                false => {
+                    let inner = match Arc::try_unwrap(p) {
+                        Ok(p) => p,
+                        Err(p) => (*p).clone(),
+                    };
+
+                    Ok(Self::PolicyDeclassify {
+                        label: cur.clone(),
+                        next: Arc::new(inner.cons(label)?),
+                    })
+                },
                 true => Err(PicachvError::InvalidOperation(
                     "policy label is not ordered correctly".into(),
                 )),
@@ -557,8 +565,8 @@ impl Policy {
             ) => {
                 if label1.base_eq(label2) {
                     return Ok(Policy::PolicyDeclassify {
-                        label: label1.join(label2),
-                        next: Box::new(next1.join(next2)?),
+                        label: Arc::new(label1.join(label2)),
+                        next: Arc::new(next1.join(next2)?),
                     });
                 }
 
@@ -569,14 +577,14 @@ impl Policy {
 
                 Ok(Policy::PolicyDeclassify {
                     label: lbl.clone(),
-                    next: Box::new(p3),
+                    next: Arc::new(p3),
                 })
             },
         }
     }
 
     /// Checks and downgrades the policy by a given label.
-    pub fn downgrade(&self, by: PolicyLabel) -> PicachvResult<Self> {
+    pub fn downgrade(&self, by: &Arc<PolicyLabel>) -> PicachvResult<Self> {
         let p = build_policy!(by.clone())?;
         tracing::debug!("in downgrade: constructed policy: {p:?}");
 
@@ -628,27 +636,27 @@ impl TryFrom<ArithmeticBinaryOperator> for BinaryTransformType {
         match op {
             ArithmeticBinaryOperator::Add => Ok(Self {
                 name: "add".into(),
-                arg: AnyValue::None,
+                arg: Arc::new(AnyValue::None),
             }),
             ArithmeticBinaryOperator::Sub => Ok(Self {
                 name: "sub".into(),
-                arg: AnyValue::None,
+                arg: Arc::new(AnyValue::None),
             }),
             ArithmeticBinaryOperator::Mul => Ok(Self {
                 name: "mul".into(),
-                arg: AnyValue::None,
+                arg: Arc::new(AnyValue::None),
             }),
             ArithmeticBinaryOperator::Div => Ok(Self {
                 name: "div".into(),
-                arg: AnyValue::None,
+                arg: Arc::new(AnyValue::None),
             }),
             ArithmeticBinaryOperator::Mod => Ok(Self {
                 name: "mod".into(),
-                arg: AnyValue::None,
+                arg: Arc::new(AnyValue::None),
             }),
             ArithmeticBinaryOperator::Pow => Ok(Self {
                 name: "pow".into(),
-                arg: AnyValue::None,
+                arg: Arc::new(AnyValue::None),
             }),
             _ => picachv_bail!(InvalidOperation: "unsupported arithmetic binary operator"),
         }

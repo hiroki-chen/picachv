@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fmt::Display;
 use std::fs::{self, File};
 use std::result::Result;
+use std::sync::Arc;
 
 use clap::{Parser, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -147,12 +148,12 @@ impl PolicyGenerator {
             pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})").unwrap().progress_chars("#>-"));
             for _ in 0..row_num {
                 let p = Policy::PolicyClean;
-                c.push(p);
+                c.push(p.into());
                 pb.inc(1);
             }
             pb.finish_with_message("done");
 
-            columns.push(PolicyGuardedColumn::new(c));
+            columns.push(Arc::new(PolicyGuardedColumn::new(c)));
             names.push(col.name().to_string());
         }
 

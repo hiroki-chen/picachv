@@ -5,6 +5,8 @@ use std::sync::Arc;
 use picachv_error::{PicachvError, PicachvResult};
 use uuid::Uuid;
 
+// FIXME: This type is problematic. Here we need to use interior mutability!
+// Guard the `Arc<T>` with a `RwLock`.
 pub type ArenaType<T> = HashMap<Uuid, Arc<T>>;
 
 /// Stores a collection of objects looked up by UUID.

@@ -1,6 +1,7 @@
 use core::fmt;
 use std::cmp::Ordering;
 use std::hash::Hash;
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::DateTime;
@@ -9,8 +10,10 @@ use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::PrimitiveValue;
 use serde::{Deserialize, Serialize};
 
+pub type AnyValueRef = Arc<AnyValue>;
+pub type ValueArrayRef = Arc<Vec<AnyValueRef>>;
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub struct DpParam(OrderedFloat<f64>, Option<OrderedFloat<f64>>);
 
 impl DpParam {
@@ -46,7 +49,7 @@ impl Ord for DpParam {
 
 /// A type that can represent any value.
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
+
 pub enum AnyValue {
     Boolean(bool),
     String(String),

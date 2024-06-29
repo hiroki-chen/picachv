@@ -11,13 +11,13 @@ pub use policy::*;
 macro_rules! build_policy {
     () => { $crate::policy::Policy::default() };
     ($label:expr) => {
-        $crate::policy::Policy::new().cons($label.clone())
+        $crate::policy::Policy::new().cons($label.into())
     };
     ($label:expr $(=> $rest:path)*) => {{
-        let mut policy = $crate::policy::Policy::new().cons($label.clone());
+        let policy = $crate::policy::Policy::new().cons($label.into());
 
         $(
-            policy = policy.and_then(|p| p.cons($rest));
+            let policy = policy.and_then(|p| p.cons($rest.into()));
         )*
 
         policy
@@ -39,6 +39,7 @@ macro_rules! build_unary_expr {
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
+    use std::sync::Arc;
     use std::time::Duration;
 
     use crate::constants::GroupByMethod;
@@ -49,7 +50,7 @@ mod tests {
     #[test]
     fn test_build_policy() {
         let policy = build_policy!(PolicyLabel::PolicyTransform {
-            ops: TransformOps(HashSet::from_iter(vec![TransformType::Binary(BinaryTransformType{name: "dt.offset_by".into(), arg: AnyValue::Duration(Duration::new(5, 0)) })].into_iter()))
+            ops: TransformOps(HashSet::from_iter(vec![TransformType::Binary(BinaryTransformType{name: "dt.offset_by".into(), arg: Arc::new(AnyValue::Duration(Duration::new(5, 0))) })].into_iter()))
         } => PolicyLabel::PolicyBot);
         assert!(policy.is_ok());
         let policy = build_policy!(PolicyLabel::PolicyTop => PolicyLabel::PolicyBot => PolicyLabel::PolicyTop);
@@ -59,7 +60,7 @@ mod tests {
     #[test]
     fn test_serde_policy() {
         let prev = build_policy!(PolicyLabel::PolicyTransform {
-            ops: TransformOps(HashSet::from_iter(vec![TransformType::Binary(BinaryTransformType{name: "dt.offset_by".into(), arg: AnyValue::Duration(Duration::new(5, 0)) })].into_iter()))
+            ops: TransformOps(HashSet::from_iter(vec![TransformType::Binary(BinaryTransformType{name: "dt.offset_by".into(), arg: Arc::new(AnyValue::Duration(Duration::new(5, 0))) })].into_iter()))
         } => PolicyLabel::PolicyBot)
         .unwrap();
         let policy_str = serde_json::to_string(&prev).unwrap();
@@ -70,9 +71,11 @@ mod tests {
     #[test]
     fn test_policy_join() {
         let policy_lhs = build_policy!(PolicyLabel::PolicyTop).unwrap();
-        let policy_rhs =
-            policy_binary_transform_label!("dt.offset_by", AnyValue::Duration(Duration::new(5, 0)));
-        let polich_rhs = build_policy!(policy_rhs).unwrap();
+        let policy_rhs = policy_binary_transform_label!(
+            "dt.offset_by",
+            Arc::new(AnyValue::Duration(Duration::new(5, 0)))
+        );
+        let polich_rhs = build_policy!(policy_rhs.clone()).unwrap();
         let policy_res = build_policy!(PolicyLabel::PolicyTop => policy_rhs).unwrap();
 
         let res = policy_lhs.join(&polich_rhs);

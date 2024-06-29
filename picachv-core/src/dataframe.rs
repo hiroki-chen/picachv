@@ -1,5 +1,5 @@
 use std::fmt;
-use std::ops::Range;
+use std::ops::{Deref, Range};
 use std::sync::{Arc, RwLock};
 
 use arrow_array::{BinaryArray, RecordBatch};
@@ -9,19 +9,21 @@ use picachv_message::transform_info::Information;
 use picachv_message::{ContextOptions, JoinInformation, TransformInfo};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use speedy::Readable;
 use tabled::builder::Builder;
 use tabled::settings::object::Rows;
 use tabled::settings::{Alignment, Style};
 use uuid::Uuid;
 
 use crate::arena::Arena;
+use crate::io::BinIo;
 use crate::policy::Policy;
 use crate::profiler::PROFILER;
 use crate::rwlock_unlock;
 use crate::thread_pool::THREAD_POOL;
 
-pub type Row = Vec<Policy>;
+pub type PolicyGuardedColumnRef = Arc<PolicyGuardedColumn>;
+pub type PolicyRef = Arc<Policy>;
+pub type Row = Vec<PolicyRef>;
 
 pub type DfArena = Arena<PolicyGuardedDataFrame>;
 
@@ -45,13 +47,12 @@ pub type DfArena = Arena<PolicyGuardedDataFrame>;
 /// - In order to be consistent with the formal model, we should make it indexed by
 ///   identifiers like UUIDs?
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub struct PolicyGuardedColumn {
-    pub(crate) policies: Vec<Policy>,
+    pub(crate) policies: Vec<PolicyRef>,
 }
 
 impl PolicyGuardedColumn {
-    pub fn new(policies: Vec<Policy>) -> Self {
+    pub fn new(policies: Vec<PolicyRef>) -> Self {
         PolicyGuardedColumn { policies }
     }
 }
@@ -59,13 +60,15 @@ impl PolicyGuardedColumn {
 /// A contiguous growable collection of `Series` that have the same length.
 ///
 /// This [`PolicyGuardedDataFrame`] is just a conceptual wrapper around a vector of
-/// [`PolicyGuardedColumn`]s. It is not a real data structure; it does not contain
+/// [`PolicyGuardedColumnRef`]s. It is not a real data structure; it does not contain
 /// any data. It is just a way to group columns together.
+///
+/// The reason we use a vector of [`PolicyGuardedColumnRef`]s is that it is more efficient
+/// to store the reference to avoid unnecessary cloning.
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(feature = "fast_bin", derive(speedy::Readable, speedy::Writable))]
 pub struct PolicyGuardedDataFrame {
     /// Policies for the column.
-    pub(crate) columns: Vec<PolicyGuardedColumn>,
+    pub(crate) columns: Vec<PolicyGuardedColumnRef>,
 }
 
 impl fmt::Display for PolicyGuardedDataFrame {
@@ -113,7 +116,7 @@ impl PolicyGuardedDataFrame {
                     .par_iter()
                     .map(|&i| c.policies[i].clone())
                     .collect::<Vec<_>>();
-                c.policies = policies;
+                // c.policies = policies;
             })
         });
 
@@ -134,11 +137,12 @@ impl PolicyGuardedDataFrame {
                         ))?
                         .iter()
                         .map(|e| {
-                            Policy::read_from_buffer(e.unwrap())
-                                .map_err(|e| PicachvError::InvalidOperation(e.to_string().into()))
+                            Ok(Arc::new(Policy::from_byte_array(e.unwrap()).map_err(
+                                |e| PicachvError::InvalidOperation(e.to_string().into()),
+                            )?))
                         })
                         .collect::<PicachvResult<Vec<_>>>()?;
-                    Ok(PolicyGuardedColumn { policies })
+                    Ok(Arc::new(PolicyGuardedColumn { policies }))
                 })
                 .collect::<PicachvResult<Vec<_>>>()
         })?;
@@ -157,7 +161,7 @@ impl PolicyGuardedDataFrame {
                         .par_iter()
                         .map(|&i| c.policies[i].clone())
                         .collect::<Vec<_>>();
-                    PolicyGuardedColumn { policies }
+                    Arc::new(PolicyGuardedColumn { policies })
                 })
                 .collect::<Vec<_>>()
         });
@@ -179,7 +183,7 @@ impl PolicyGuardedDataFrame {
             for i in range.clone() {
                 policies.push(col.policies[i].clone());
             }
-            columns.push(PolicyGuardedColumn { policies });
+            columns.push(Arc::new(PolicyGuardedColumn { policies }));
         }
 
         Ok(PolicyGuardedDataFrame { columns })
@@ -193,40 +197,48 @@ impl PolicyGuardedDataFrame {
         lhs: &PolicyGuardedDataFrame,
         rhs: &PolicyGuardedDataFrame,
         info: &JoinInformation,
+        options: &ContextOptions,
     ) -> PicachvResult<Self> {
-        // We select columns according to `left_columns` and `right_columns`.
-        let left_columns = || {
-            info.left_columns
-                .par_iter()
-                .map(|e| *e as usize)
-                .collect::<Vec<_>>()
-        };
-        let right_columns = || {
-            info.right_columns
-                .par_iter()
-                .map(|e| *e as usize)
-                .collect::<Vec<_>>()
+        let join_preparation = || {
+            let left_columns = unsafe {
+                std::slice::from_raw_parts(
+                    info.left_columns.as_ptr() as *const usize,
+                    info.left_columns.len(),
+                )
+            };
+            let right_columns = unsafe {
+                std::slice::from_raw_parts(
+                    info.right_columns.as_ptr() as *const usize,
+                    info.right_columns.len(),
+                )
+            };
+
+            let mut lhs = lhs.clone();
+            let mut rhs = rhs.clone();
+            let (lhs, rhs) = THREAD_POOL.install(|| {
+                rayon::join(
+                    || {
+                        lhs.projection_by_id(left_columns)?;
+                        PicachvResult::Ok(lhs)
+                    },
+                    || {
+                        // let mut rhs = rhs.clone();
+                        rhs.projection_by_id(&right_columns)?;
+                        PicachvResult::Ok(rhs)
+                    },
+                )
+            });
+
+            (lhs, rhs)
         };
 
-        let (left_columns, right_columns) =
-            THREAD_POOL.install(|| rayon::join(left_columns, right_columns));
-        let (lhs, rhs) = THREAD_POOL.install(|| {
-            rayon::join(
-                || {
-                    let mut lhs = lhs.clone();
-                    lhs.projection_by_id(&left_columns)?;
-                    PicachvResult::Ok(lhs)
-                },
-                || {
-                    let mut rhs = rhs.clone();
-                    rhs.projection_by_id(&right_columns)?;
-                    PicachvResult::Ok(rhs)
-                },
-            )
-        });
+        let (lhs, rhs) = if options.enable_profiling {
+            PROFILER.profile(join_preparation, "join_preparation".into())
+        } else {
+            join_preparation()
+        };
 
         let (lhs, rhs) = (lhs?, rhs?);
-
         let (lhs, rhs) = THREAD_POOL.install(|| {
             rayon::join(
                 || {
@@ -256,7 +268,7 @@ impl PolicyGuardedDataFrame {
 
     /// According to the `groups` struct, fetch the group of columns.
     pub fn groups(&self, groups: &Groups) -> PicachvResult<Self> {
-        let col = THREAD_POOL.install(|| {
+        let columns = THREAD_POOL.install(|| {
             self.columns
                 .par_iter()
                 .map(|c| {
@@ -265,15 +277,15 @@ impl PolicyGuardedDataFrame {
                         .par_iter()
                         .map(|g| c.policies[*g as usize].clone())
                         .collect::<Vec<_>>();
-                    PolicyGuardedColumn { policies }
+                    Arc::new(PolicyGuardedColumn { policies })
                 })
                 .collect::<Vec<_>>()
         });
 
-        Ok(PolicyGuardedDataFrame { columns: col })
+        Ok(PolicyGuardedDataFrame { columns })
     }
 
-    pub fn row(&self, idx: usize) -> PicachvResult<Vec<Policy>> {
+    pub fn row(&self, idx: usize) -> PicachvResult<Vec<&PolicyRef>> {
         picachv_ensure!(
             idx < self.shape().0,
             ComputeError: "The index is out of bound.",
@@ -282,7 +294,7 @@ impl PolicyGuardedDataFrame {
         let res = THREAD_POOL.install(|| {
             self.columns
                 .par_iter()
-                .map(|c| c.policies[idx].clone())
+                .map(|c| &c.policies[idx])
                 .collect::<Vec<_>>()
         });
 
@@ -339,14 +351,14 @@ impl PolicyGuardedDataFrame {
             for input in inputs.iter() {
                 policies.extend(input.columns[i].policies.clone());
             }
-            columns.push(PolicyGuardedColumn { policies });
+            columns.push(Arc::new(PolicyGuardedColumn { policies }));
         }
 
         Ok(PolicyGuardedDataFrame { columns })
     }
 
     #[inline]
-    pub fn new(columns: Vec<PolicyGuardedColumn>) -> Self {
+    pub fn new(columns: Vec<PolicyGuardedColumnRef>) -> Self {
         PolicyGuardedDataFrame { columns }
     }
 
@@ -356,12 +368,14 @@ impl PolicyGuardedDataFrame {
             ComputeError: "The column is out of bound.",
         );
 
-        self.columns = THREAD_POOL.install(|| {
-            project_list
-                .par_iter()
-                .map(|&i| self.columns[i].clone())
-                .collect()
+        let mut index = 0;
+        // Avoid unnecessary clone().
+        self.columns.retain(|_| {
+            let res = project_list.binary_search(&index);
+            index += 1;
+            res.is_ok()
         });
+
         Ok(())
     }
 
@@ -387,7 +401,7 @@ impl PolicyGuardedDataFrame {
         for c in self.columns.iter() {
             picachv_ensure!(
                 c.policies.par_iter().all(
-                    |p| matches!(p, Policy::PolicyClean),
+                    |p| matches!(p.deref(), Policy::PolicyClean),
                 ),
                 ComputeError: "Possible policy breach detected; abort early.\n\nThe required policy is\n{self}",
             );
@@ -422,7 +436,7 @@ impl PolicyGuardedDataFrame {
                         .filter_map(|(p, b)| if *b { Some(p.clone()) } else { None })
                         .collect::<Vec<_>>();
 
-                    PolicyGuardedColumn { policies }
+                    Arc::new(PolicyGuardedColumn { policies })
                 })
                 .collect()
         });
@@ -503,11 +517,11 @@ pub fn apply_transform(
 
                 let new_df = if options.enable_profiling {
                     PROFILER.profile(
-                        || PolicyGuardedDataFrame::join(lhs_df, rhs_df, &join),
+                        || PolicyGuardedDataFrame::join(lhs_df, rhs_df, &join, options),
                         "join".into(),
                     )
                 } else {
-                    PolicyGuardedDataFrame::join(lhs_df, rhs_df, &join)
+                    PolicyGuardedDataFrame::join(lhs_df, rhs_df, &join, options)
                 }?;
 
                 df_arena.insert(new_df)

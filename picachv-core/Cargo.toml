@@ -17,6 +17,7 @@ arrow-ipc = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
+bincode = { workspace = true, optional = true }
 chrono = { workspace = true }
 tabled = { version = "0.15.0" }
 tracing = { workspace = true }
@@ -27,7 +28,6 @@ parquet = { workspace = true, optional = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-speedy = { workspace = true, optional = true }
 uuid = { workspace = true }
 
 typetag = "0.2.16"
@@ -37,5 +37,5 @@ parse_duration = "2.1.1"
 default = ["arena_for_plan", "fast_bin", "use_parquet", "json"]
 json = []
 use_parquet = ["parquet", "fast_bin"]
-fast_bin = ["speedy", "ordered-float/speedy"]
+fast_bin = ["bincode"]
 arena_for_plan = []

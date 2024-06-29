@@ -308,7 +308,10 @@ impl QueryFactory {
             .filter(col("l_discount").gt_eq(discount1))
             .filter(col("l_discount").lt(discount2))
             .filter(col("l_quantity").lt(quantity))
-            .with_columns([(col("l_extendedprice") * col("l_discount")).alias("revenue"),lit(1).alias("_tmp")])
+            .with_columns([
+                (col("l_extendedprice") * col("l_discount")).alias("revenue"),
+                lit(1).alias("_tmp"),
+            ])
             // a workaround solution for anonymous function.
             .group_by(["_tmp"])
             .agg([sum("revenue")]);

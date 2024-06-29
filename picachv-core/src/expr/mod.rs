@@ -15,9 +15,11 @@ use uuid::Uuid;
 
 use crate::arena::Arena;
 use crate::constants::GroupByMethod;
+use crate::dataframe::PolicyRef;
 use crate::policy::context::ExpressionEvalContext;
-use crate::policy::types::AnyValue;
+use crate::policy::types::{AnyValue, ValueArrayRef};
 use crate::policy::{policy_ok, BinaryTransformType, Policy, TransformType};
+use crate::profiler::PROFILER;
 use crate::thread_pool::THREAD_POOL;
 use crate::udf::Udf;
 use crate::{
@@ -103,7 +105,7 @@ pub enum Expr {
     /// Aggregation.
     Agg {
         expr: AggExpr,
-        values: Option<Vec<Vec<AnyValue>>>,
+        values: Option<Vec<ValueArrayRef>>,
     },
     /// Select a column.
     Column(ColumnIdent),
@@ -126,7 +128,7 @@ pub enum Expr {
         left: Uuid,
         op: binary_operator::Operator,
         right: Uuid,
-        values: Option<Vec<Vec<AnyValue>>>,
+        values: Option<Vec<ValueArrayRef>>,
     },
     UnaryExpr {
         arg: Uuid,
@@ -139,7 +141,7 @@ pub enum Expr {
         // This only takes one argument.
         args: Vec<Uuid>,
         // A type-erased array of values reified by the caller.
-        values: Option<Vec<Vec<AnyValue>>>,
+        values: Option<Vec<ValueArrayRef>>,
     },
     /// a ? b : c
     Ternary {
@@ -168,7 +170,7 @@ impl Expr {
     pub(crate) fn check_policy_in_group(
         &self,
         ctx: &mut ExpressionEvalContext,
-    ) -> PicachvResult<Vec<Policy>> {
+    ) -> PicachvResult<Vec<PolicyRef>> {
         let expr_arena = rwlock_unlock!(ctx.arena.expr_arena, read);
 
         // Extract the groups as a sub-dataframe.
@@ -194,7 +196,8 @@ impl Expr {
                                 .get(i)
                                 .ok_or(PicachvError::ComputeError(
                                     "The column does not exist.".into(),
-                                )).cloned()
+                                ))
+                                .cloned()
                         })
                         .collect::<PicachvResult<Vec<_>>>()
                 })
@@ -223,14 +226,14 @@ impl Expr {
                         for (j, arg) in args.iter().enumerate() {
                             let arg = arg.check_policy_in_row(ctx, i)?;
                             p = check_policy_binary_udf(
-                                groups.columns[j].policies[i].clone(),
-                                arg,
+                                &groups.columns[j].policies[i],
+                                &arg,
                                 &udf_desc.name,
                                 value,
                             )?;
                         }
 
-                        Ok(p)
+                        Ok(p.into())
                     })
                     .collect::<PicachvResult<Vec<_>>>()
             },
@@ -260,7 +263,7 @@ impl Expr {
                             );
                             let (lhs, rhs) = (lhs?, rhs?);
 
-                            check_policy_binary(&lhs, &rhs, op, value)
+                            Ok(Arc::new(check_policy_binary(&lhs, &rhs, op, value)?))
                         })
                         .collect::<PicachvResult<Vec<_>>>()
                 })
@@ -278,7 +281,7 @@ impl Expr {
         &self,
         ctx: &ExpressionEvalContext,
         idx: usize,
-    ) -> PicachvResult<Policy> {
+    ) -> PicachvResult<PolicyRef> {
         let expr_arena = rwlock_unlock!(ctx.arena.expr_arena, read);
 
         match self {
@@ -291,7 +294,9 @@ impl Expr {
                 args,
                 values, // todo.
             } => match values {
-                Some(values) => check_policy_in_row_apply(ctx, name, args, values, idx),
+                Some(values) => Ok(Arc::new(check_policy_in_row_apply(
+                    ctx, name, args, values, idx,
+                )?)),
                 None => picachv_bail!(ComputeError: "The values are not reified for {self:?}"),
             },
 
@@ -314,10 +319,10 @@ impl Expr {
                     binary_operator::Operator::ComparisonOperator(_)
                         | binary_operator::Operator::LogicalOperator(_)
                 ) {
-                    return lhs.join(&rhs);
+                    return Ok(Arc::new(lhs.join(&rhs)?));
                 }
 
-                let values = values.clone().ok_or(PicachvError::ComputeError(
+                let values = values.as_ref().ok_or(PicachvError::ComputeError(
                     format!("The values are not reified for {self:?}").into(),
                 ))?;
 
@@ -326,7 +331,7 @@ impl Expr {
                     InvalidOperation: "The argument to the binary expression is incorrect"
                 );
 
-                check_policy_binary(&lhs, &rhs, op, &values[idx])
+                Ok(Arc::new(check_policy_binary(&lhs, &rhs, op, &values[idx])?))
             },
             // This is truly interesting.
             //
@@ -334,7 +339,9 @@ impl Expr {
             Expr::UnaryExpr { arg, op } => {
                 let arg = expr_arena.get(arg)?;
                 let policy = arg.check_policy_in_row(ctx, idx)?;
-                policy.downgrade(build_unary_expr!(op.clone()))
+                Ok(Arc::new(
+                    policy.downgrade(&Arc::new(build_unary_expr!(op.clone())))?,
+                ))
             },
             Expr::Column(col) => {
                 let col = match col {
@@ -379,21 +386,28 @@ impl Expr {
                 let then = expr_arena.get(then)?;
                 let otherwise = expr_arena.get(otherwise)?;
 
-                let mut cond_values = cond_values.clone().ok_or(PicachvError::ComputeError(
+                let cond_values = cond_values.as_ref().ok_or(PicachvError::ComputeError(
                     "The condition values are not reified".into(),
                 ))?;
 
-                if cond_values.len() == 1 {
-                    cond_values = vec![cond_values[0]; ctx.df.shape().0];
-                }
+                picachv_ensure!(
+                    cond_values.len() == 1 || cond_values.len() == ctx.df.shape().0,
+                    ComputeError: "The condition values are not correct"
+                );
 
+                let cond = if cond_values.len() == 1 {
+                    cond_values[0]
+                } else {
+                    cond_values[idx]
+                };
                 let then = || then.check_policy_in_row(ctx, idx);
                 let otherwise = || otherwise.check_policy_in_row(ctx, idx);
                 let (then, otherwise) = THREAD_POOL.install(|| rayon::join(then, otherwise));
                 let (then, otherwise) = (then?, otherwise?);
 
-                Ok(if cond_values[idx] { then } else { otherwise })
+                Ok(if cond { then } else { otherwise })
             },
+
             // todo.
             _ => Ok(Default::default()),
         }
@@ -415,7 +429,7 @@ impl Expr {
     }
 }
 
-pub(crate) fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<Vec<AnyValue>>> {
+pub(crate) fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<ValueArrayRef>> {
     let columns = rb.columns();
 
     if columns.is_empty() {
@@ -427,33 +441,35 @@ pub(crate) fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<Vec<Any
         (0..rb.num_rows())
             .into_par_iter()
             .map(|i| {
-                columns
+                let res = columns
                     .into_par_iter()
                     .map(|column| match column.data_type() {
                         DataType::Int32 => {
                             let array = column.as_any().downcast_ref::<Int32Array>().unwrap();
                             let value = array.value(i);
-                            Ok(AnyValue::Int32(value))
+                            Ok(Arc::new(AnyValue::Int32(value)))
                         },
                         DataType::UInt32 => {
                             let array = column.as_any().downcast_ref::<UInt32Array>().unwrap();
                             let value = array.value(i);
-                            Ok(AnyValue::UInt32(value as _))
+                            Ok(Arc::new(AnyValue::UInt32(value as _)))
                         },
                         DataType::Int64 => {
                             let array = column.as_any().downcast_ref::<Int64Array>().unwrap();
                             let value = array.value(i);
-                            Ok(AnyValue::Int64(value as _))
+                            Ok(Arc::new(AnyValue::Int64(value as _)))
                         },
                         DataType::Float64 => {
                             let array = column.as_any().downcast_ref::<Float64Array>().unwrap();
                             let value = array.value(i);
-                            Ok(AnyValue::Float64(value.into()))
+                            Ok(Arc::new(AnyValue::Float64(value.into())))
                         },
                         DataType::Date32 => {
                             let array = column.as_any().downcast_ref::<Date32Array>().unwrap();
                             let value = array.value(i);
-                            Ok(AnyValue::Duration(Duration::from_days(value as _)))
+                            Ok(Arc::new(AnyValue::Duration(Duration::from_days(
+                                value as _,
+                            ))))
                         },
                         DataType::Timestamp(timestamp, _) => match timestamp {
                             TimeUnit::Nanosecond => {
@@ -462,23 +478,27 @@ pub(crate) fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<Vec<Any
                                     .downcast_ref::<TimestampNanosecondArray>()
                                     .unwrap();
                                 let value = array.value(i);
-                                Ok(AnyValue::Duration(Duration::from_nanos(value as _)))
+                                Ok(Arc::new(AnyValue::Duration(Duration::from_nanos(
+                                    value as _,
+                                ))))
                             },
                             _ => todo!(),
                         },
                         DataType::LargeUtf8 => {
                             let array = column.as_any().downcast_ref::<LargeStringArray>().unwrap();
                             let value = array.value(i);
-                            Ok(AnyValue::String(value.to_string()))
+                            Ok(Arc::new(AnyValue::String(value.to_string())))
                         },
                         DataType::Boolean => {
                             let array = column.as_any().downcast_ref::<BooleanArray>().unwrap();
                             let value = array.value(i);
-                            Ok(AnyValue::Boolean(value))
+                            Ok(Arc::new(AnyValue::Boolean(value)))
                         },
                         ty => picachv_bail!(InvalidOperation: "{ty} is not supported"),
                     })
-                    .collect::<PicachvResult<Vec<_>>>()
+                    .collect::<PicachvResult<Vec<_>>>()?;
+
+                Ok(Arc::new(res))
             })
             .collect::<PicachvResult<Vec<_>>>()
     })?;
@@ -559,12 +579,13 @@ impl fmt::Display for Expr {
     }
 }
 
-// The checking logic seems identical to the one in `expr.rs`.
+/// The checking logic seems identical to the one in `expr.rs`.
+/// FIXME: Optimize?
 fn check_policy_binary(
     lhs: &Policy,
     rhs: &Policy,
     op: &Operator,
-    value: &[AnyValue],
+    value: &ValueArrayRef,
 ) -> PicachvResult<Policy> {
     match op {
         binary_operator::Operator::ComparisonOperator(_)
@@ -579,13 +600,14 @@ fn check_policy_binary(
             let mut op = BinaryTransformType::try_from(op)?;
 
             match (policy_ok(lhs), policy_ok(rhs)) {
+                (true, true) => Ok(Policy::PolicyClean),
                 // lhs = ∎
                 (true, _) => {
                     op.arg = value[0].clone();
                     let p_f = policy_binary_transform_label!(TransformType::Binary(op));
 
                     // Check if we can downgrade.
-                    rhs.downgrade(p_f)
+                    rhs.downgrade(&Arc::new(p_f))
                 },
 
                 // rhs = ∎
@@ -594,7 +616,7 @@ fn check_policy_binary(
                     let p_f = policy_binary_transform_label!(TransformType::Binary(op));
 
                     // Check if we can downgrade.
-                    lhs.downgrade(p_f)
+                    lhs.downgrade(&Arc::new(p_f))
                 },
 
                 _ => lhs.join(rhs),
@@ -604,10 +626,10 @@ fn check_policy_binary(
 }
 
 fn check_policy_binary_udf(
-    lhs: Policy,
-    rhs: Policy,
+    lhs: &PolicyRef,
+    rhs: &PolicyRef,
     udf_name: &str,
-    values: &[AnyValue],
+    values: &ValueArrayRef,
 ) -> PicachvResult<Policy> {
     picachv_ensure!(
         values.len() == 2,
@@ -626,36 +648,36 @@ fn check_policy_binary_udf(
         // lhs = ∎
         (true, _) => {
             let lhs_value = match udf_name {
-                "dt.offset_by" => cast::into_duration(values[0].clone()),
-                "+" => cast::into_i64(values[0].clone()),
+                "dt.offset_by" => cast::into_duration(&values[0]),
+                "+" => cast::into_i64(&values[0]),
                 _ => unimplemented!("{udf_name} is not yet supported."),
             }?;
 
             let pf = policy_binary_transform_label!(udf_name.to_string(), lhs_value);
-            rhs.downgrade(pf)
+            rhs.downgrade(&Arc::new(pf))
         },
         // rhs = ∎
         (_, true) => {
             let rhs_value = match udf_name {
-                "dt.offset_by" => cast::into_duration(values[1].clone()),
-                "+" => cast::into_i64(values[1].clone()),
+                "dt.offset_by" => cast::into_duration(&values[1]),
+                "+" => cast::into_i64(&values[1]),
                 _ => unimplemented!("{udf_name} is not yet supported."),
             }?;
 
             let pf = policy_binary_transform_label!(udf_name.to_string(), rhs_value);
-            lhs.downgrade(pf)
+            lhs.downgrade(&Arc::new(pf))
         },
 
         _ => lhs.join(&rhs),
     }
 }
 
-fn check_policy_unary_udf(arg: Policy, udf_name: &str) -> PicachvResult<Policy> {
+fn check_policy_unary_udf(arg: &PolicyRef, udf_name: &str) -> PicachvResult<Policy> {
     match policy_ok(&arg) {
         true => Ok(Policy::PolicyClean),
         false => {
             let pf = policy_unary_transform_label!(udf_name.to_string());
-            arg.downgrade(pf)
+            arg.downgrade(&Arc::new(pf))
         },
     }
 }
@@ -665,7 +687,7 @@ fn check_policy_in_row_apply(
     ctx: &ExpressionEvalContext,
     udf_name: &str,
     args: &[Uuid],
-    values: &[Vec<AnyValue>],
+    values: &[ValueArrayRef],
     idx: usize,
 ) -> PicachvResult<Policy> {
     let args = {
@@ -686,14 +708,17 @@ fn check_policy_in_row_apply(
         1 => {
             let arg = args[0].check_policy_in_row(ctx, idx)?;
 
-            check_policy_unary_udf(arg, udf_name)
+            check_policy_unary_udf(&arg, udf_name)
         },
         // The binary case.
         2 => {
-            let lhs = args[0].check_policy_in_row(ctx, idx)?;
-            let rhs = args[1].check_policy_in_row(ctx, idx)?;
+            let lhs = || args[0].check_policy_in_row(ctx, idx);
+            let rhs = || args[1].check_policy_in_row(ctx, idx);
 
-            check_policy_binary_udf(lhs, rhs, udf_name, &values[idx])
+            let (lhs, rhs) = THREAD_POOL.install(|| rayon::join(lhs, rhs));
+            let (lhs, rhs) = (lhs?, rhs?);
+
+            check_policy_binary_udf(&lhs, &rhs, udf_name, &values[idx])
         },
         _ => Err(PicachvError::Unimplemented("UDF not implemented.".into())),
     }
@@ -702,11 +727,11 @@ fn check_policy_in_row_apply(
 /// This functons folds the policies on the groups to check this operation is allowed.
 ///
 /// See `eval_agg` in `expression.v`.
-pub(crate) fn fold_on_groups(groups: &[Policy], how: GroupByMethod) -> PicachvResult<Policy> {
+pub(crate) fn fold_on_groups(groups: &[PolicyRef], how: GroupByMethod) -> PicachvResult<Policy> {
     // Construct the operator.
     tracing::debug!("{how:?} {}", groups.len());
 
-    let pf = policy_agg_label!(how, groups.len());
+    let pf = Arc::new(policy_agg_label!(how, groups.len()));
 
     THREAD_POOL.install(|| {
         groups
@@ -714,7 +739,7 @@ pub(crate) fn fold_on_groups(groups: &[Policy], how: GroupByMethod) -> PicachvRe
             .fold(
                 || Ok(Policy::PolicyClean),
                 |p_output, p_cur| {
-                    let p_after = p_cur.downgrade(pf.clone())?;
+                    let p_after = p_cur.downgrade(&pf)?;
                     match p_output {
                         Ok(p_output) => {
                             if p_output.le(&p_after)? {

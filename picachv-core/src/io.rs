@@ -10,8 +10,6 @@ use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-#[cfg(feature = "fast_bin")]
-use speedy::{Readable, Writable};
 
 use crate::dataframe::PolicyGuardedDataFrame;
 use crate::thread_pool::THREAD_POOL;
@@ -53,12 +51,6 @@ pub trait JsonIO: Serialize + DeserializeOwned {
 #[cfg(feature = "json")]
 impl<T> JsonIO for T where T: Serialize + DeserializeOwned {}
 
-#[cfg(feature = "fast_bin")]
-pub trait BinIo: Serialize + DeserializeOwned {
-    fn to_bytes<P: AsRef<Path>>(&self, path: P) -> PicachvResult<()>;
-    fn from_bytes<P: AsRef<Path>>(path: P) -> PicachvResult<Self>;
-}
-
 #[cfg(feature = "parquet")]
 pub trait ParquetIO: Sized {
     fn to_parquet<P: AsRef<Path>>(&self, path: P) -> PicachvResult<()>;
@@ -70,10 +62,10 @@ pub trait ParquetIO: Sized {
 }
 
 #[cfg(feature = "fast_bin")]
-impl BinIo for PolicyGuardedDataFrame {
+pub trait BinIo: Serialize + DeserializeOwned {
     fn to_bytes<P: AsRef<Path>>(&self, path: P) -> PicachvResult<()> {
         let mut file = File::create(path)?;
-        let bytes = self.write_to_vec().map_err(|e| {
+        let bytes = bincode::serialize(self).map_err(|e| {
             PicachvError::InvalidOperation(format!("Failed to serialize binary: {}", e).into())
         })?;
         file.write_all(&bytes).map_err(|e| {
@@ -82,19 +74,34 @@ impl BinIo for PolicyGuardedDataFrame {
         Ok(())
     }
 
+    fn to_byte_array(&self) -> PicachvResult<Vec<u8>> {
+        bincode::serialize(self).map_err(|e| {
+            PicachvError::InvalidOperation(format!("Failed to serialize binary: {}", e).into())
+        })
+    }
+
     fn from_bytes<P: AsRef<Path>>(path: P) -> PicachvResult<Self> {
         let now = std::time::Instant::now();
         let bytes = fs::read(path).map_err(|e| {
             PicachvError::InvalidOperation(format!("Failed to read binary: {}", e).into())
         })?;
-        let res = PolicyGuardedDataFrame::read_from_buffer(&bytes).map_err(|e| {
+        let res = bincode::deserialize::<Self>(&bytes).map_err(|e| {
             PicachvError::InvalidOperation(format!("Failed to deserialize binary: {}", e).into())
         })?;
 
         println!("Time to read binary: {:?}", now.elapsed());
         Ok(res)
     }
+
+    fn from_byte_array(bytes: &[u8]) -> PicachvResult<Self> {
+        bincode::deserialize(bytes).map_err(|e| {
+            PicachvError::InvalidOperation(format!("Failed to deserialize binary: {}", e).into())
+        })
+    }
 }
+
+#[cfg(feature = "fast_bin")]
+impl<T> BinIo for T where T: Serialize + DeserializeOwned {}
 
 #[cfg(all(feature = "parquet", feature = "fast_bin"))]
 impl ParquetIO for PolicyGuardedDataFrame {
@@ -171,7 +178,7 @@ impl ParquetIO for PolicyGuardedDataFrame {
                         .policies
                         .par_iter()
                         .map(|p| {
-                            p.write_to_vec()
+                            p.to_byte_array()
                                 .map_err(|e| PicachvError::InvalidOperation(e.to_string().into()))
                         })
                         .collect::<PicachvResult<Vec<_>>>()?;
@@ -217,13 +224,13 @@ mod tests {
 
     fn test_df() -> PolicyGuardedDataFrame {
         let df = PolicyGuardedColumn::new(vec![
-            Policy::PolicyClean,
-            Policy::PolicyDeclassify {
-                label: PolicyLabel::PolicyTop,
+            Arc::new(Policy::PolicyClean),
+            Arc::new(Policy::PolicyDeclassify {
+                label: PolicyLabel::PolicyTop.into(),
                 next: Policy::PolicyClean.into(),
-            },
+            }),
         ]);
-        PolicyGuardedDataFrame::new(vec![df])
+        PolicyGuardedDataFrame::new(vec![Arc::new(df)])
     }
 
     #[test]

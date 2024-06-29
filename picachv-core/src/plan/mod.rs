@@ -8,7 +8,7 @@ use std::sync::Arc;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvResult};
 use picachv_message::group_by_idx::Groups;
 use picachv_message::group_by_proxy::GroupBy;
-use picachv_message::{GroupByIdx, GroupByProxy, GroupBySlice};
+use picachv_message::{ContextOptions, GroupByIdx, GroupByProxy, GroupBySlice};
 use rayon::prelude::*;
 use uuid::Uuid;
 
@@ -16,6 +16,7 @@ use crate::dataframe::{PolicyGuardedColumn, PolicyGuardedDataFrame};
 use crate::expr::{fold_on_groups, Expr};
 use crate::policy::context::ExpressionEvalContext;
 use crate::policy::Policy;
+use crate::profiler::PROFILER;
 use crate::thread_pool::THREAD_POOL;
 use crate::udf::Udf;
 use crate::{rwlock_unlock, Arenas};
@@ -172,6 +173,7 @@ impl Plan {
         arena: &Arenas,
         active_df_uuid: Uuid,
         udfs: &HashMap<String, Udf>,
+        options: &ContextOptions,
     ) -> PicachvResult<Uuid> {
         tracing::debug!(
             "execute_prologue: checking {:?} with {active_df_uuid}",
@@ -187,10 +189,10 @@ impl Plan {
                 let expr_arena = rwlock_unlock!(arena.expr_arena, read);
                 let expression = expression
                     .par_iter()
-                    .map(|e| expr_arena.get(e).cloned())
+                    .map(|e| expr_arena.get(e))
                     .collect::<PicachvResult<Vec<_>>>()?;
 
-                check_expressions(arena, active_df_uuid, &expression, false, udfs)
+                check_expressions(arena, active_df_uuid, &expression, false, udfs, options)
             },
             Plan::Select { predicate, .. } => {
                 let predicate = {
@@ -198,7 +200,7 @@ impl Plan {
                     expr_arena.get(predicate)?.clone()
                 };
 
-                check_expressions(arena, active_df_uuid, &[predicate], true, udfs)?;
+                check_expressions(arena, active_df_uuid, &[&predicate], true, udfs, options)?;
 
                 Ok(active_df_uuid)
             },
@@ -218,7 +220,7 @@ impl Plan {
                             expr_arena.get(s)?.clone()
                         };
 
-                        check_expressions(arena, projected_uuid, &[expr], true, udfs)?;
+                        check_expressions(arena, projected_uuid, &[&expr], true, udfs, options)?;
 
                         Ok(projected_uuid)
                     },
@@ -235,11 +237,11 @@ impl Plan {
                 let expr_arena = rwlock_unlock!(arena.expr_arena, read);
                 let keys = keys
                     .par_iter()
-                    .map(|e| expr_arena.get(e).cloned())
+                    .map(|e| expr_arena.get(e))
                     .collect::<PicachvResult<Vec<_>>>()?;
                 let aggs = aggs
                     .par_iter()
-                    .map(|e| expr_arena.get(e).cloned())
+                    .map(|e| expr_arena.get(e))
                     .collect::<PicachvResult<Vec<_>>>()?;
 
                 // There are two steps for the check:
@@ -254,7 +256,7 @@ impl Plan {
                 let first_part = || {
                     let df_arena = rwlock_unlock!(arena.df_arena, read);
                     let df = df_arena.get(&active_df_uuid)?;
-                    let df = do_check_expressions(arena, df, &keys, udfs)?;
+                    let df = do_check_expressions(arena, df, &keys, udfs, options)?;
 
                     aggregate_keys(&df, gb_proxy)
                 };
@@ -263,8 +265,16 @@ impl Plan {
                 let second_part =
                     || check_expressions_agg(arena, active_df_uuid, &aggs, gb_proxy, udfs);
 
-                let (first_part, second_part) =
-                    THREAD_POOL.install(|| rayon::join(first_part, second_part));
+                let (first_part, second_part) = if options.enable_profiling {
+                    THREAD_POOL.install(|| {
+                        rayon::join(
+                            || PROFILER.profile(first_part, "groupby_keys".into()),
+                            || PROFILER.profile(second_part, "check_expressions_agg".into()),
+                        )
+                    })
+                } else {
+                    THREAD_POOL.install(|| rayon::join(first_part, second_part))
+                };
                 let first_part = first_part?;
                 let second_part = second_part?;
 
@@ -279,7 +289,14 @@ impl Plan {
             Plan::Hstack {
                 cse_expressions,
                 expressions,
-            } => do_hstack(arena, active_df_uuid, cse_expressions, expressions, udfs),
+            } => do_hstack(
+                arena,
+                active_df_uuid,
+                cse_expressions,
+                expressions,
+                udfs,
+                options,
+            ),
         }
     }
 }
@@ -298,6 +315,7 @@ fn do_hstack(
     cse_expressions: &[Uuid],
     expressions: &[Uuid],
     udfs: &HashMap<String, Udf>,
+    options: &ContextOptions,
 ) -> PicachvResult<Uuid> {
     let mut df_arena = rwlock_unlock!(arena.df_arena, write);
     let expr_arena = rwlock_unlock!(arena.expr_arena, read);
@@ -305,26 +323,34 @@ fn do_hstack(
 
     let cse_expressions = cse_expressions
         .par_iter()
-        .map(|e| expr_arena.get(e).cloned())
+        .map(|e| expr_arena.get(e))
         .collect::<PicachvResult<Vec<_>>>()?;
     let expressions = expressions
         .par_iter()
-        .map(|e| expr_arena.get(e).cloned())
+        .map(|e| expr_arena.get(e))
         .collect::<PicachvResult<Vec<_>>>()?;
 
-    let new_df = if cse_expressions.is_empty() {
-        do_check_expressions(arena, df, &expressions, udfs)?
-    } else {
-        // First let us collect the common subexpression part.
-        let cse_part = do_check_expressions(arena, df, &cse_expressions, udfs)?;
-        // We then stitch the common subexpression part with the dataframe.
-        let cse_part = PolicyGuardedDataFrame::stitch(df, &cse_part)?;
-        // We then evaluate the actual expressions.
-        do_check_expressions(arena, &cse_part, &expressions, udfs)?
+    let f = || {
+        let new_df = if cse_expressions.is_empty() {
+            do_check_expressions(arena, df, &expressions, udfs, options)?
+        } else {
+            // First let us collect the common subexpression part.
+            let cse_part = do_check_expressions(arena, df, &cse_expressions, udfs, options)?;
+            // We then stitch the common subexpression part with the dataframe.
+            let cse_part = PolicyGuardedDataFrame::stitch(df, &cse_part)?;
+            // We then evaluate the actual expressions.
+            do_check_expressions(arena, &cse_part, &expressions, udfs, options)?
+        };
+
+        // We then add new columns.
+        PolicyGuardedDataFrame::stitch(df, &new_df)
     };
 
-    // We then add new columns.
-    let new_df = PolicyGuardedDataFrame::stitch(df, &new_df)?;
+    let new_df = if options.enable_profiling {
+        PROFILER.profile(f, "do_hstack".into())
+    } else {
+        f()
+    }?;
 
     match Arc::get_mut(df) {
         Some(df) => {
@@ -386,23 +412,23 @@ fn aggregate_keys_idx(
             .groups
             .par_iter()
             .map(|group| {
-                group.group.par_iter().fold(|| Ok(Policy::PolicyClean), |mut acc, idx| {
+                    group.group.par_iter().fold(|| Ok(Arc::new(Policy::PolicyClean)), |mut acc, idx| {
                     picachv_ensure!(
                         (*idx as usize) < df.columns[col_idx].policies.len(),
                         ComputeError: "The index {idx} is out of range {}", df.columns[col_idx].policies.len()
                     );
                     let p = df.columns[col_idx].policies[*idx as usize].clone();
-                    acc = Ok(acc?.join(&p)?);
+                    acc = Ok(Arc::new(acc?.join(&p)?));
                     acc
                 })
-                .reduce(|| Ok(Policy::PolicyClean), |mut acc, next| {
-                    acc = Ok(acc?.join(&next?)?);
+                .reduce(|| Ok(Arc::new(Policy::PolicyClean)), |mut acc, next| {
+                    acc = Ok(Arc::new(acc?.join(next?.as_ref())?));
                     acc
                 })
             })
             .collect::<PicachvResult<Vec<_>>>()?;
 
-        Ok(PolicyGuardedColumn { policies: cur })
+        Ok(Arc::new(PolicyGuardedColumn { policies: cur }))
     }).collect::<PicachvResult<Vec<_>>>())?;
 
     Ok(PolicyGuardedDataFrame { columns })
@@ -451,6 +477,7 @@ fn check_policy_agg(expr: &Expr, ctx: &mut ExpressionEvalContext) -> PicachvResu
     // We first check the policy enforcement for the inner expression.
     let inner = inner_expr.check_policy_in_group(ctx)?;
     // We then apply the `fold` thing on `inner`.
+    // FIXME: SLOW?
     fold_on_groups(&inner, agg_expr.as_groupby_method())
 }
 
@@ -461,7 +488,7 @@ fn check_policy_agg(expr: &Expr, ctx: &mut ExpressionEvalContext) -> PicachvResu
 fn check_expressions_agg(
     arena: &Arenas,
     active_df_uuid: Uuid,
-    agg_list: &[Arc<Expr>],
+    agg_list: &[&Arc<Expr>],
     gb_proxy: &GroupByProxy,
     udfs: &HashMap<String, Udf>,
 ) -> PicachvResult<Uuid> {
@@ -482,7 +509,7 @@ fn check_expressions_agg_idx(
     arena: &Arenas,
     active_df_uuid: Uuid,
     gb_proxy: &GroupByIdx,
-    agg_list: &[Arc<Expr>],
+    agg_list: &[&Arc<Expr>],
     udfs: &HashMap<String, Udf>,
 ) -> Result<Uuid, picachv_error::PicachvError> {
     let mut df_arena = rwlock_unlock!(arena.df_arena, write);
@@ -499,7 +526,7 @@ fn check_expressions_agg_idx(
                         let mut ctx = ExpressionEvalContext::new(df, true, udfs, arena);
                         ctx.gb_proxy = Some(group);
 
-                        check_policy_agg(agg, &mut ctx)
+                        Ok(Arc::new(check_policy_agg(agg, &mut ctx)?))
                     })
                     .collect::<PicachvResult<Vec<_>>>()
             })
@@ -512,7 +539,7 @@ fn check_expressions_agg_idx(
     let df = PolicyGuardedDataFrame {
         columns: res
             .into_iter()
-            .map(|col| PolicyGuardedColumn { policies: col })
+            .map(|col| Arc::new(PolicyGuardedColumn { policies: col }))
             .collect(),
     };
 
@@ -522,45 +549,51 @@ fn check_expressions_agg_idx(
 fn do_check_expressions(
     arena: &Arenas,
     df: &PolicyGuardedDataFrame,
-    expression: &[Arc<Expr>],
+    expression: &[&Arc<Expr>],
     udfs: &HashMap<String, Udf>,
+    options: &ContextOptions,
 ) -> PicachvResult<PolicyGuardedDataFrame> {
     let rows = df.shape().0;
-    let col = THREAD_POOL.install(|| {
-        expression
-            .par_iter()
-            .map(|expr| {
-                let cur = (0..rows)
-                    .into_par_iter()
-                    .map(|idx| {
-                        expr.check_policy_in_row(
-                            &mut ExpressionEvalContext::new(df, false, udfs, arena),
-                            idx,
-                        )
-                    })
-                    .collect::<PicachvResult<Vec<_>>>()?;
+    let ctx = ExpressionEvalContext::new(df, false, udfs, arena);
 
-                Ok(PolicyGuardedColumn { policies: cur })
-            })
-            .collect::<PicachvResult<Vec<_>>>()
-    })?;
+    let f = || {
+        THREAD_POOL.install(|| {
+            expression
+                .par_iter()
+                .map(|expr| {
+                    let cur = (0..rows)
+                        .into_par_iter()
+                        .map(|idx| expr.check_policy_in_row(&ctx, idx))
+                        .collect::<PicachvResult<Vec<_>>>()?;
+                    Ok(Arc::new(PolicyGuardedColumn { policies: cur }))
+                })
+                .collect::<PicachvResult<Vec<_>>>()
+        })
+    };
 
-    Ok(PolicyGuardedDataFrame { columns: col })
+    let columns = if options.enable_profiling {
+        PROFILER.profile(f, "do_check_expressions".into())
+    } else {
+        f()
+    }?;
+
+    Ok(PolicyGuardedDataFrame { columns })
 }
 
 fn check_expressions(
     arena: &Arenas,
     active_df_uuid: Uuid,
-    expression: &[Arc<Expr>],
+    expression: &[&Arc<Expr>],
     keep_old: bool, // Whether we need to alter the dataframe in the arena.
     udfs: &HashMap<String, Udf>,
+    options: &ContextOptions,
 ) -> PicachvResult<Uuid> {
     let mut df_arena = rwlock_unlock!(arena.df_arena, write);
     let df = df_arena.get_mut(&active_df_uuid)?;
     let can_replace = Arc::strong_count(df) == 1 && !keep_old;
 
     let new_df: Arc<PolicyGuardedDataFrame> =
-        Arc::new(do_check_expressions(arena, df, expression, udfs)?);
+        Arc::new(do_check_expressions(arena, df, expression, udfs, options)?);
     if can_replace {
         let _ = std::mem::replace(df, new_df);
         Ok(active_df_uuid)
