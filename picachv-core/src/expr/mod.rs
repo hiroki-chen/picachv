@@ -194,8 +194,7 @@ impl Expr {
                                 .get(i)
                                 .ok_or(PicachvError::ComputeError(
                                     "The column does not exist.".into(),
-                                ))
-                                .map(|p| p.clone())
+                                )).cloned()
                         })
                         .collect::<PicachvResult<Vec<_>>>()
                 })
@@ -249,20 +248,22 @@ impl Expr {
                 let left = expr_arena.get(left)?;
                 let right = expr_arena.get(right)?;
 
-                values
-                    .par_iter()
-                    .take(groups.shape().0)
-                    .enumerate()
-                    .map(|(i, value)| {
-                        let (lhs, rhs) = rayon::join(
-                            || left.check_policy_in_row(ctx, i),
-                            || right.check_policy_in_row(ctx, i),
-                        );
-                        let (lhs, rhs) = (lhs?, rhs?);
+                THREAD_POOL.install(|| {
+                    values
+                        .par_iter()
+                        .take(groups.shape().0)
+                        .enumerate()
+                        .map(|(i, value)| {
+                            let (lhs, rhs) = rayon::join(
+                                || left.check_policy_in_row(ctx, i),
+                                || right.check_policy_in_row(ctx, i),
+                            );
+                            let (lhs, rhs) = (lhs?, rhs?);
 
-                        check_policy_binary(&lhs, &rhs, op, value)
-                    })
-                    .collect::<PicachvResult<Vec<_>>>()
+                            check_policy_binary(&lhs, &rhs, op, value)
+                        })
+                        .collect::<PicachvResult<Vec<_>>>()
+                })
             },
 
             _ => unimplemented!("{self:?} is not yet supported in aggregation context."),

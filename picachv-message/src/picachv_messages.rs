@@ -16,6 +16,17 @@ pub mod column_specifier {
         ColumnName(::prost::alloc::string::String),
     }
 }
+/// A configurable option structs for the context.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ContextOptions {
+    /// Whether to enable tracing (may cause extra overheads)
+    #[prost(bool, tag = "1")]
+    pub enable_tracing: bool,
+    /// Whether to enable the profiler.
+    #[prost(bool, tag = "2")]
+    pub enable_profiling: bool,
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupByIdx {

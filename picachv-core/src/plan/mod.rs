@@ -525,8 +525,6 @@ fn do_check_expressions(
     expression: &[Arc<Expr>],
     udfs: &HashMap<String, Udf>,
 ) -> PicachvResult<PolicyGuardedDataFrame> {
-    let now = std::time::Instant::now();
-
     let rows = df.shape().0;
     let col = THREAD_POOL.install(|| {
         expression
@@ -546,8 +544,6 @@ fn do_check_expressions(
             })
             .collect::<PicachvResult<Vec<_>>>()
     })?;
-
-    println!("do_check_expressions: elapsed = {:?}", now.elapsed());
 
     Ok(PolicyGuardedDataFrame { columns: col })
 }

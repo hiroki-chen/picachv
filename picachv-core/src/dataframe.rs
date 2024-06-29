@@ -6,7 +6,7 @@ use arrow_array::{BinaryArray, RecordBatch};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::group_by_idx::Groups;
 use picachv_message::transform_info::Information;
-use picachv_message::{JoinInformation, TransformInfo};
+use picachv_message::{ContextOptions, JoinInformation, TransformInfo};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use speedy::Readable;
@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 use crate::arena::Arena;
 use crate::policy::Policy;
+use crate::profiler::PROFILER;
 use crate::rwlock_unlock;
 use crate::thread_pool::THREAD_POOL;
 
@@ -350,13 +351,10 @@ impl PolicyGuardedDataFrame {
     }
 
     pub(crate) fn projection_by_id(&mut self, project_list: &[usize]) -> PicachvResult<()> {
-        // First make sure if the project list contains valid columns.
-        for &col in project_list.iter() {
-            picachv_ensure!(
-                col < self.columns.len(),
-                ComputeError: "The column {} is out of bound", col,
-            );
-        }
+        picachv_ensure!(
+            project_list.par_iter().all(|&col| col < self.columns.len()),
+            ComputeError: "The column is out of bound.",
+        );
 
         self.columns = THREAD_POOL.install(|| {
             project_list
@@ -442,6 +440,7 @@ pub fn apply_transform(
     df_arena: &Arc<RwLock<DfArena>>,
     df_uuid: Uuid,
     transform: TransformInfo,
+    options: &ContextOptions,
 ) -> PicachvResult<Uuid> {
     match transform.information {
         Some(ti) => match ti {
@@ -502,7 +501,14 @@ pub fn apply_transform(
                 let lhs_df = df_arena.get(&lhs)?;
                 let rhs_df = df_arena.get(&rhs)?;
 
-                let new_df = PolicyGuardedDataFrame::join(lhs_df, rhs_df, &join)?;
+                let new_df = if options.enable_profiling {
+                    PROFILER.profile(
+                        || PolicyGuardedDataFrame::join(lhs_df, rhs_df, &join),
+                        "join".into(),
+                    )
+                } else {
+                    PolicyGuardedDataFrame::join(lhs_df, rhs_df, &join)
+                }?;
 
                 df_arena.insert(new_df)
             },

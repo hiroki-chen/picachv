@@ -4,7 +4,7 @@ use picachv_core::dataframe::PolicyGuardedDataFrame;
 use picachv_core::io::JsonIO;
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::{ExprArgument, PlanArgument};
-use picachv_monitor::{PicachvMonitor, MONITOR_INSTANCE};
+use picachv_monitor::MONITOR_INSTANCE;
 use prost::Message;
 use uuid::Uuid;
 
@@ -101,12 +101,9 @@ pub unsafe extern "C" fn register_policy_dataframe(
     // Recover from bytes and register the dataframe.
     let df = try_execute!(PolicyGuardedDataFrame::from_json_bytes(df));
 
-    let ctx = match MONITOR_INSTANCE.get() {
-        Some(monitor) => match monitor.get_ctx() {
-            Ok(ctx) => ctx,
-            Err(_) => return ErrorCode::InvalidOperation,
-        },
-        None => return ErrorCode::NoEntry,
+    let ctx = match MONITOR_INSTANCE.get_ctx() {
+        Ok(ctx) => ctx,
+        Err(_) => return ErrorCode::NoEntry,
     };
 
     let ctx = match ctx.get(&ctx_id) {
@@ -125,11 +122,7 @@ pub unsafe extern "C" fn register_policy_dataframe(
 
 #[no_mangle]
 pub extern "C" fn init_monitor() -> ErrorCode {
-    match MONITOR_INSTANCE.set(PicachvMonitor::new().into()) {
-        Ok(_) => ErrorCode::Success,
-        // Already.
-        Err(_) => ErrorCode::Already,
-    }
+    ErrorCode::Success
 }
 
 #[no_mangle]
@@ -138,19 +131,16 @@ pub unsafe extern "C" fn open_new(uuid_ptr: *mut u8, len: usize) -> ErrorCode {
         return ErrorCode::InvalidOperation;
     }
 
-    match MONITOR_INSTANCE.get() {
-        Some(monitor) => match monitor.open_new() {
-            Ok(uuid) => {
-                let uuid_bytes = uuid.to_bytes_le();
-                println!("copying the uuid to the pointer");
-                std::ptr::copy(uuid_bytes.as_ptr(), uuid_ptr, uuid_bytes.len());
-                println!("copying the uuid to the pointer finished");
-                tracing::debug!("returning {uuid:?}");
-                ErrorCode::Success
-            },
-            Err(_) => ErrorCode::InvalidOperation,
+    match MONITOR_INSTANCE.open_new() {
+        Ok(uuid) => {
+            let uuid_bytes = uuid.to_bytes_le();
+            println!("copying the uuid to the pointer");
+            std::ptr::copy(uuid_bytes.as_ptr(), uuid_ptr, uuid_bytes.len());
+            println!("copying the uuid to the pointer finished");
+            tracing::debug!("returning {uuid:?}");
+            ErrorCode::Success
         },
-        None => ErrorCode::InvalidOperation,
+        Err(_) => ErrorCode::InvalidOperation,
     }
 }
 
@@ -167,12 +157,9 @@ pub unsafe extern "C" fn expr_from_args(
 ) -> ErrorCode {
     let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
 
-    let ctx = match MONITOR_INSTANCE.get() {
-        Some(monitor) => match monitor.get_ctx() {
-            Ok(ctx) => ctx,
-            Err(e) => return e.into(),
-        },
-        None => return ErrorCode::NoEntry,
+    let ctx = match MONITOR_INSTANCE.get_ctx() {
+        Ok(ctx) => ctx,
+        Err(_) => return ErrorCode::NoEntry,
     };
 
     let ctx = match ctx.get(&ctx_id) {
@@ -207,12 +194,9 @@ pub unsafe extern "C" fn reify_expression(
     let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
     let expr_id = try_execute!(recover_uuid(expr_uuid, expr_uuid_len));
 
-    let ctx = match MONITOR_INSTANCE.get() {
-        Some(monitor) => match monitor.get_ctx() {
-            Ok(ctx) => ctx,
-            Err(_) => return ErrorCode::InvalidOperation,
-        },
-        None => return ErrorCode::NoEntry,
+    let ctx = match MONITOR_INSTANCE.get_ctx() {
+        Ok(ctx) => ctx,
+        Err(_) => return ErrorCode::NoEntry,
     };
 
     let ctx = match ctx.get(&ctx_id) {
@@ -241,12 +225,9 @@ pub unsafe extern "C" fn create_slice(
     let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
     let df_id = try_execute!(recover_uuid(df_uuid, df_len));
 
-    let ctx = match MONITOR_INSTANCE.get() {
-        Some(monitor) => match monitor.get_ctx() {
-            Ok(ctx) => ctx,
-            Err(_) => return ErrorCode::InvalidOperation,
-        },
-        None => return ErrorCode::NoEntry,
+    let ctx = match MONITOR_INSTANCE.get_ctx() {
+        Ok(ctx) => ctx,
+        Err(_) => return ErrorCode::NoEntry,
     };
 
     let ctx = match ctx.get(&ctx_id) {
@@ -271,12 +252,9 @@ pub unsafe extern "C" fn finalize(
     let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
     let df_id = try_execute!(recover_uuid(df_uuid, df_len));
 
-    let ctx = match MONITOR_INSTANCE.get() {
-        Some(monitor) => match monitor.get_ctx() {
-            Ok(ctx) => ctx,
-            Err(_) => return ErrorCode::InvalidOperation,
-        },
-        None => return ErrorCode::NoEntry,
+    let ctx = match MONITOR_INSTANCE.get_ctx() {
+        Ok(ctx) => ctx,
+        Err(_) => return ErrorCode::NoEntry,
     };
 
     let ctx = match ctx.get(&ctx_id) {
@@ -303,12 +281,9 @@ pub unsafe extern "C" fn early_projection(
     let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
     let df_id = try_execute!(recover_uuid(df_uuid, df_len));
 
-    let ctx = match MONITOR_INSTANCE.get() {
-        Some(monitor) => match monitor.get_ctx() {
-            Ok(ctx) => ctx,
-            Err(_) => return ErrorCode::InvalidOperation,
-        },
-        None => return ErrorCode::NoEntry,
+    let ctx = match MONITOR_INSTANCE.get_ctx() {
+        Ok(ctx) => ctx,
+        Err(_) => return ErrorCode::NoEntry,
     };
 
     let ctx = match ctx.get(&ctx_id) {
@@ -350,12 +325,9 @@ pub unsafe extern "C" fn execute_epilogue(
         }
     };
 
-    let ctx = match MONITOR_INSTANCE.get() {
-        Some(monitor) => match monitor.get_ctx() {
-            Ok(ctx) => ctx,
-            Err(_) => return ErrorCode::InvalidOperation,
-        },
-        None => return ErrorCode::NoEntry,
+    let ctx = match MONITOR_INSTANCE.get_ctx() {
+        Ok(ctx) => ctx,
+        Err(_) => return ErrorCode::NoEntry,
     };
 
     let ctx = match ctx.get(&ctx_id) {
@@ -380,12 +352,9 @@ pub unsafe extern "C" fn debug_print_df(
     let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
     let df_id = try_execute!(recover_uuid(df_uuid, df_len));
 
-    let ctx = match MONITOR_INSTANCE.get() {
-        Some(monitor) => match monitor.get_ctx() {
-            Ok(ctx) => ctx,
-            Err(_) => return ErrorCode::InvalidOperation,
-        },
-        None => return ErrorCode::NoEntry,
+    let ctx = match MONITOR_INSTANCE.get_ctx() {
+        Ok(ctx) => ctx,
+        Err(_) => return ErrorCode::NoEntry,
     };
 
     let ctx = match ctx.get(&ctx_id) {
@@ -415,12 +384,9 @@ pub unsafe extern "C" fn register_policy_dataframe_json(
 
     let df = try_execute!(PolicyGuardedDataFrame::from_json(path));
 
-    let ctx = match MONITOR_INSTANCE.get() {
-        Some(monitor) => match monitor.get_ctx() {
-            Ok(ctx) => ctx,
-            Err(_) => return ErrorCode::InvalidOperation,
-        },
-        None => return ErrorCode::NoEntry,
+    let ctx = match MONITOR_INSTANCE.get_ctx() {
+        Ok(ctx) => ctx,
+        Err(_) => return ErrorCode::NoEntry,
     };
 
     let ctx = match ctx.get(&ctx_id) {

@@ -24,6 +24,7 @@ pub mod io;
 pub mod macros;
 pub mod plan;
 pub mod policy;
+pub mod profiler;
 pub mod thread_pool;
 pub mod udf;
 

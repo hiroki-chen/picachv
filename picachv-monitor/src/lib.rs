@@ -1,19 +1,24 @@
+#![feature(lazy_cell)]
+
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::OpenOptions;
 use std::ops::Range;
 use std::path::Path;
-use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, LazyLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use picachv_core::dataframe::{apply_transform, PolicyGuardedDataFrame};
 use picachv_core::expr::{ColumnIdent, Expr};
 use picachv_core::io::{BinIo, JsonIO, ParquetIO};
 use picachv_core::plan::{early_projection, Plan};
+use picachv_core::profiler::PROFILER;
 use picachv_core::udf::Udf;
 use picachv_core::{get_new_uuid, record_batch_from_bytes, rwlock_unlock, Arenas};
 use picachv_error::{PicachvError, PicachvResult};
-use picachv_message::{plan_argument, ExprArgument, PlanArgument};
+use picachv_message::{plan_argument, ContextOptions, ExprArgument, PlanArgument};
 use prost::Message;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
 
 /// An activate context for the data analysis.
@@ -28,6 +33,8 @@ pub struct Context {
     /// UDFs.
     #[readonly]
     udfs: HashMap<String, Udf>,
+    /// Context options.
+    pub(crate) options: ContextOptions,
 }
 
 impl fmt::Debug for Context {
@@ -38,12 +45,37 @@ impl fmt::Debug for Context {
 
 impl Context {
     #[inline]
+    pub fn enable_tracing(&mut self, enable: bool) -> PicachvResult<()> {
+        self.options.enable_tracing = enable;
+
+        Ok(())
+    }
+
+    #[inline]
+    pub fn tracing_enabled(&self) -> bool {
+        self.options.enable_tracing
+    }
+
+    #[inline]
+    pub fn enable_profiling(&mut self, enable: bool) -> PicachvResult<()> {
+        self.options.enable_profiling = enable;
+
+        Ok(())
+    }
+
+    #[inline]
+    pub fn profiling_enabled(&self) -> bool {
+        self.options.enable_profiling
+    }
+
+    #[inline]
     pub fn new(id: Uuid, udfs: HashMap<String, Udf>) -> Self {
         Context {
             id,
             arena: Arenas::new(),
             root: Arc::new(RwLock::new(Uuid::default())),
             udfs,
+            options: ContextOptions::default(),
         }
     }
 
@@ -79,7 +111,14 @@ impl Context {
         projection: &[usize],
         selection: Option<&[bool]>,
     ) -> PicachvResult<Uuid> {
-        let df = PolicyGuardedDataFrame::from_parquet(path.as_ref(), projection, selection)?;
+        let df = if self.options.enable_profiling {
+            PROFILER.profile(
+                || PolicyGuardedDataFrame::from_parquet(path.as_ref(), projection, selection),
+                "read_parquet".into(),
+            )
+        } else {
+            PolicyGuardedDataFrame::from_parquet(path.as_ref(), projection, selection)
+        }?;
         self.register_policy_dataframe(df)
     }
 
@@ -125,14 +164,36 @@ impl Context {
                         .ok_or(PicachvError::InvalidOperation(
                             "The transform info is empty.".into(),
                         ))?;
-                    return apply_transform(&self.arena.df_arena, df_uuid, ti);
+
+                    return if self.options.enable_profiling {
+                        PROFILER.profile(
+                            || apply_transform(&self.arena.df_arena, df_uuid, ti, &self.options),
+                            "apply_transform".into(),
+                        )
+                    } else {
+                        apply_transform(&self.arena.df_arena, df_uuid, ti, &self.options)
+                    };
                 }
 
                 let plan = Plan::from_args(&self.arena, arg)?;
-                let df_uuid = plan.check_executor(&self.arena, df_uuid, &self.udfs)?;
+                let df_uuid = if self.options.enable_profiling {
+                    PROFILER.profile(
+                        || plan.check_executor(&self.arena, df_uuid, &self.udfs),
+                        "check_executor".into(),
+                    )
+                } else {
+                    plan.check_executor(&self.arena, df_uuid, &self.udfs)
+                }?;
 
                 if let Some(ti) = plan_arg.transform_info {
-                    apply_transform(&self.arena.df_arena, df_uuid, ti)
+                    if self.options.enable_profiling {
+                        PROFILER.profile(
+                            || apply_transform(&self.arena.df_arena, df_uuid, ti, &self.options),
+                            "apply_transform".into(),
+                        )
+                    } else {
+                        apply_transform(&self.arena.df_arena, df_uuid, ti, &self.options)
+                    }
                 } else {
                     Ok(df_uuid)
                 }
@@ -155,14 +216,26 @@ impl Context {
         let df_arena = rwlock_unlock!(self.arena.df_arena, read);
 
         let df = df_arena.get(&df_uuid)?;
-        df.finalize()
+        df.finalize()?;
+
+        if self.profiling_enabled() {
+            let dump = PROFILER.dump();
+            let raw = PROFILER.dump_raw();
+            std::fs::write(
+                "./profile.log",
+                format!("Aggregated:\n{:#?}\nRaw:\n{:#?}", dump, raw),
+            )
+            .map_err(|e| {
+                PicachvError::InvalidOperation(format!("Failed to write profile: {e}").into())
+            })?;
+        }
+
+        Ok(())
     }
 
     /// Reify an abstract value of the expression with the given values encoded in the bytes.
     ///
     /// The input values are just a serialized Arrow IPC data represented as record batches.
-    ///
-    /// BUG: The current implementation is somehow flawed.
     #[tracing::instrument]
     pub fn reify_expression(&self, expr_uuid: Uuid, value: &[u8]) -> PicachvResult<()> {
         tracing::debug!("reify_expression: expression uuid = {expr_uuid} ");
@@ -195,8 +268,15 @@ impl Context {
         } else if let Expr::Ternary { cond_values, .. } = expr {
             cond_values.replace(value.iter().map(|v| *v != 0).collect());
         } else {
-            // Convert values into the Arrow record batch.
-            let rb = record_batch_from_bytes(value).unwrap();
+            let f = || {
+                // Convert values into the Arrow record batch.
+                record_batch_from_bytes(value)
+            };
+            let rb = if self.options.enable_profiling {
+                PROFILER.profile(f, "reify_expression".into())
+            } else {
+                f()
+            }?;
 
             expr.reify(rb)?;
         }
@@ -242,6 +322,24 @@ impl PicachvMonitor {
             ctx: Arc::new(RwLock::new(HashMap::new())),
             udfs: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    pub fn enable_tracing(&self, ctx_id: Uuid, enable: bool) -> PicachvResult<()> {
+        let mut ctx = rwlock_unlock!(self.ctx, write);
+        let ctx = ctx
+            .get_mut(&ctx_id)
+            .ok_or_else(|| PicachvError::InvalidOperation("The context does not exist.".into()))?;
+
+        ctx.enable_tracing(enable)
+    }
+
+    pub fn enable_profiling(&self, ctx_id: Uuid, enable: bool) -> PicachvResult<()> {
+        let mut ctx = rwlock_unlock!(self.ctx, write);
+        let ctx = ctx
+            .get_mut(&ctx_id)
+            .ok_or_else(|| PicachvError::InvalidOperation("The context does not exist.".into()))?;
+
+        ctx.enable_profiling(enable)
     }
 
     pub fn register_new_udf(&self, udf: Udf) -> PicachvResult<()> {
@@ -317,19 +415,18 @@ impl PicachvMonitor {
     }
 }
 
-pub static MONITOR_INSTANCE: OnceLock<Arc<PicachvMonitor>> = OnceLock::new();
+pub static MONITOR_INSTANCE: LazyLock<Arc<PicachvMonitor>> =
+    LazyLock::new(|| Arc::new(PicachvMonitor::new()));
 
 fn enable_tracing<P: AsRef<Path>>(path: P) -> PicachvResult<()> {
     let log_file = OpenOptions::new().create(true).append(true).open(path)?;
 
-    // let debug_log = tracing_subscriber::fmt::layer()
-    //     .with_writer(Arc::new(log_file))
-    //     .with_ansi(false);
+    let debug_log = tracing_subscriber::fmt::layer()
+        .with_writer(Arc::new(log_file))
+        .with_ansi(false);
 
-    // tracing_subscriber::registry()
-    //     .with(debug_log)
-    //     .try_init()
-    //     .map_err(|e| PicachvError::Already(e.to_string().into()))
-
-    Ok(())
+    tracing_subscriber::registry()
+        .with(debug_log)
+        .try_init()
+        .map_err(|e| PicachvError::Already(e.to_string().into()))
 }

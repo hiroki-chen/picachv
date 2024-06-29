@@ -9,6 +9,14 @@ message ColumnSpecifier {
   }
 }
 
+// A configurable option structs for the context.
+message ContextOptions {
+  // Whether to enable tracing (may cause extra overheads)
+  bool enable_tracing = 1;
+  // Whether to enable the profiler.
+  bool enable_profiling = 2;
+}
+
 message GroupByIdx {
   message Groups {
     // The vectors of indexes that are used to group the data.

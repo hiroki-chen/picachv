@@ -410,10 +410,10 @@ impl Default for Policy {
 // From iterator of labels to policy.
 impl FromIterator<PolicyLabel> for Policy {
     fn from_iter<T: IntoIterator<Item = PolicyLabel>>(iter: T) -> Self {
-        let mut labels = iter.into_iter();
+        let labels = iter.into_iter();
         let mut res = Policy::PolicyClean;
 
-        while let Some(label) = labels.next() {
+        for label in labels {
             res = Policy::PolicyDeclassify {
                 label,
                 next: Box::new(res),

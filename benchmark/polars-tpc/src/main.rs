@@ -3,8 +3,7 @@ use std::time::Duration;
 use clap::Parser;
 use polars::error::{PolarsError, PolarsResult};
 use polars::frame::DataFrame;
-use polars::lazy::native::{init_monitor, open_new};
-use polars::lazy::PicachvError;
+use polars::lazy::native::{enable_profiling, enable_tracing, open_new};
 use queries::QueryFactory;
 
 pub mod queries;
@@ -24,6 +23,12 @@ pub struct Args {
 
     #[clap(short, long, help = "The policy path")]
     policy_path: Option<String>,
+
+    #[clap(long, help = "Enable tracing")]
+    enable_tracing: bool,
+
+    #[clap(long, help = "Enable profiling")]
+    enable_profiling: bool,
 }
 
 fn timer(f: impl FnOnce() -> DataFrame) -> (Duration, DataFrame) {
@@ -65,12 +70,9 @@ fn main() -> PolarsResult<()> {
     }?;
 
     let query = if args.policy_path.is_some() {
-        match init_monitor() {
-            Ok(_) | Err(PicachvError::Already(_)) => (),
-            Err(e) => panic!("Error: {:?}", e),
-        };
-
         let ctx_id = open_new().map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+        enable_tracing(ctx_id, args.enable_tracing).unwrap();
+        enable_profiling(ctx_id, args.enable_profiling).unwrap();
 
         query.set_policy_checking(true).set_ctx_id(ctx_id)
     } else {
