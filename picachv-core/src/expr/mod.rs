@@ -19,7 +19,6 @@ use crate::dataframe::PolicyRef;
 use crate::policy::context::ExpressionEvalContext;
 use crate::policy::types::{AnyValue, ValueArrayRef};
 use crate::policy::{policy_ok, BinaryTransformType, Policy, TransformType};
-use crate::profiler::PROFILER;
 use crate::thread_pool::THREAD_POOL;
 use crate::udf::Udf;
 use crate::{

@@ -143,11 +143,12 @@ impl ParquetIO for PolicyGuardedDataFrame {
 
             // Split the selection array into arrays whose size is the number of rows in each row group.
             let mut selections = vec![];
-            for (rg, num_rows) in row_groups.iter().enumerate() {
-                let start = rg * num_rows;
+            let mut start = 0usize;
+            for num_rows in row_groups.iter() {
                 let end = start + num_rows;
                 let cur = BooleanArray::from(selection[start..end].to_vec());
                 selections.push(cur);
+                start = end;
             }
 
             builder = builder.with_row_selection(RowSelection::from_filters(&selections));
