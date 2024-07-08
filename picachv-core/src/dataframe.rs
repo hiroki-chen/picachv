@@ -153,6 +153,7 @@ impl PolicyGuardedDataFrame {
     /// Constructs a new [`PolicyGuardedDataFrame`] from the slice of the original
     /// object according to the `slices` parameter.
     pub fn new_from_slice(&self, slices: &[usize]) -> PicachvResult<Self> {
+        // SOMEHOW self becomes empty.
         let columns = THREAD_POOL.install(|| {
             self.columns
                 .par_iter()
@@ -223,7 +224,7 @@ impl PolicyGuardedDataFrame {
                     },
                     || {
                         // let mut rhs = rhs.clone();
-                        rhs.projection_by_id(&right_columns)?;
+                        rhs.projection_by_id(right_columns)?;
                         PicachvResult::Ok(rhs)
                     },
                 )

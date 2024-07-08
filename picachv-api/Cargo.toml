@@ -24,4 +24,5 @@ uuid = { workspace = true }
 [features]
 default = ["java", "python"]
 java = ["jni"]
+fast_bin = ["picachv-core/use_parquet", "picachv-core/json"]
 python = ["pyo3"]

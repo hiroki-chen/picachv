@@ -1,5 +1,4 @@
 #![feature(duration_constructors)]
-#![feature(lazy_cell)]
 #![feature(iterator_try_collect)]
 #![allow(clippy::module_inception)]
 
@@ -27,6 +26,9 @@ pub mod policy;
 pub mod profiler;
 pub mod thread_pool;
 pub mod udf;
+
+#[global_allocator]
+static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 #[derive(Debug)]
 pub struct Arenas {

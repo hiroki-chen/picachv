@@ -34,7 +34,7 @@ use crate::{rwlock_unlock, Arenas};
 /// - We only consider common and generic logical plans in this enum type and avoid adding
 ///   too implementation- or architecture-specific operations.
 /// - We check if the physical plan conforms to the prescribed privacy policy. It is recommended
-/// to give the checker the *optimized* plan.
+///   to give the checker the *optimized* plan.
 /// - In fact the boxed plan do not need to be recursively checked since the caller will call
 ///   the `execute_prologue` function for each plan node on its side. We keep it here for the
 ///   purpose of debugging.
@@ -263,7 +263,7 @@ impl Plan {
                 // This is in fact `apply_fold_on_groups`, but for the sake of naming consistency
                 // we use `check_expressions_agg`.
                 let second_part =
-                    || check_expressions_agg(arena, active_df_uuid, &aggs, gb_proxy, udfs);
+                    || check_expressions_agg(arena, active_df_uuid, &aggs, gb_proxy, udfs, options);
 
                 let (first_part, second_part) = if options.enable_profiling {
                     THREAD_POOL.install(|| {
@@ -458,7 +458,11 @@ pub fn early_projection(
 /// Thus function enforces the policy for the aggregation expressions.
 ///
 /// Implements the semantic of `apply_fold_on_groups_once` in `semantics.v`.
-fn check_policy_agg(expr: &Expr, ctx: &mut ExpressionEvalContext) -> PicachvResult<Policy> {
+fn check_policy_agg(
+    expr: &Expr,
+    ctx: &ExpressionEvalContext,
+    options: &ContextOptions,
+) -> PicachvResult<Policy> {
     picachv_ensure!(
         ctx.in_agg,
         ComputeError: "The expression is not in an aggregation context."
@@ -475,9 +479,8 @@ fn check_policy_agg(expr: &Expr, ctx: &mut ExpressionEvalContext) -> PicachvResu
 
     let inner_expr = agg_expr.extract_expr(&ctx.arena.expr_arena)?;
     // We first check the policy enforcement for the inner expression.
-    let inner = inner_expr.check_policy_in_group(ctx)?;
+    let inner = inner_expr.check_policy_in_group(ctx, options)?;
     // We then apply the `fold` thing on `inner`.
-    // FIXME: SLOW?
     fold_on_groups(&inner, agg_expr.as_groupby_method())
 }
 
@@ -491,18 +494,19 @@ fn check_expressions_agg(
     agg_list: &[&Arc<Expr>],
     gb_proxy: &GroupByProxy,
     udfs: &HashMap<String, Udf>,
+    options: &ContextOptions,
 ) -> PicachvResult<Uuid> {
     let idx = match gb_proxy.group_by.as_ref() {
         Some(gb) => match gb {
-            GroupBy::GroupByIdx(idx) => idx.clone(),
-            GroupBy::GroupBySlice(slice) => convert_slice_to_idx(slice)?,
+            GroupBy::GroupByIdx(idx) => idx,
+            GroupBy::GroupBySlice(slice) => &convert_slice_to_idx(slice)?,
         },
         None => picachv_bail!(ComputeError: "The group by is empty."),
     };
 
     tracing::debug!("the aggregation list is {agg_list:?} against the group by {idx:?}");
 
-    check_expressions_agg_idx(arena, active_df_uuid, &idx, agg_list, udfs)
+    check_expressions_agg_idx(arena, active_df_uuid, idx, agg_list, udfs, options)
 }
 
 fn check_expressions_agg_idx(
@@ -511,36 +515,46 @@ fn check_expressions_agg_idx(
     gb_proxy: &GroupByIdx,
     agg_list: &[&Arc<Expr>],
     udfs: &HashMap<String, Udf>,
-) -> Result<Uuid, picachv_error::PicachvError> {
+    options: &ContextOptions,
+) -> PicachvResult<Uuid> {
     let mut df_arena = rwlock_unlock!(arena.df_arena, write);
     let df = df_arena.get(&active_df_uuid)?;
 
-    let res = THREAD_POOL.install(|| {
-        agg_list
-            .par_iter()
-            .map(|agg| {
-                gb_proxy
-                    .groups
-                    .par_iter()
-                    .map(|group| {
-                        let mut ctx = ExpressionEvalContext::new(df, true, udfs, arena);
-                        ctx.gb_proxy = Some(group);
+    let f = || {
+        THREAD_POOL.install(|| {
+            agg_list
+                .par_iter()
+                .map(|agg| {
+                    gb_proxy
+                        .groups
+                        .par_iter()
+                        .map(|group| {
+                            let mut ctx = ExpressionEvalContext::new(df, true, udfs, arena);
+                            ctx.gb_proxy = Some(group);
 
-                        Ok(Arc::new(check_policy_agg(agg, &mut ctx)?))
-                    })
-                    .collect::<PicachvResult<Vec<_>>>()
-            })
-            .collect::<PicachvResult<Vec<_>>>()
-    })?;
+                            Ok(Arc::new(check_policy_agg(agg, &ctx, options)?))
+                        })
+                        .collect::<PicachvResult<Vec<_>>>()
+                })
+                .collect::<PicachvResult<Vec<_>>>()
+        })
+    };
+
+    let res = if options.enable_profiling {
+        PROFILER.profile(f, "check_policy_agg_idx: check_policy_agg".into())
+    } else {
+        f()
+    }?;
 
     tracing::debug!("check_expressions_agg: res = {res:?}");
 
     // Let us now construct a new dataframe.
     let df = PolicyGuardedDataFrame {
-        columns: res
-            .into_iter()
-            .map(|col| Arc::new(PolicyGuardedColumn { policies: col }))
-            .collect(),
+        columns: THREAD_POOL.install(|| {
+            res.into_par_iter()
+                .map(|col| Arc::new(PolicyGuardedColumn { policies: col }))
+                .collect()
+        }),
     };
 
     df_arena.insert(df)

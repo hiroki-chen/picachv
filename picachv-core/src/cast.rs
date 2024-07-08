@@ -9,7 +9,7 @@ pub fn into_duration(value: &AnyValueRef) -> PicachvResult<AnyValueRef> {
     match value.as_ref() {
         AnyValue::Duration(_) => Ok(value.clone()),
         AnyValue::String(s) => {
-            let d = parse(&s).map_err(|e| {
+            let d = parse(s).map_err(|e| {
                 PicachvError::InvalidOperation(
                     format!("Failed to parse the duration: {}", e).into(),
                 )

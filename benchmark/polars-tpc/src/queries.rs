@@ -11,6 +11,10 @@ use polars::prelude::*;
 const TABLE_NAMES: [&str; 8] = [
     "customer", "lineitem", "nation", "orders", "part", "supplier", "partsupp", "region",
 ];
+/// Available TPC-H queries.
+pub const QUERY_NUM: [usize; 22] = [
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+];
 
 pub struct QueryFactory {
     /// The dataframes registry.
@@ -630,6 +634,7 @@ impl QueryFactory {
         Ok(df)
     }
 
+    // TODO: BUGGY
     pub fn q11(&self) -> PolarsResult<LazyFrame> {
         let nation = self.df_registry.get("nation").cloned().unwrap();
         let partsupp = self.df_registry.get("partsupp").cloned().unwrap();
@@ -665,7 +670,7 @@ impl QueryFactory {
             .agg([(col("ps_supplycost") * col("ps_availqty"))
                 .sum()
                 .alias("value")])
-            .cross_join(df)
+            .cross_join(df) // <- bug
             .filter(col("value").gt(col("tmp") * per))
             .select([col("ps_partkey"), col("value")])
             .sort(["value"], Default::default());
@@ -728,7 +733,7 @@ impl QueryFactory {
         let orders = orders.filter(
             col("o_comment")
                 .str()
-                .contains(lit("special.*reequests"), true),
+                .contains(lit("special.*requests"), true),
         );
         let df = customer
             .join(

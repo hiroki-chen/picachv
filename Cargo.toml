@@ -31,6 +31,7 @@ arrow-schema = { version = "51.0.0", features = ["serde"] }
 arrow-select = "51.0.0"
 bincode = "1.3.3"
 chrono = "0.4.38"
+jemallocator = "0.5.4"
 num_enum = { version = "0.7.2" }
 ordered-float = { version = "4.2.0", features = ["serde"] }
 parquet = "51.0.0"

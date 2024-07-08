@@ -162,6 +162,10 @@ impl ParquetIO for PolicyGuardedDataFrame {
             PicachvError::InvalidOperation(format!("Failed to read Parquet file: {}", e).into())
         })?;
 
+        if rb.is_empty() {
+            return Ok(PolicyGuardedDataFrame::new(vec![]));
+        }
+
         let rb = arrow_select::concat::concat_batches(&rb[0].schema(), &rb).map_err(|e| {
             PicachvError::InvalidOperation(format!("Failed to concat batches: {}", e).into())
         })?;

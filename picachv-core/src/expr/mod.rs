@@ -9,7 +9,7 @@ use arrow_array::{
 use arrow_schema::{DataType, TimeUnit};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::binary_operator::Operator;
-use picachv_message::{binary_operator, ArithmeticBinaryOperator};
+use picachv_message::{binary_operator, ArithmeticBinaryOperator, ContextOptions};
 use rayon::prelude::*;
 use uuid::Uuid;
 
@@ -19,6 +19,7 @@ use crate::dataframe::PolicyRef;
 use crate::policy::context::ExpressionEvalContext;
 use crate::policy::types::{AnyValue, ValueArrayRef};
 use crate::policy::{policy_ok, BinaryTransformType, Policy, TransformType};
+use crate::profiler::PROFILER;
 use crate::thread_pool::THREAD_POOL;
 use crate::udf::Udf;
 use crate::{
@@ -168,7 +169,8 @@ impl Expr {
     /// `eval_expr` in `expression.v`.
     pub(crate) fn check_policy_in_group(
         &self,
-        ctx: &mut ExpressionEvalContext,
+        ctx: &ExpressionEvalContext,
+        options: &ContextOptions,
     ) -> PicachvResult<Vec<PolicyRef>> {
         let expr_arena = rwlock_unlock!(ctx.arena.expr_arena, read);
 
@@ -176,7 +178,12 @@ impl Expr {
         let groups = ctx.gb_proxy.ok_or(PicachvError::ComputeError(
             "Group information not found, this is a fatal error.".into(),
         ))?;
-        let groups = ctx.df.groups(groups)?;
+
+        let groups = if options.enable_profiling {
+            PROFILER.profile(|| ctx.df.groups(groups), "grouping".into())
+        } else {
+            ctx.df.groups(groups)
+        }?;
 
         match self {
             Expr::Column(col) => {
@@ -642,7 +649,7 @@ fn check_policy_binary_udf(
         udf_name
     );
 
-    match (policy_ok(&lhs), policy_ok(&rhs)) {
+    match (policy_ok(lhs), policy_ok(rhs)) {
         (true, true) => Ok(Policy::PolicyClean),
         // lhs = ∎
         (true, _) => {
@@ -667,12 +674,12 @@ fn check_policy_binary_udf(
             lhs.downgrade(&Arc::new(pf))
         },
 
-        _ => lhs.join(&rhs),
+        _ => lhs.join(rhs),
     }
 }
 
 fn check_policy_unary_udf(arg: &PolicyRef, udf_name: &str) -> PicachvResult<Policy> {
-    match policy_ok(&arg) {
+    match policy_ok(arg) {
         true => Ok(Policy::PolicyClean),
         false => {
             let pf = policy_unary_transform_label!(udf_name.to_string());

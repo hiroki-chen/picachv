@@ -400,3 +400,49 @@ pub unsafe extern "C" fn register_policy_dataframe_json(
 
     ErrorCode::Success
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn enable_profiling(
+    ctx_uuid: *const u8,
+    ctx_uuid_len: usize,
+    enable: bool,
+) -> ErrorCode {
+    let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
+
+    let mut ctx = match MONITOR_INSTANCE.get_ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return ErrorCode::NoEntry,
+    };
+
+    let ctx = match ctx.get_mut(&ctx_id) {
+        Some(ctx) => ctx,
+        None => return ErrorCode::NoEntry,
+    };
+
+    try_execute!(ctx.enable_profiling(enable));
+
+    ErrorCode::Success
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn enable_tracing(
+    ctx_uuid: *const u8,
+    ctx_uuid_len: usize,
+    enable: bool,
+) -> ErrorCode {
+    let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
+
+    let mut ctx = match MONITOR_INSTANCE.get_ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return ErrorCode::NoEntry,
+    };
+
+    let ctx = match ctx.get_mut(&ctx_id) {
+        Some(ctx) => ctx,
+        None => return ErrorCode::NoEntry,
+    };
+
+    try_execute!(ctx.enable_tracing(enable));
+
+    ErrorCode::Success
+}

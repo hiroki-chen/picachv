@@ -19,6 +19,7 @@ arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 bincode = { workspace = true, optional = true }
 chrono = { workspace = true }
+jemallocator = { workspace = true }
 tabled = { version = "0.15.0" }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

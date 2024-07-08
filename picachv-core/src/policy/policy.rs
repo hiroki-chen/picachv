@@ -593,7 +593,7 @@ impl Policy {
         match self.le(&p) {
             Ok(b) => {
                 picachv_ensure!(b, PrivacyError: "trying to downgrade by an operation that is not allowed");
-                self.do_downgrade(&by)
+                self.do_downgrade(by)
             },
             Err(e) => Err(e),
         }

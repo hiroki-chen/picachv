@@ -4,7 +4,7 @@ use clap::Parser;
 use polars::error::{PolarsError, PolarsResult};
 use polars::frame::DataFrame;
 use polars::lazy::native::{enable_profiling, enable_tracing, open_new};
-use queries::QueryFactory;
+use queries::{QueryFactory, QUERY_NUM};
 
 pub mod queries;
 
@@ -12,6 +12,14 @@ pub mod queries;
 pub struct Args {
     #[clap(short, long, default_value = "1", help = "The query number to run")]
     query: usize,
+
+    #[clap(
+        short,
+        long,
+        default_value = "false",
+        help = "Run all queries in sequence"
+    )]
+    run_all: bool,
 
     #[clap(
         short,
@@ -39,11 +47,8 @@ fn timer(f: impl FnOnce() -> DataFrame) -> (Duration, DataFrame) {
     (end - begin, res)
 }
 
-fn main() -> PolarsResult<()> {
-    let args = Args::parse();
-    let qf = QueryFactory::new(&args.tables_path, args.policy_path.as_ref())?;
-
-    let query = match args.query {
+fn do_query(qf: &QueryFactory, qn: usize, args: &Args) -> PolarsResult<Duration> {
+    let query = match qn {
         1 => qf.q1(),
         2 => qf.q2(),
         3 => qf.q3(),
@@ -79,12 +84,24 @@ fn main() -> PolarsResult<()> {
         query
     };
 
-    println!("{}", query.explain(true)?);
+    let (elapsed_time, _) = timer(|| query.collect().unwrap());
 
-    let (elapsed_time, df) = timer(|| query.collect().unwrap());
+    Ok(elapsed_time)
+}
 
-    println!("{}", df);
-    println!("Elapsed time: {:?}", elapsed_time);
+fn main() -> PolarsResult<()> {
+    let args = Args::parse();
+    let qf = QueryFactory::new(&args.tables_path, args.policy_path.as_ref())?;
+
+    if args.run_all {
+        for qn in QUERY_NUM {
+            let elapsed_time = do_query(&qf, qn, &args)?;
+            println!("Query {} took {:?}", qn, elapsed_time);
+        }
+    } else {
+        let elapsed_time = do_query(&qf, args.query, &args)?;
+        println!("Query {} took {:?}", args.query, elapsed_time);
+    }
 
     Ok(())
 }
