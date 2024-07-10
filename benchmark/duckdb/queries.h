@@ -26,6 +26,8 @@ class QueryFactory {
   std::unique_ptr<duckdb::Connection> con_;
 
 private:
+  bool PrepareTable(const std::string &table_name);
+
   QueryStat ExecuteQuery1();
 
 public:

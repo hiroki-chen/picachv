@@ -7,6 +7,8 @@ from settings import Settings
 
 settings = Settings()
 
+DEFAULT_ROW_GROUP_SIZE = 2048
+
 
 table_columns = {
     "customer": [
@@ -110,7 +112,7 @@ def dbgen() -> None:
     os.chdir("..")
 
 
-def main(perecntage: float, skip_dbgen: bool) -> None:
+def main(percentage: float, skip_dbgen: bool) -> None:
     if not skip_dbgen:
         dbgen()
 
@@ -131,13 +133,18 @@ def main(perecntage: float, skip_dbgen: bool) -> None:
 
         if table_name in ["lineitem", "orders", "part", "partsupp", "customer"]:
             num = int(lf.select(pl.len()).collect().item())
-            lf = lf.limit(int(num * perecntage))
+            lf = lf.limit(int(num * percentage))
 
-        lf.sink_parquet(settings.dataset_base_dir / f"{table_name}.parquet")
-        lf.sink_csv(settings.dataset_base_dir / f"{table_name}.csv")
-
-        # IPC currently not relevant
-        # lf.sink_ipc(base_path / f"{table_name}.feather")
+        # The reason why we avoid using `lf.sink_parquet` is that it is buggy when dealing with
+        # `row_group_size`; this argument seems to be ignored.
+        df = lf.collect()
+        df.write_parquet(
+            settings.dataset_base_dir / f"{table_name}.parquet",
+            use_pyarrow=True,
+            row_group_size=2048,
+            pyarrow_options={"row_group_size": DEFAULT_ROW_GROUP_SIZE},
+        )
+        df.write_csv(settings.dataset_base_dir / f"{table_name}.csv")
 
 
 if __name__ == "__main__":

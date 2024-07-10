@@ -8,7 +8,7 @@ use clap::{Parser, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use picachv_core::dataframe::{PolicyGuardedColumn, PolicyGuardedDataFrame};
-use picachv_core::io::{BinIo, JsonIO, ParquetIO};
+use picachv_core::io::{BinIo, JsonIO};
 use picachv_core::policy::Policy;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]

@@ -7,7 +7,7 @@ use std::sync::{Arc, LazyLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use picachv_core::dataframe::{apply_transform, PolicyGuardedDataFrame};
 use picachv_core::expr::{ColumnIdent, Expr};
-use picachv_core::io::{BinIo, JsonIO, ParquetIO};
+use picachv_core::io::{BinIo, JsonIO};
 use picachv_core::plan::{early_projection, Plan};
 use picachv_core::profiler::PROFILER;
 use picachv_core::udf::Udf;

@@ -1,5 +1,4 @@
 pub mod context;
-pub mod error;
 pub mod lattice;
 pub mod policy;
 pub mod types;

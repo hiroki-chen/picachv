@@ -27,6 +27,20 @@ QueryFactory::QueryFactory(cxxopts::ParseResult &options) {
   query_num_ = options["query-num"].as<int>();
 }
 
+bool QueryFactory::PrepareTable(const std::string &table_name) {
+  if (!policy_path_.has_value()) {
+    return true;
+  }
+
+  const std::string policy_path =
+      data_path_ + "/" + policy_path_.value() + table_name + ".parquet.bin";
+
+  // Need to figure a way out to load the policy.
+  // Possible solution: parquet_extension.cpp
+
+  return true;
+}
+
 bool QueryFactory::Setup(std::unique_ptr<duckdb::Connection> con) {
   con_ = std::move(con);
 
@@ -42,7 +56,8 @@ bool QueryFactory::Setup(std::unique_ptr<duckdb::Connection> con) {
 
     if (enable_profiling_) {
       con_->EnableProfiling();
-    } 
+      con_->EnablePicachvProfiling();
+    }
   }
 
   return true;
@@ -59,12 +74,13 @@ QueryStat QueryFactory::ExecuteQuery() {
 }
 
 QueryStat QueryFactory::ExecuteQuery1() {
-  if (!policy_path_.has_value()) {
-    std::cerr << "Please specify the policy path!\n";
-    exit(1);
-  }
-  const std::string policy_path = policy_path_.value();
   const std::string lineitem = data_path_ + "/" + kTableNames[0] + ".parquet";
+
+  if (!PrepareTable(kTableNames[0])) {
+    std::cerr << "Failed to prepare the table: " << kTableNames[0] << std::endl;
+    return QueryStat{.success = false,
+                     .time = std::chrono::duration<double>(0)};
+  }
 
   // Query 1
   std::string query =
@@ -80,7 +96,7 @@ QueryStat QueryFactory::ExecuteQuery1() {
       "FROM '" +
       lineitem +
       "' "
-      "WHERE l_shipdate <= '1998-12-01' "
+      // "WHERE l_shipdate <= '1998-12-01' "
       "GROUP BY l_returnflag, l_linestatus "
       "ORDER BY l_returnflag, l_linestatus;";
 
