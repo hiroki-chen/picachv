@@ -120,6 +120,14 @@ mod tests {
         assert_eq!(df, df2);
     }
 
+    #[cfg_attr(all(feature = "fast_bin", feature = "parquet"), test)]
+    fn test_parquet_read_row_group() {
+        let path = "../data/policies/lineitem.parquet.policy.parquet";
+        let df = PolicyGuardedDataFrame::from_parquet_row_group(path, &[0], None, 300);
+        assert!(df.is_ok_and(|df| {println!("{:?}", df.shape()); df.shape().0 == 2048}));
+
+    }
+
     #[cfg_attr(feature = "fast_bin", test)]
     fn test_bin_roundabout() {
         let df = test_df();

@@ -12,6 +12,8 @@ static const std::string kTableNames[] = {"lineitem", "orders",   "part",
                                           "supplier", "customer", "partsupp",
                                           "nation",   "region"};
 
+static const int kTableNum = sizeof(kTableNames) / sizeof(kTableNames[0]);
+
 struct QueryStat {
   bool success;
   std::chrono::duration<double> time;

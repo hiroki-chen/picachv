@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use arrow_array::{BinaryArray, BooleanArray, RecordBatch};
-use parquet::arrow::arrow_reader::{ArrowReaderBuilder, RowSelection};
+use parquet::arrow::arrow_reader::{ArrowReaderBuilder, RowSelection, SyncReader};
 use parquet::arrow::{ArrowWriter, ProjectionMask};
 use parquet::file::properties::WriterProperties;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
@@ -47,21 +47,8 @@ impl PolicyGuardedDataFrame {
         projection: &[usize],
         selection: Option<&[bool]>,
     ) -> PicachvResult<Self> {
-        let file = File::open(path).map_err(|e| {
-            PicachvError::InvalidOperation(format!("Failed to open file: {}", e).into())
-        })?;
-
-        let mut builder = ArrowReaderBuilder::try_new(file)
-            .map_err(|e| {
-                PicachvError::InvalidOperation(
-                    format!("Failed to create Parquet reader: {}", e).into(),
-                )
-            })?
-            .with_batch_size(8192);
-        let file_metadata = builder.metadata().file_metadata().clone();
-        let proj_mask = ProjectionMask::roots(file_metadata.schema_descr(), projection.to_vec());
-
-        builder = builder.with_projection(proj_mask);
+        let mut builder = get_initial_builder(path, projection)?;
+        let file_metadata = builder.metadata().file_metadata();
 
         // Do a predicate pushdown.
         if let Some(selection) = selection {
@@ -93,32 +80,16 @@ impl PolicyGuardedDataFrame {
             builder = builder.with_row_selection(RowSelection::from_filters(&selections));
         }
 
-        let mut reader = builder.build().map_err(|e| {
-            PicachvError::InvalidOperation(format!("Failed to build Parquet reader: {}", e).into())
-        })?;
-
-        let rb = reader.try_collect::<Vec<_>>().map_err(|e| {
-            PicachvError::InvalidOperation(format!("Failed to read Parquet file: {}", e).into())
-        })?;
-
-        if rb.is_empty() {
-            return Ok(PolicyGuardedDataFrame::new(vec![]));
-        }
-
-        let rb = arrow_select::concat::concat_batches(&rb[0].schema(), &rb).map_err(|e| {
-            PicachvError::InvalidOperation(format!("Failed to concat batches: {}", e).into())
-        })?;
-
-        PolicyGuardedDataFrame::new_from_record_batch(rb)
+        collect_reader(builder)
     }
 
     /// Reads the policy dataframe from a specific row group with a specified number of rows.
-    /// 
+    ///
     /// # Warnings
-    /// 
+    ///
     /// Use of this method requires the size of the row group to be [`DEFAULT_ROW_GROUP_SIZE`]
     /// for both the data side and the policy side.
-    /// 
+    ///
     /// By default the argument `num_row_read` should be set to this value. However, this value
     /// might be *smaller* than this value which occurs when the last row group num < 2048.
     pub fn from_parquet_row_group<P: AsRef<Path>>(
@@ -127,8 +98,38 @@ impl PolicyGuardedDataFrame {
         selection: Option<&[bool]>,
         row_group_index: usize,
     ) -> PicachvResult<Self> {
+        let mut builder = get_initial_builder(path, projection)?;
+        let metadata = builder.metadata().clone();
 
-        todo!()
+        picachv_ensure!(
+            row_group_index < builder.metadata().num_row_groups(),
+            InvalidOperation: "The row group index {} is out of bound {}",
+            row_group_index,
+            metadata.num_row_groups(),
+        );
+
+        let row_group_meta = metadata.row_group(row_group_index);
+        picachv_ensure!(
+            row_group_meta.num_rows() as usize <= DEFAULT_ROW_GROUP_SIZE,
+            InvalidOperation: "The number of rows in the row group is greater than the default row group size"
+        );
+
+        builder = builder.with_row_groups(vec![row_group_index]);
+        if let Some(selection) = selection {
+            picachv_ensure!(
+                selection.len() == row_group_meta.num_rows() as usize,
+                InvalidOperation: "The selection array length {} is not equal to `num_rows` {}",
+                selection.len(),
+                row_group_meta.num_rows()
+            );
+
+            builder =
+                builder.with_row_selection(RowSelection::from_filters(&[BooleanArray::from(
+                    selection.to_vec(),
+                )]));
+        }
+
+        collect_reader(builder)
     }
 
     pub fn to_parquet<P: AsRef<Path>>(&self, path: P) -> PicachvResult<()> {
@@ -181,4 +182,48 @@ impl PolicyGuardedDataFrame {
 
         Ok(())
     }
+}
+
+fn collect_reader(
+    builder: ArrowReaderBuilder<SyncReader<File>>,
+) -> Result<PolicyGuardedDataFrame, PicachvError> {
+    let mut reader = builder.build().map_err(|e| {
+        PicachvError::InvalidOperation(format!("Failed to build Parquet reader: {}", e).into())
+    })?;
+
+    let rb = reader.try_collect::<Vec<_>>().map_err(|e| {
+        PicachvError::InvalidOperation(format!("Failed to read Parquet file: {}", e).into())
+    })?;
+
+    if rb.is_empty() {
+        return Ok(PolicyGuardedDataFrame::new(vec![]));
+    }
+
+    let rb = arrow_select::concat::concat_batches(&rb[0].schema(), &rb).map_err(|e| {
+        PicachvError::InvalidOperation(format!("Failed to concat batches: {}", e).into())
+    })?;
+
+    PolicyGuardedDataFrame::new_from_record_batch(rb)
+}
+
+/// Gets the initial builder for the Parquet reader with columns projected.
+fn get_initial_builder<P: AsRef<Path>>(
+    path: P,
+    projection: &[usize],
+) -> PicachvResult<ArrowReaderBuilder<SyncReader<File>>> {
+    let file = File::open(path).map_err(|e| {
+        PicachvError::InvalidOperation(format!("Failed to open file: {}", e).into())
+    })?;
+
+    let mut builder = ArrowReaderBuilder::try_new(file)
+        .map_err(|e| {
+            PicachvError::InvalidOperation(format!("Failed to create Parquet reader: {}", e).into())
+        })?
+        .with_batch_size(DEFAULT_ROW_GROUP_SIZE);
+    let file_metadata = builder.metadata().file_metadata().clone();
+    let proj_mask = ProjectionMask::roots(file_metadata.schema_descr(), projection.to_vec());
+
+    builder = builder.with_projection(proj_mask);
+
+    Ok(builder)
 }

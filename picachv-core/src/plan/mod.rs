@@ -19,7 +19,7 @@ use crate::policy::Policy;
 use crate::profiler::PROFILER;
 use crate::thread_pool::THREAD_POOL;
 use crate::udf::Udf;
-use crate::{rwlock_unlock, Arenas};
+use crate::Arenas;
 
 /// This struct describes a physical plan that the caller wants to perform on the
 /// raw data. We do not use the [`LogicalPlan`] shipped with polars because it contains too
@@ -186,7 +186,7 @@ impl Plan {
                 expressions: expression,
                 ..
             } => {
-                let expr_arena = rwlock_unlock!(arena.expr_arena, read);
+                let expr_arena = arena.expr_arena.read();
                 let expression = expression
                     .par_iter()
                     .map(|e| expr_arena.get(e))
@@ -196,7 +196,7 @@ impl Plan {
             },
             Plan::Select { predicate, .. } => {
                 let predicate = {
-                    let expr_arena = rwlock_unlock!(arena.expr_arena, read);
+                    let expr_arena = arena.expr_arena.read();
                     expr_arena.get(predicate)?.clone()
                 };
 
@@ -216,7 +216,7 @@ impl Plan {
                 match selection {
                     Some(s) => {
                         let expr = {
-                            let expr_arena = rwlock_unlock!(arena.expr_arena, read);
+                            let expr_arena = arena.expr_arena.read();
                             expr_arena.get(s)?.clone()
                         };
 
@@ -234,7 +234,7 @@ impl Plan {
                 gb_proxy,
                 ..
             } => {
-                let expr_arena = rwlock_unlock!(arena.expr_arena, read);
+                let expr_arena = arena.expr_arena.read();
                 let keys = keys
                     .par_iter()
                     .map(|e| expr_arena.get(e))
@@ -254,7 +254,7 @@ impl Plan {
                 // See the semantics for `eval_aggregate` as well as `eval_groupby_having` and
                 // `apply_fold_in_groups` in `semantics.v`.
                 let first_part = || {
-                    let df_arena = rwlock_unlock!(arena.df_arena, read);
+                    let df_arena = arena.df_arena.read();
                     let df = df_arena.get(&active_df_uuid)?;
                     let df = do_check_expressions(arena, df, &keys, udfs, options)?;
 
@@ -279,7 +279,7 @@ impl Plan {
                 let second_part = second_part?;
 
                 // Combine the two parts.
-                let mut df_arena = rwlock_unlock!(arena.df_arena, write);
+                let mut df_arena = arena.df_arena.write();
                 let second_part = df_arena.get(&second_part)?;
 
                 let new_df = PolicyGuardedDataFrame::stitch(&first_part, second_part)?;
@@ -317,8 +317,8 @@ fn do_hstack(
     udfs: &HashMap<String, Udf>,
     options: &ContextOptions,
 ) -> PicachvResult<Uuid> {
-    let mut df_arena = rwlock_unlock!(arena.df_arena, write);
-    let expr_arena = rwlock_unlock!(arena.expr_arena, read);
+    let mut df_arena = arena.df_arena.write();
+    let expr_arena = arena.expr_arena.read();
     let df = df_arena.get_mut(&active_df_uuid)?;
 
     let cse_expressions = cse_expressions
@@ -439,7 +439,7 @@ pub fn early_projection(
     active_df_uuid: Uuid,
     project_list: &[usize],
 ) -> PicachvResult<Uuid> {
-    let mut df_arena = rwlock_unlock!(df_arena.df_arena, write);
+    let mut df_arena = df_arena.df_arena.write();
     let df = df_arena.get_mut(&active_df_uuid)?;
 
     match Arc::get_mut(df) {
@@ -517,7 +517,7 @@ fn check_expressions_agg_idx(
     udfs: &HashMap<String, Udf>,
     options: &ContextOptions,
 ) -> PicachvResult<Uuid> {
-    let mut df_arena = rwlock_unlock!(arena.df_arena, write);
+    let mut df_arena = arena.df_arena.write();
     let df = df_arena.get(&active_df_uuid)?;
 
     let f = || {
@@ -577,7 +577,7 @@ fn do_check_expressions(
                 .map(|expr| {
                     let cur = (0..rows)
                         .into_par_iter()
-                        .map(|idx| expr.check_policy_in_row(&ctx, idx))
+                        .map(|idx| expr.check_policy_in_row(&ctx, idx)) // deadlock?
                         .collect::<PicachvResult<Vec<_>>>()?;
                     Ok(Arc::new(PolicyGuardedColumn { policies: cur }))
                 })
@@ -602,12 +602,17 @@ fn check_expressions(
     udfs: &HashMap<String, Udf>,
     options: &ContextOptions,
 ) -> PicachvResult<Uuid> {
-    let mut df_arena = rwlock_unlock!(arena.df_arena, write);
+    let new_df = {
+        let df = arena.df_arena.read();
+        let df = df.get(&active_df_uuid)?;
+        Arc::new(do_check_expressions(arena, df, expression, udfs, options)?)
+    };
+
+    let mut df_arena = arena.df_arena.write();
+
     let df = df_arena.get_mut(&active_df_uuid)?;
     let can_replace = Arc::strong_count(df) == 1 && !keep_old;
 
-    let new_df: Arc<PolicyGuardedDataFrame> =
-        Arc::new(do_check_expressions(arena, df, expression, udfs, options)?);
     if can_replace {
         let _ = std::mem::replace(df, new_df);
         Ok(active_df_uuid)

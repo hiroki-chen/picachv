@@ -11,8 +11,9 @@ picachv-core = { workspace = true }
 picachv-message = { workspace = true }
 
 arrow-array = { workspace = true }
+prost = { workspace = true }
+readonly = "0.2.12"
+spin = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-readonly = "0.2.12"
 uuid = { workspace = true }
-prost = { workspace = true }

@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 use std::{fmt, vec};
 
@@ -11,6 +11,7 @@ use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::binary_operator::Operator;
 use picachv_message::{binary_operator, ArithmeticBinaryOperator, ContextOptions};
 use rayon::prelude::*;
+use spin::RwLock;
 use uuid::Uuid;
 
 use crate::arena::Arena;
@@ -24,7 +25,7 @@ use crate::thread_pool::THREAD_POOL;
 use crate::udf::Udf;
 use crate::{
     build_unary_expr, cast, policy_agg_label, policy_binary_transform_label,
-    policy_unary_transform_label, rwlock_unlock,
+    policy_unary_transform_label,
 };
 
 pub mod builder;
@@ -70,7 +71,7 @@ impl AggExpr {
             | Self::Var(input, _) => input,
         };
 
-        rwlock_unlock!(expr_arena, read).get(expr_uuid).cloned()
+        expr_arena.read().get(expr_uuid).cloned()
     }
 
     pub fn as_groupby_method(&self) -> GroupByMethod {
@@ -172,7 +173,7 @@ impl Expr {
         ctx: &ExpressionEvalContext,
         options: &ContextOptions,
     ) -> PicachvResult<Vec<PolicyRef>> {
-        let expr_arena = rwlock_unlock!(ctx.arena.expr_arena, read);
+        let expr_arena = ctx.arena.expr_arena.read();
 
         // Extract the groups as a sub-dataframe.
         let groups = ctx.gb_proxy.ok_or(PicachvError::ComputeError(
@@ -288,7 +289,7 @@ impl Expr {
         ctx: &ExpressionEvalContext,
         idx: usize,
     ) -> PicachvResult<PolicyRef> {
-        let expr_arena = rwlock_unlock!(ctx.arena.expr_arena, read);
+        let expr_arena = ctx.arena.expr_arena.read();
 
         match self {
             // A literal expression is always allowed because it does not
@@ -697,7 +698,7 @@ fn check_policy_in_row_apply(
     idx: usize,
 ) -> PicachvResult<Policy> {
     let args = {
-        let expr_arena = rwlock_unlock!(ctx.arena.expr_arena, read);
+        let expr_arena = ctx.arena.expr_arena.read();
         args.par_iter()
             .map(|e| expr_arena.get(e).cloned())
             .collect::<PicachvResult<Vec<_>>>()?

@@ -1,6 +1,6 @@
 use std::fmt;
 use std::ops::{Deref, Range};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use arrow_array::{BinaryArray, RecordBatch};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
@@ -9,6 +9,7 @@ use picachv_message::transform_info::Information;
 use picachv_message::{ContextOptions, JoinInformation, TransformInfo};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use spin::RwLock;
 use tabled::builder::Builder;
 use tabled::settings::object::Rows;
 use tabled::settings::{Alignment, Style};
@@ -18,7 +19,6 @@ use crate::arena::Arena;
 use crate::io::BinIo;
 use crate::policy::Policy;
 use crate::profiler::PROFILER;
-use crate::rwlock_unlock;
 use crate::thread_pool::THREAD_POOL;
 
 pub type PolicyGuardedColumnRef = Arc<PolicyGuardedColumn>;
@@ -460,7 +460,7 @@ pub fn apply_transform(
     match transform.information {
         Some(ti) => match ti {
             Information::Filter(pred) => {
-                let mut df_arena = rwlock_unlock!(df_arena, write);
+                let mut df_arena = df_arena.write();
                 let df = df_arena.get_mut(&df_uuid)?;
 
                 // We then apply the transformation.
@@ -487,7 +487,7 @@ pub fn apply_transform(
             },
 
             Information::Union(union_info) => {
-                let mut df_arena = rwlock_unlock!(df_arena, write);
+                let mut df_arena = df_arena.write();
 
                 let involved_dfs = [&union_info.lhs_df_uuid, &union_info.rhs_df_uuid]
                     .par_iter()
@@ -506,7 +506,7 @@ pub fn apply_transform(
             },
 
             Information::Join(join) => {
-                let mut df_arena = rwlock_unlock!(df_arena, write);
+                let mut df_arena = df_arena.write();
 
                 let lhs = Uuid::from_slice_le(&join.lhs_df_uuid)
                     .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
@@ -529,7 +529,7 @@ pub fn apply_transform(
             },
 
             Information::Reorder(reorder_info) => {
-                let mut df_arena = rwlock_unlock!(df_arena, write);
+                let mut df_arena = df_arena.write();
                 let df = df_arena.get_mut(&df_uuid)?;
                 // This is the permutation array where arr[i] = j means that the i-th row should be
                 // placed with the j-th row.

@@ -2,7 +2,7 @@
 #![feature(iterator_try_collect)]
 #![allow(clippy::module_inception)]
 
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use arena::Arena;
 pub use arrow_array::{Array, RecordBatch};
@@ -12,6 +12,7 @@ use dataframe::DfArena;
 use expr::{Expr, ExprArena};
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::ExprArgument;
+use spin::RwLock;
 use uuid::Uuid;
 
 pub mod arena;
@@ -57,7 +58,7 @@ impl Arenas {
 
         let expr = Expr::from_args(self, arg)?;
 
-        let mut lock = rwlock_unlock!(self.expr_arena, write);
+        let mut lock = self.expr_arena.write();
         lock.insert(expr)
     }
 }

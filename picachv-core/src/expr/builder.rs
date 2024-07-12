@@ -6,7 +6,7 @@ use uuid::Uuid;
 use super::Expr;
 use crate::expr::ColumnIdent;
 use crate::udf::Udf;
-use crate::{rwlock_unlock, Arenas};
+use crate::Arenas;
 
 impl Expr {
     /// Build expression from the arguments.
@@ -14,7 +14,7 @@ impl Expr {
         use expr_argument::Argument;
 
         tracing::debug!("Building expression from the arguments {arg:?}");
-        let expr_arena = rwlock_unlock!(arenas.expr_arena, read);
+        let expr_arena = arenas.expr_arena.read();
         match arg {
             Argument::Column(expr) => match expr.column {
                 Some(column) => match column.column {

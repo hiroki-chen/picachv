@@ -27,6 +27,7 @@ num_enum = { workspace = true }
 ordered-float = { workspace = true }
 parquet = { workspace = true, optional = true }
 rayon = { workspace = true }
+spin = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }

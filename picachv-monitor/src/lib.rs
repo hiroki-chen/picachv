@@ -3,7 +3,7 @@ use std::fmt;
 use std::fs::OpenOptions;
 use std::ops::Range;
 use std::path::Path;
-use std::sync::{Arc, LazyLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, LazyLock};
 
 use picachv_core::dataframe::{apply_transform, PolicyGuardedDataFrame};
 use picachv_core::expr::{ColumnIdent, Expr};
@@ -11,10 +11,11 @@ use picachv_core::io::{BinIo, JsonIO};
 use picachv_core::plan::{early_projection, Plan};
 use picachv_core::profiler::PROFILER;
 use picachv_core::udf::Udf;
-use picachv_core::{get_new_uuid, record_batch_from_bytes, rwlock_unlock, Arenas};
+use picachv_core::{get_new_uuid, record_batch_from_bytes, Arenas};
 use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::{plan_argument, ContextOptions, ExprArgument, PlanArgument};
 use prost::Message;
+use spin::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
@@ -80,7 +81,7 @@ impl Context {
     #[inline]
     #[tracing::instrument]
     pub fn register_policy_dataframe(&self, df: PolicyGuardedDataFrame) -> PicachvResult<Uuid> {
-        let mut df_arena = rwlock_unlock!(self.arena.df_arena, write);
+        let mut df_arena = self.arena.df_arena.write();
         df_arena.insert(df)
     }
 
@@ -99,6 +100,19 @@ impl Context {
         path: P,
     ) -> PicachvResult<Uuid> {
         let df = PolicyGuardedDataFrame::from_bytes(path.as_ref())?;
+        self.register_policy_dataframe(df)
+    }
+
+    #[tracing::instrument]
+    pub fn register_policy_dataframe_from_row_group<P: AsRef<Path> + fmt::Debug>(
+        &self,
+        path: P,
+        projection: &[usize],
+        selection: Option<&[bool]>,
+        row_group: usize,
+    ) -> PicachvResult<Uuid> {
+        let df =
+            PolicyGuardedDataFrame::from_parquet_row_group(path, projection, selection, row_group)?;
         self.register_policy_dataframe(df)
     }
 
@@ -133,7 +147,7 @@ impl Context {
         ))?;
 
         let expr = Expr::from_args(&self.arena, expr_arg)?;
-        let mut expr_arena = rwlock_unlock!(self.arena.expr_arena, write);
+        let mut expr_arena = self.arena.expr_arena.write();
         let uuid = expr_arena.insert(expr)?;
         tracing::debug!("expr_from_args: uuid = {uuid}");
 
@@ -202,7 +216,7 @@ impl Context {
 
     #[tracing::instrument]
     pub fn create_slice(&self, df_uuid: Uuid, range: Range<usize>) -> PicachvResult<Uuid> {
-        let mut df_arena = rwlock_unlock!(self.arena.df_arena, write);
+        let mut df_arena = self.arena.df_arena.write();
         let df = df_arena.get(&df_uuid)?;
 
         let new_df = df.slice(range)?;
@@ -211,7 +225,7 @@ impl Context {
 
     #[tracing::instrument]
     pub fn finalize(&self, df_uuid: Uuid) -> PicachvResult<()> {
-        let df_arena = rwlock_unlock!(self.arena.df_arena, read);
+        let df_arena = self.arena.df_arena.read();
 
         let df = df_arena.get(&df_uuid)?;
         df.finalize()?;
@@ -238,7 +252,7 @@ impl Context {
     pub fn reify_expression(&self, expr_uuid: Uuid, value: &[u8]) -> PicachvResult<()> {
         tracing::debug!("reify_expression: expression uuid = {expr_uuid} ");
 
-        let mut expr_arena = rwlock_unlock!(self.arena.expr_arena, write);
+        let mut expr_arena = self.arena.expr_arena.write();
         let expr = expr_arena.get_mut(&expr_uuid)?;
         let expr = match Arc::get_mut(expr) {
             Some(expr) => expr,
@@ -289,7 +303,7 @@ impl Context {
 
     #[tracing::instrument]
     pub fn get_df(&self, df_uuid: Uuid) -> PicachvResult<Arc<PolicyGuardedDataFrame>> {
-        let df_arena = rwlock_unlock!(self.arena.df_arena, read);
+        let df_arena = self.arena.df_arena.read();
         df_arena.get(&df_uuid).cloned()
     }
 }
@@ -323,7 +337,7 @@ impl PicachvMonitor {
     }
 
     pub fn enable_tracing(&self, ctx_id: Uuid, enable: bool) -> PicachvResult<()> {
-        let mut ctx = rwlock_unlock!(self.ctx, write);
+        let mut ctx = self.ctx.write();
         let ctx = ctx
             .get_mut(&ctx_id)
             .ok_or_else(|| PicachvError::InvalidOperation("The context does not exist.".into()))?;
@@ -332,7 +346,7 @@ impl PicachvMonitor {
     }
 
     pub fn enable_profiling(&self, ctx_id: Uuid, enable: bool) -> PicachvResult<()> {
-        let mut ctx = rwlock_unlock!(self.ctx, write);
+        let mut ctx = self.ctx.write();
         let ctx = ctx
             .get_mut(&ctx_id)
             .ok_or_else(|| PicachvError::InvalidOperation("The context does not exist.".into()))?;
@@ -341,29 +355,26 @@ impl PicachvMonitor {
     }
 
     pub fn register_new_udf(&self, udf: Udf) -> PicachvResult<()> {
-        let mut udfs = rwlock_unlock!(self.udfs, write);
+        let mut udfs = self.udfs.write();
         udfs.insert(udf.name().to_string(), udf);
         Ok(())
     }
 
     pub fn get_ctx(&self) -> PicachvResult<RwLockReadGuard<HashMap<Uuid, Context>>> {
-        Ok(rwlock_unlock!(self.ctx, read))
+        Ok(self.ctx.read())
     }
 
     pub fn get_ctx_mut(&self) -> PicachvResult<RwLockWriteGuard<HashMap<Uuid, Context>>> {
-        Ok(rwlock_unlock!(self.ctx, write))
+        Ok(self.ctx.write())
     }
 
     /// Opens a new context.
     pub fn open_new(&self) -> PicachvResult<Uuid> {
         let uuid = get_new_uuid();
-        let udfs = rwlock_unlock!(self.udfs, read).clone();
+        let udfs = self.udfs.read().clone();
         let ctx = Context::new(get_new_uuid(), udfs);
 
-        self.ctx
-            .write()
-            .map_err(|e| PicachvError::ComputeError(e.to_string().into()))?
-            .insert(uuid, ctx);
+        self.ctx.write().insert(uuid, ctx);
 
         Ok(uuid)
     }
@@ -371,7 +382,7 @@ impl PicachvMonitor {
     pub fn build_expr(&self, ctx_id: Uuid, expr_arg: &[u8]) -> PicachvResult<Uuid> {
         tracing::debug!("build_expr");
 
-        let mut ctx = rwlock_unlock!(self.ctx, write);
+        let mut ctx = self.ctx.write();
         let ctx = ctx
             .get_mut(&ctx_id)
             .ok_or_else(|| PicachvError::InvalidOperation("The context does not exist.".into()))?;
@@ -395,7 +406,7 @@ impl PicachvMonitor {
         df_uuid: Uuid,
         plan_arg: Option<PlanArgument>,
     ) -> PicachvResult<Uuid> {
-        let mut ctx = rwlock_unlock!(self.ctx, write);
+        let mut ctx = self.ctx.write();
         let ctx = ctx
             .get_mut(&ctx_id)
             .ok_or_else(|| PicachvError::InvalidOperation("The context does not exist.".into()))?;
@@ -404,7 +415,7 @@ impl PicachvMonitor {
     }
 
     pub fn finalize(&self, ctx_id: Uuid, df_uuid: Uuid) -> PicachvResult<()> {
-        let mut ctx = rwlock_unlock!(self.ctx, write);
+        let mut ctx = self.ctx.write();
         let ctx = ctx
             .get_mut(&ctx_id)
             .ok_or_else(|| PicachvError::InvalidOperation("The context does not exist.".into()))?;

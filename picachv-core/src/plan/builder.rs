@@ -4,7 +4,7 @@ use picachv_message::{plan_argument, AggregateArgument, HstackArgument};
 use uuid::Uuid;
 
 use super::Plan;
-use crate::{rwlock_unlock, Arenas};
+use crate::{ Arenas};
 
 impl Plan {
     /// Build logical plan from the arguments.
@@ -12,7 +12,7 @@ impl Plan {
         use plan_argument::Argument;
 
         tracing::debug!("Building logical plan from the arguments {arg:?}");
-        let df_arena = rwlock_unlock!(arenas.df_arena, write);
+        let df_arena = arenas.df_arena.write();
         match arg {
             Argument::GetData(data_source) => match data_source.data_source {
                 Some(data_source) => match data_source {

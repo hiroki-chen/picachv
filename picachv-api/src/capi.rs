@@ -1,4 +1,4 @@
-use std::sync::{OnceLock, RwLock};
+use std::sync::LazyLock;
 
 use picachv_core::dataframe::PolicyGuardedDataFrame;
 use picachv_core::io::JsonIO;
@@ -6,20 +6,32 @@ use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::{ExprArgument, PlanArgument};
 use picachv_monitor::MONITOR_INSTANCE;
 use prost::Message;
+use spin::RwLock;
 use uuid::Uuid;
 
+#[repr(C)]
+#[derive(Debug)]
+pub struct RegisterFromRgArgs {
+    path: *const u8,
+    path_len: usize,
+    row_group: usize,
+    df_uuid: *mut u8,
+    df_uuid_len: usize,
+    projection: *const usize,
+    projection_len: usize,
+    selection: *const bool,
+    selection_len: usize,
+}
+
 /// The last error message.
-static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
+static LAST_ERROR: LazyLock<RwLock<String>> = LazyLock::new(|| RwLock::new(String::new()));
 
 macro_rules! try_execute {
     ($expr:expr) => {{
         match $expr {
             Ok(val) => val,
             Err(err) => {
-                let mut s = LAST_ERROR
-                    .get_or_init(|| RwLock::new("".into()))
-                    .write()
-                    .unwrap();
+                let mut s = LAST_ERROR.write();
                 *s = format!("{}", err);
                 return err.into();
             },
@@ -30,10 +42,7 @@ macro_rules! try_execute {
         match $expr {
             Ok(val) => val,
             Err(err) => {
-                let mut s = LAST_ERROR
-                    .get_or_init(|| RwLock::new("".into()))
-                    .write()
-                    .unwrap();
+                let mut s = LAST_ERROR.write();
                 *s = format!("{}", err);
                 return $err;
             },
@@ -75,10 +84,7 @@ unsafe fn recover_uuid(uuid_ptr: *const u8, len: usize) -> PicachvResult<Uuid> {
 
 #[no_mangle]
 pub unsafe extern "C" fn last_error(output: *mut u8, output_len: *mut usize) {
-    let s = LAST_ERROR
-        .get_or_init(|| RwLock::new("".into()))
-        .read()
-        .unwrap();
+    let s = LAST_ERROR.read();
 
     let len = s.len();
     *output_len = len;
@@ -117,11 +123,6 @@ pub unsafe extern "C" fn register_policy_dataframe(
         std::ptr::copy_nonoverlapping(res.to_bytes_le().as_ptr(), df_uuid, df_uuid_len);
     }
 
-    ErrorCode::Success
-}
-
-#[no_mangle]
-pub extern "C" fn init_monitor() -> ErrorCode {
     ErrorCode::Success
 }
 
@@ -369,20 +370,13 @@ pub unsafe extern "C" fn debug_print_df(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn register_policy_dataframe_json(
+pub unsafe extern "C" fn register_policy_dataframe_from_row_group(
     ctx_uuid: *const u8,
     ctx_uuid_len: usize,
-    path: *const u8,
-    path_len: usize,
-    df_uuid: *mut u8,
-    df_uuid_len: usize,
+    args: *const RegisterFromRgArgs,
 ) -> ErrorCode {
     let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
-
-    let path = unsafe { std::slice::from_raw_parts(path, path_len) };
-    let path = std::str::from_utf8(path).unwrap();
-
-    let df = try_execute!(PolicyGuardedDataFrame::from_json(path));
+    let args = &*args;
 
     let ctx = match MONITOR_INSTANCE.get_ctx() {
         Ok(ctx) => ctx,
@@ -394,9 +388,24 @@ pub unsafe extern "C" fn register_policy_dataframe_json(
         None => return ErrorCode::NoEntry,
     };
 
-    let res = try_execute!(ctx.register_policy_dataframe(df));
+    let path =
+        String::from_utf8(std::slice::from_raw_parts(args.path, args.path_len).to_vec()).unwrap();
+    let projection = std::slice::from_raw_parts(args.projection, args.projection_len);
+    let selection = match args.selection.is_null() {
+        true => None,
+        false => Some(std::slice::from_raw_parts(
+            args.selection,
+            args.selection_len,
+        )),
+    };
 
-    std::ptr::copy_nonoverlapping(res.to_bytes_le().as_ptr(), df_uuid, df_uuid_len);
+    let uuid = try_execute!(ctx.register_policy_dataframe_from_row_group(
+        path,
+        projection,
+        selection,
+        args.row_group
+    ));
+    std::ptr::copy_nonoverlapping(uuid.to_bytes_le().as_ptr(), args.df_uuid, args.df_uuid_len);
 
     ErrorCode::Success
 }

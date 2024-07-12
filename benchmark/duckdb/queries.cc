@@ -43,6 +43,9 @@ bool QueryFactory::PrepareTable(const std::string &table_name) {
 
 bool QueryFactory::Setup(std::unique_ptr<duckdb::Connection> con) {
   con_ = std::move(con);
+  
+  // A simple multi-threading setting causes deadlock on the rayon side???.
+  // con_->Query("SET threads TO 2");
 
   if (policy_path_.has_value()) {
     // Set up the context.
@@ -57,6 +60,23 @@ bool QueryFactory::Setup(std::unique_ptr<duckdb::Connection> con) {
     if (enable_profiling_) {
       con_->EnableProfiling();
       con_->EnablePicachvProfiling();
+    }
+
+    // Register policies.
+    for (size_t i = 0; i < kTableNum; i++) {
+      const std::string table_path =
+          data_path_ + "/" + kTableNames[i] + ".parquet";
+      const std::string policy_path =
+          policy_path_.value() + kTableNames[i] + ".parquet.policy.parquet";
+
+      std::cout << "table_path: " << table_path << std::endl;
+      std::cout << "policy_path: " << policy_path << std::endl;
+
+      err = con_->RegisterPolicyParquet(table_path, policy_path);
+      if (err != ErrorCode::Success) {
+        std::cerr << "Failed to register the policy: " << err << std::endl;
+        return false;
+      }
     }
   }
 
