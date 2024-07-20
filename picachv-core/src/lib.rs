@@ -1,4 +1,5 @@
-#![feature(duration_constructors)]
+#![cfg_attr(feature = "coq", feature(lazy_cell))]
+#![cfg_attr(not(feature = "coq"), feature(duration_constructors))]
 #![feature(iterator_try_collect)]
 #![allow(clippy::module_inception)]
 

@@ -234,6 +234,10 @@ impl Plan {
                 gb_proxy,
                 ..
             } => {
+                if matches!(gb_proxy.group_by, Some(GroupBy::GroupByIdxMultiple(_))) {
+                    // Special handling for multiple group by.
+                }
+
                 let expr_arena = arena.expr_arena.read();
                 let keys = keys
                     .par_iter()
@@ -308,7 +312,7 @@ impl Plan {
 /// evaluated before the actual expressions are evaluated. We split it into two parts: we first
 /// append the common subexpressions to the dataframe and then we evaluate the actual expressions.
 /// The final result is the dataframe with the actual expressions appended.
-#[tracing::instrument]
+#[cfg_attr(not(feature = "coq"), tracing::instrument)]
 fn do_hstack(
     arena: &Arenas,
     active_df_uuid: Uuid,
@@ -362,7 +366,6 @@ fn do_hstack(
 }
 
 fn convert_slice_to_idx(slice: &GroupBySlice) -> PicachvResult<GroupByIdx> {
-    println!("this???");
     let mut group_map = HashMap::<u64, Vec<u64>>::new();
 
     for (idx, group) in slice.groups.iter().enumerate() {
@@ -396,6 +399,7 @@ fn aggregate_keys(
         Some(gb) => match gb {
             GroupBy::GroupByIdx(idx) => idx.clone(),
             GroupBy::GroupBySlice(slice) => convert_slice_to_idx(slice)?,
+            _ => todo!("groupby multiple"),
         },
         None => picachv_bail!(ComputeError: "The group by is empty."),
     };
@@ -496,10 +500,11 @@ fn check_expressions_agg(
     udfs: &HashMap<String, Udf>,
     options: &ContextOptions,
 ) -> PicachvResult<Uuid> {
-    let idx = match gb_proxy.group_by.as_ref() {
+    let idx = &match gb_proxy.group_by.as_ref() {
         Some(gb) => match gb {
-            GroupBy::GroupByIdx(idx) => idx,
-            GroupBy::GroupBySlice(slice) => &convert_slice_to_idx(slice)?,
+            GroupBy::GroupByIdx(idx) => idx.clone(),
+            GroupBy::GroupBySlice(slice) => convert_slice_to_idx(slice)?,
+            _ => todo!("groupby multiple"),
         },
         None => picachv_bail!(ComputeError: "The group by is empty."),
     };

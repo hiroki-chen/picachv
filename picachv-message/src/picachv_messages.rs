@@ -46,6 +46,62 @@ pub mod group_by_idx {
         pub group: ::prost::alloc::vec::Vec<u64>,
     }
 }
+/// This is a special aggregate type–a chunked version.
+///
+/// Consider the following example:
+///
+/// | a | foo |
+/// | a | bar |
+/// =========== <- chunk boundary
+/// | b | baz |
+/// | a | qux |
+///
+/// whose chunked version is:
+///
+/// | a | foo |      | b | baz |
+/// | a | bar |      | a | qux |
+///
+/// Suppose now we want to group by the first column, the result would be:
+///
+/// \[[a, hash(a), [0,1]\]] <- chunk 1
+/// \[[b, hash(b), [0]\], \[a, hash(a), [1]\]]   <- chunk 2
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GroupByIdxMultiple {
+    #[prost(message, repeated, tag = "1")]
+    pub chunks: ::prost::alloc::vec::Vec<group_by_idx_multiple::Chunks>,
+    /// The orders of each hash value.
+    ///
+    /// The purpose of this field to let caller determine
+    /// fast the position of the group it is interested in.
+    #[prost(uint64, repeated, tag = "2")]
+    pub orders: ::prost::alloc::vec::Vec<u64>,
+}
+/// Nested message and enum types in `GroupByIdxMultiple`.
+pub mod group_by_idx_multiple {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Groups {
+        /// The vectors of indexes that are used to group the data.
+        #[prost(uint64, tag = "1")]
+        pub first: u64,
+        /// The hash of the group value.
+        #[prost(uint64, tag = "2")]
+        pub hash: u64,
+        /// The group indices that are used to group the data.
+        #[prost(uint64, repeated, tag = "3")]
+        pub group: ::prost::alloc::vec::Vec<u64>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Chunks {
+        /// The uuid of the chunk.
+        #[prost(uint64, repeated, tag = "1")]
+        pub uuid: ::prost::alloc::vec::Vec<u64>,
+        #[prost(message, repeated, tag = "2")]
+        pub groups: ::prost::alloc::vec::Vec<Groups>,
+    }
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupBySlice {
@@ -56,7 +112,7 @@ pub struct GroupBySlice {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupByProxy {
-    #[prost(oneof = "group_by_proxy::GroupBy", tags = "1, 2")]
+    #[prost(oneof = "group_by_proxy::GroupBy", tags = "1, 2, 3")]
     pub group_by: ::core::option::Option<group_by_proxy::GroupBy>,
 }
 /// Nested message and enum types in `GroupByProxy`.
@@ -68,6 +124,8 @@ pub mod group_by_proxy {
         GroupByIdx(super::GroupByIdx),
         #[prost(message, tag = "2")]
         GroupBySlice(super::GroupBySlice),
+        #[prost(message, tag = "3")]
+        GroupByIdxMultiple(super::GroupByIdxMultiple),
     }
 }
 /// A value that incorporates any primitive data types.

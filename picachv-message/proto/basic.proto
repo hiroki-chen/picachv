@@ -28,6 +28,49 @@ message GroupByIdx {
   repeated Groups groups = 1;
 }
 
+// This is a special aggregate type–a chunked version.
+//
+// Consider the following example:
+//
+// | a | foo |
+// | a | bar |
+// =========== <- chunk boundary
+// | b | baz |
+// | a | qux |
+//
+// whose chunked version is:
+//
+// | a | foo |      | b | baz |
+// | a | bar |      | a | qux |
+//
+// Suppose now we want to group by the first column, the result would be:
+//
+// [[a, hash(a), [0,1]]] <- chunk 1
+// [[b, hash(b), [0]], [a, hash(a), [1]]]   <- chunk 2
+message GroupByIdxMultiple {
+  message Groups {
+    // The vectors of indexes that are used to group the data.
+    uint64 first = 1;
+    // The hash of the group value.
+    uint64 hash = 2;
+    // The group indices that are used to group the data.
+    repeated uint64 group = 3;
+  }
+
+  message Chunks {
+    // The uuid of the chunk.
+    repeated uint64 uuid = 1;
+    repeated Groups groups = 2;
+  }
+
+  repeated Chunks chunks = 1;
+  // The orders of each hash value.
+  //
+  // The purpose of this field to let caller determine
+  // fast the position of the group it is interested in.
+  repeated uint64 orders = 2;
+}
+
 message GroupBySlice {
   // A vector of group indices.
   repeated uint64 groups = 1;
@@ -37,6 +80,7 @@ message GroupByProxy {
   oneof group_by {
     GroupByIdx group_by_idx = 1;
     GroupBySlice group_by_slice = 2;
+    GroupByIdxMultiple group_by_idx_multiple = 3;
   }
 }
 

@@ -73,6 +73,10 @@ impl From<PicachvError> for ErrorCode {
 
 /// A convenient wrapper for recovering a UUID from a pointer.
 unsafe fn recover_uuid(uuid_ptr: *const u8, len: usize) -> PicachvResult<Uuid> {
+    if uuid_ptr.is_null() {
+        return Ok(Default::default());
+    }
+
     let uuid_bytes = std::slice::from_raw_parts(uuid_ptr, len);
     match Uuid::from_slice_le(uuid_bytes) {
         Ok(uuid) => Ok(uuid),

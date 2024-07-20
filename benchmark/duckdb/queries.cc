@@ -43,7 +43,6 @@ bool QueryFactory::PrepareTable(const std::string &table_name) {
 
 bool QueryFactory::Setup(std::unique_ptr<duckdb::Connection> con) {
   con_ = std::move(con);
-  
   // A simple multi-threading setting causes deadlock on the rayon side???.
   // con_->Query("SET threads TO 2");
 
@@ -118,11 +117,22 @@ QueryStat QueryFactory::ExecuteQuery1() {
       "' "
       // "WHERE l_shipdate <= '1998-12-01' "
       "GROUP BY l_returnflag, l_linestatus "
-      "ORDER BY l_returnflag, l_linestatus;";
+      "ORDER BY l_returnflag, l_linestatus";
+
+  bool prev = con_->PolicyCheckingEnabled();
+  if (prev) {
+    con_->DisablePolicyChecking();
+  }
+  auto desc = con_->Query("EXPLAIN(" + query + ")");
+  desc->Print();
+  if (prev) {
+    con_->EnablePolicyChecking();
+  }
 
   auto start = std::chrono::high_resolution_clock::now();
   auto result = con_->Query(query);
   auto end = std::chrono::high_resolution_clock::now();
+  result->Print();
 
   if (result->HasError()) {
     std::cerr << "Query 1 failed:\n\t";

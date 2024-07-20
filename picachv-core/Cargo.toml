@@ -38,6 +38,7 @@ parse_duration = "2.1.1"
 [features]
 default = ["arena_for_plan", "fast_bin", "use_parquet", "json"]
 json = []
+coq = [] # Enable this feature if we need to translate code into Coq
 use_parquet = ["parquet", "fast_bin"]
 fast_bin = ["bincode"]
 arena_for_plan = []

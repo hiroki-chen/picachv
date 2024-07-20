@@ -474,9 +474,11 @@ pub(crate) fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<ValueAr
                         DataType::Date32 => {
                             let array = column.as_any().downcast_ref::<Date32Array>().unwrap();
                             let value = array.value(i);
-                            Ok(Arc::new(AnyValue::Duration(Duration::from_days(
-                                value as _,
-                            ))))
+                            #[cfg(not(feature = "coq"))]
+                            let val = Duration::from_days(value as _);
+                            #[cfg(feature = "coq")]
+                            let val = Duration::from_secs((86400 * value) as _);
+                            Ok(Arc::new(AnyValue::Duration(val)))
                         },
                         DataType::Timestamp(timestamp, _) => match timestamp {
                             TimeUnit::Nanosecond => {
