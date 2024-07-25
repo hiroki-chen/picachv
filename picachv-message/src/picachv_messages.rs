@@ -96,8 +96,8 @@ pub mod group_by_idx_multiple {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Chunks {
         /// The uuid of the chunk.
-        #[prost(uint64, repeated, tag = "1")]
-        pub uuid: ::prost::alloc::vec::Vec<u64>,
+        #[prost(bytes = "vec", tag = "1")]
+        pub uuid: ::prost::alloc::vec::Vec<u8>,
         #[prost(message, repeated, tag = "2")]
         pub groups: ::prost::alloc::vec::Vec<Groups>,
     }
@@ -112,7 +112,7 @@ pub struct GroupBySlice {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupByProxy {
-    #[prost(oneof = "group_by_proxy::GroupBy", tags = "1, 2, 3")]
+    #[prost(oneof = "group_by_proxy::GroupBy", tags = "1, 2")]
     pub group_by: ::core::option::Option<group_by_proxy::GroupBy>,
 }
 /// Nested message and enum types in `GroupByProxy`.
@@ -123,8 +123,6 @@ pub mod group_by_proxy {
         #[prost(message, tag = "1")]
         GroupByIdx(super::GroupByIdx),
         #[prost(message, tag = "2")]
-        GroupBySlice(super::GroupBySlice),
-        #[prost(message, tag = "3")]
         GroupByIdxMultiple(super::GroupByIdxMultiple),
     }
 }

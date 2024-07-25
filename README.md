@@ -26,5 +26,5 @@ We currently provide two unofficial modification on the codebase of Polars and D
 
 ## The Proofs
 
-The Coq formalization is hosted in another repo: https://github.com/hiroki-chen/pcd-proof
+The Coq formalization is hosted in another repo: https://github.com/hiroki-chen/pcd-proof Due to the upstream library restrctions, we can only use Coq 8.17.
 

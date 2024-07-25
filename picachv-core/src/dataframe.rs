@@ -1,12 +1,14 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Deref, Range};
 use std::sync::Arc;
 
 use arrow_array::{BinaryArray, RecordBatch};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
-use picachv_message::group_by_idx::Groups;
 use picachv_message::transform_info::Information;
-use picachv_message::{ContextOptions, JoinInformation, TransformInfo};
+use picachv_message::{
+    ContextOptions, GroupByIdx, GroupByIdxMultiple, JoinInformation, TransformInfo,
+};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use spin::RwLock;
@@ -16,16 +18,128 @@ use tabled::settings::{Alignment, Style};
 use uuid::Uuid;
 
 use crate::arena::Arena;
+use crate::expr::Expr;
 use crate::io::BinIo;
+use crate::plan::groupby_single;
 use crate::policy::Policy;
 use crate::profiler::PROFILER;
 use crate::thread_pool::THREAD_POOL;
+use crate::udf::Udf;
+use crate::{Arenas, GroupInformation};
 
 pub type PolicyGuardedColumnRef = Arc<PolicyGuardedColumn>;
 pub type PolicyRef = Arc<Policy>;
 pub type Row = Vec<PolicyRef>;
 
 pub type DfArena = Arena<PolicyGuardedDataFrame>;
+
+#[derive(Debug, Clone)]
+pub(crate) struct Chunk {
+    pub uuid: Uuid,
+    pub groups: Vec<GroupInformation>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Chunks(Vec<Chunk>);
+
+impl Chunks {
+    pub fn new_from_groupby_multiple(gbm: &GroupByIdxMultiple) -> PicachvResult<Self> {
+        let chunks = {
+            THREAD_POOL.install(|| {
+                gbm.chunks
+                    .par_iter()
+                    .map(|chunk| {
+                        Ok(Chunk {
+                            uuid: Uuid::from_slice_le(&chunk.uuid).map_err(|e| {
+                                PicachvError::InvalidOperation(e.to_string().into())
+                            })?,
+                            groups: chunk
+                                .groups
+                                .par_iter()
+                                .map(|g| GroupInformation {
+                                    first: g.first as _,
+                                    groups: g.group.iter().map(|e| *e as _).collect(),
+                                    hash: Some(g.hash),
+                                })
+                                .collect(),
+                        })
+                    })
+                    .collect::<PicachvResult<Vec<_>>>()
+            })
+        }?;
+
+        Ok(Chunks(chunks))
+    }
+
+    pub fn check(
+        &self,
+        arena: &Arenas,
+        keys: &[&Arc<Expr>],
+        aggs: &[&Arc<Expr>],
+        udfs: &HashMap<String, Udf>,
+        options: &ContextOptions,
+        orders: &[u64],
+    ) -> PicachvResult<()> {
+        // This algorithm works slightly different since we are on multiple chunks.
+        // In this case where multiple chunks need to be grouped, we cannot simply
+        // evaluate the groupby operation on each chunk as we did before.
+        //
+        // We need to collect all the groups and then group them together. Fortunately,
+        // this is doable as we have the `hash` field in the `GroupInformation` struct.
+        //
+        // We now first create a hashmap where the key is the hash value and the value
+        // is a vector of tuples, where the first element is the index of the chunk and
+        // the second element is the group information.
+        //
+        // At high level, this map represents groups over groups.
+        let mut hashmap = HashMap::<u64, Vec<(usize, &GroupInformation)>>::new();
+
+        // We then do a one-time pass over the chunks.
+        for (i, chunk) in self.0.iter().enumerate() {
+            for group in chunk.groups.iter() {
+                let hash = group.hash.ok_or(PicachvError::InvalidOperation(
+                    "The hash value is missing.".into(),
+                ))?;
+
+                hashmap
+                    .entry(hash)
+                    .or_insert_with(Vec::new)
+                    .push((i, group));
+            }
+        }
+
+        picachv_ensure!(
+            hashmap.len() == orders.len(),
+            ComputeError: "The number of groups does not match the number of orders."
+        );
+
+        // Now we have the hashmap, we can group them together according to `orders`.
+        // `orders[i] = hash_j` means hash_j should occur first.
+        let mut hash_order = HashMap::new();
+        for (i, &hash) in orders.iter().enumerate() {
+            hash_order.insert(hash, i);
+        }
+
+        picachv_ensure!(hash_order.len() == orders.len(), ComputeError: "The orders are not unique.");
+
+        Ok(())
+    }
+}
+
+pub(crate) fn idx_to_group_info_vec(idx: &GroupByIdx) -> Vec<GroupInformation> {
+    idx.groups
+        .par_iter()
+        .map(|group| {
+            let first = group.first as usize;
+            let groups = group.group.par_iter().map(|e| *e as usize).collect();
+            GroupInformation {
+                first,
+                groups,
+                hash: None,
+            }
+        })
+        .collect()
+}
 
 /// A column in a [`DataFrame`] that is guarded by a vector of policies.
 ///
@@ -268,13 +382,13 @@ impl PolicyGuardedDataFrame {
     }
 
     /// According to the `groups` struct, fetch the group of columns.
-    pub fn groups(&self, groups: &Groups) -> PicachvResult<Self> {
+    pub fn groups(&self, groups: &GroupInformation) -> PicachvResult<Self> {
         let columns = THREAD_POOL.install(|| {
             self.columns
                 .par_iter()
                 .map(|c| {
                     let policies = groups
-                        .group
+                        .groups
                         .par_iter()
                         .map(|g| c.policies[*g as usize].clone())
                         .collect::<Vec<_>>();

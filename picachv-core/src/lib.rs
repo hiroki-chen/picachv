@@ -32,6 +32,45 @@ pub mod udf;
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
+/// A unified group information that is used to tell Picachv how groups are formed.
+///
+/// For example, let us consider the following dataframe:
+///
+/// ```text
+/// +---+---+---+
+/// | A | B | C |
+/// +---+---+---+
+/// | 1 | 2 | 3 |
+/// | 1 | 2 | 4 |
+/// | 1 | 3 | 5 |
+/// | 2 | 3 | 6 |
+/// +---+---+---+
+/// ```
+///
+/// The group information for the above dataframe is (suppose we group by column A):
+///
+/// ```text
+/// GroupInformation {
+///    first: 0,
+///    groups: vec![0, 1, 2],
+/// },
+/// GroupInformation {
+///   first: 3,
+///   groups: vec![3],
+/// }
+/// ```
+/// 
+/// Conceptually, this struct is just a group.
+#[derive(Debug, Clone)]
+pub struct GroupInformation {
+    /// The index of the representative row in the group.
+    pub first: usize,
+    /// All the indices of the rows of this group.
+    pub groups: Vec<usize>,
+    /// Optional: the hash identification.
+    pub hash: Option<u64>,
+}
+
 #[derive(Debug)]
 pub struct Arenas {
     pub expr_arena: Arc<RwLock<ExprArena>>,

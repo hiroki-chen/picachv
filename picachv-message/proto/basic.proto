@@ -59,7 +59,7 @@ message GroupByIdxMultiple {
 
   message Chunks {
     // The uuid of the chunk.
-    repeated uint64 uuid = 1;
+    bytes uuid = 1;
     repeated Groups groups = 2;
   }
 
@@ -79,8 +79,7 @@ message GroupBySlice {
 message GroupByProxy {
   oneof group_by {
     GroupByIdx group_by_idx = 1;
-    GroupBySlice group_by_slice = 2;
-    GroupByIdxMultiple group_by_idx_multiple = 3;
+    GroupByIdxMultiple group_by_idx_multiple = 2;
   }
 }
 

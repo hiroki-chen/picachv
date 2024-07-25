@@ -7,11 +7,9 @@
 
 use std::collections::HashMap;
 
-use picachv_message::group_by_idx::Groups;
-
 use crate::dataframe::PolicyGuardedDataFrame;
 use crate::udf::Udf;
-use crate::Arenas;
+use crate::{Arenas, GroupInformation};
 
 /// The `eval_env` type defined in the Coq file.
 ///
@@ -25,7 +23,7 @@ pub(crate) struct ExpressionEvalContext<'ctx> {
     /// Indicates whether the expression is in an aggregation context.
     pub(crate) in_agg: bool,
     /// The group by columns.
-    pub(crate) gb_proxy: Option<&'ctx Groups>,
+    pub(crate) gi: Option<&'ctx GroupInformation>,
     /// Some UDF mappings.
     pub(crate) udfs: &'ctx HashMap<String, Udf>,
     /// The reference to the arena.
@@ -42,7 +40,7 @@ impl<'ctx> ExpressionEvalContext<'ctx> {
         ExpressionEvalContext {
             df,
             in_agg,
-            gb_proxy: None,
+            gi: None,
             udfs,
             arena,
         }

@@ -176,7 +176,7 @@ impl Expr {
         let expr_arena = ctx.arena.expr_arena.read();
 
         // Extract the groups as a sub-dataframe.
-        let groups = ctx.gb_proxy.ok_or(PicachvError::ComputeError(
+        let groups = ctx.gi.ok_or(PicachvError::ComputeError(
             "Group information not found, this is a fatal error.".into(),
         ))?;
 
