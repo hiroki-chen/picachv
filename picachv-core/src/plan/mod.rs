@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
-use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
+use picachv_error::{picachv_bail, picachv_ensure, PicachvResult};
 use picachv_message::group_by_idx::Groups;
 use picachv_message::group_by_proxy::GroupBy;
 use picachv_message::{ContextOptions, GroupByIdx, GroupByIdxMultiple, GroupByProxy, GroupBySlice};
@@ -13,7 +13,7 @@ use rayon::prelude::*;
 use uuid::Uuid;
 
 use crate::dataframe::{
-    idx_to_group_info_vec, Chunk, Chunks, PolicyGuardedColumn, PolicyGuardedDataFrame,
+    idx_to_group_info_vec, Chunks, PolicyGuardedColumn, PolicyGuardedDataFrame,
 };
 use crate::expr::{fold_on_groups, Expr};
 use crate::policy::context::ExpressionEvalContext;
@@ -253,15 +253,8 @@ impl Plan {
                     },
                     Some(GroupBy::GroupByIdx(gbi)) => {
                         let gb_proxy = idx_to_group_info_vec(gbi);
-                        groupby_single(
-                            arena,
-                            active_df_uuid,
-                            &keys,
-                            udfs,
-                            options,
-                            &gb_proxy,
-                            &aggs,
-                        )
+                        let df = arena.df_arena.read().get(&active_df_uuid)?.clone();
+                        groupby_single(arena, &df, &keys, udfs, options, &gb_proxy, &aggs)
                     },
                     None => picachv_bail!(ComputeError: "The group by is empty."),
                 }?;
@@ -286,7 +279,7 @@ impl Plan {
 
 pub(crate) fn groupby_single(
     arena: &Arenas,
-    active_df_uuid: Uuid,
+    df: &Arc<PolicyGuardedDataFrame>,
     keys: &[&Arc<Expr>],
     udfs: &HashMap<String, Udf>,
     options: &ContextOptions,
@@ -303,15 +296,13 @@ pub(crate) fn groupby_single(
     // See the semantics for `eval_aggregate` as well as `eval_groupby_having` and
     // `apply_fold_in_groups` in `semantics.v`.
     let first_part = || {
-        let df_arena = arena.df_arena.read();
-        let df = df_arena.get(&active_df_uuid)?;
         let df = do_check_expressions(arena, df, &keys, udfs, options)?;
 
         aggregate_keys(&df, gi)
     };
     // This is in fact `apply_fold_on_groups`, but for the sake of naming consistency
     // we use `check_expressions_agg`.
-    let second_part = || check_expressions_agg(arena, active_df_uuid, gi, &aggs, udfs, options);
+    let second_part = || check_expressions_agg(arena, df, gi, &aggs, udfs, options);
 
     let (first_part, second_part) = if options.enable_profiling {
         THREAD_POOL.install(|| {
@@ -428,18 +419,8 @@ fn groupby_multiple(
     gbm: &GroupByIdxMultiple,
 ) -> PicachvResult<PolicyGuardedDataFrame> {
     let chunks = Chunks::new_from_groupby_multiple(gbm)?;
-
     // Convert this to GroupedDataFrameWithHash
     chunks.check(arena, keys, aggs, udfs, options, &gbm.orders)?;
-
-    // Since now we have multiple chunks, we need to combine them.
-    //
-    // Combination works by the hash values of each chunk. We then group by the
-    // same hash value and combine them. The orders are then specified by the
-    // grouping information.
-    //
-    // We first create a hashmap that maps the hash value to the chunk.
-    let mut hashes = HashMap::<u64, Vec<PolicyGuardedDataFrame>>::new();
 
     todo!("groupby multiple")
 }
@@ -530,14 +511,13 @@ fn check_policy_agg(
 /// fied by the `gb_proxy` and applies the aggregation functions on the groups.
 fn check_expressions_agg(
     arena: &Arenas,
-    active_df_uuid: Uuid,
+    df: &Arc<PolicyGuardedDataFrame>,
     gi: &[GroupInformation],
     agg_list: &[&Arc<Expr>],
     udfs: &HashMap<String, Udf>,
     options: &ContextOptions,
 ) -> PicachvResult<Uuid> {
     let mut df_arena = arena.df_arena.write();
-    let df = df_arena.get(&active_df_uuid)?;
 
     let f = || {
         THREAD_POOL.install(|| {

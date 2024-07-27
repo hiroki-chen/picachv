@@ -71,6 +71,73 @@ impl Chunks {
         Ok(Chunks(chunks))
     }
 
+    fn do_groupby(
+        &self,
+        arenas: &Arenas,
+        keys: &[&Arc<Expr>],
+        aggs: &[&Arc<Expr>],
+        udfs: &HashMap<String, Udf>,
+        hashmap: &HashMap<u64, Vec<(usize, &GroupInformation)>>,
+        options: &ContextOptions,
+    ) -> PicachvResult<PolicyGuardedDataFrame> {
+        if self.0.is_empty() {
+            return Ok(Default::default());
+        }
+
+        let df_arena = arenas.df_arena.read();
+        let column_num = df_arena.get(&self.0.first().unwrap().uuid)?.columns.len();
+
+        // Iterate over the grouping information which stands for one group.
+        // But this time we need to pick rows from different chunks.
+        let groups = hashmap
+            .into_par_iter()
+            .map(|(_, info)| {
+                // Now we construct for each column the correct rows that
+                // be chosen from each chunk
+                let mut columns = vec![Vec::new(); column_num];
+                for (col_idx, column) in columns.iter_mut().enumerate() {
+                    // We pick the rows from the chunks.
+                    for (i, group) in info.iter() {
+                        let chunk = &self.0[*i];
+                        let df = df_arena.get(&chunk.uuid)?;
+
+                        for idx in group.groups.iter() {
+                            column.push(df.columns[col_idx].policies[*idx].clone());
+                        }
+                    }
+                }
+
+                Ok(PolicyGuardedDataFrame {
+                    columns: columns
+                        .into_par_iter()
+                        .map(|c| Arc::new(PolicyGuardedColumn { policies: c }))
+                        .collect(),
+                })
+            })
+            .collect::<PicachvResult<Vec<_>>>()?;
+
+        let groups = groups
+            .into_par_iter()
+            .map(|g| {
+                let gi = GroupInformation {
+                    first: 0,
+                    groups: (0..g.shape().0).collect(),
+                    hash: None,
+                };
+                Ok(Arc::new(groupby_single(
+                    arenas,
+                    &Arc::new(g),
+                    keys,
+                    udfs,
+                    options,
+                    &[gi],
+                    aggs,
+                )?))
+            })
+            .collect::<PicachvResult<Vec<_>>>()?;
+        PolicyGuardedDataFrame::union(&groups)
+    }
+
     pub fn check(
         &self,
         arena: &Arenas,
@@ -79,7 +146,7 @@ impl Chunks {
         udfs: &HashMap<String, Udf>,
         options: &ContextOptions,
         orders: &[u64],
-    ) -> PicachvResult<()> {
+    ) -> PicachvResult<PolicyGuardedDataFrame> {
         // This algorithm works slightly different since we are on multiple chunks.
         // In this case where multiple chunks need to be grouped, we cannot simply
         // evaluate the groupby operation on each chunk as we did before.
@@ -108,10 +175,15 @@ impl Chunks {
             }
         }
 
-        picachv_ensure!(
-            hashmap.len() == orders.len(),
-            ComputeError: "The number of groups does not match the number of orders."
-        );
+        // picachv_ensure!(
+        //     hashmap.len() == orders.len(),
+        //     ComputeError: "The number of groups does not match the number of orders: {} != {}",
+        //         hashmap.len(),
+        //         orders.len(),
+        // );
+
+        // Now we can finally group them together.
+        let df = self.do_groupby(arena, keys, aggs, udfs, &hashmap, options)?;
 
         // Now we have the hashmap, we can group them together according to `orders`.
         // `orders[i] = hash_j` means hash_j should occur first.
@@ -122,7 +194,7 @@ impl Chunks {
 
         picachv_ensure!(hash_order.len() == orders.len(), ComputeError: "The orders are not unique.");
 
-        Ok(())
+        todo!()
     }
 }
 
@@ -179,7 +251,7 @@ impl PolicyGuardedColumn {
 ///
 /// The reason we use a vector of [`PolicyGuardedColumnRef`]s is that it is more efficient
 /// to store the reference to avoid unnecessary cloning.
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct PolicyGuardedDataFrame {
     /// Policies for the column.
     pub(crate) columns: Vec<PolicyGuardedColumnRef>,
@@ -446,7 +518,7 @@ impl PolicyGuardedDataFrame {
         })
     }
 
-    pub fn union(inputs: &[&Arc<Self>]) -> PicachvResult<Self> {
+    pub fn union(inputs: &[Arc<Self>]) -> PicachvResult<Self> {
         // Ensures we are really doing unions.
         picachv_ensure!(
             !inputs.is_empty(),
@@ -603,12 +675,12 @@ pub fn apply_transform(
             Information::Union(union_info) => {
                 let mut df_arena = df_arena.write();
 
-                let involved_dfs = [&union_info.lhs_df_uuid, &union_info.rhs_df_uuid]
+                let involved_dfs = [union_info.lhs_df_uuid, union_info.rhs_df_uuid]
                     .par_iter()
                     .map(|uuid| {
                         let uuid = Uuid::from_slice_le(uuid)
                             .map_err(|_| PicachvError::InvalidOperation("Invalid UUID.".into()))?;
-                        df_arena.get(&uuid)
+                        df_arena.get(&uuid).cloned()
                     })
                     .collect::<PicachvResult<Vec<_>>>()?;
 
