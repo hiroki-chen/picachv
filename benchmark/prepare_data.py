@@ -138,6 +138,7 @@ def main(percentage: float, skip_dbgen: bool) -> None:
         # The reason why we avoid using `lf.sink_parquet` is that it is buggy when dealing with
         # `row_group_size`; this argument seems to be ignored.
         df = lf.collect()
+        print("writing to parquet: {}".format(settings.dataset_base_dir / f"{table_name}.parquet"))
         df.write_parquet(
             settings.dataset_base_dir / f"{table_name}.parquet",
             use_pyarrow=True,

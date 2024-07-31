@@ -84,58 +84,77 @@ impl Chunks {
             return Ok(Default::default());
         }
 
-        let df_arena = arenas.df_arena.read();
-        let column_num = df_arena.get(&self.0.first().unwrap().uuid)?.columns.len();
+        println!("{:?}", hashmap.keys().collect::<Vec<_>>());
+
+        // Don't extend the lifetime of the lock since this causes deadlock otherwise.
+        let column_num = arenas
+            .df_arena
+            .read()
+            .get(&self.0.first().unwrap().uuid)?
+            .columns
+            .len();
 
         // Iterate over the grouping information which stands for one group.
         // But this time we need to pick rows from different chunks.
-        let groups = hashmap
-            .into_par_iter()
-            .map(|(_, info)| {
-                // Now we construct for each column the correct rows that
-                // be chosen from each chunk
-                let mut columns = vec![Vec::new(); column_num];
-                for (col_idx, column) in columns.iter_mut().enumerate() {
-                    // We pick the rows from the chunks.
-                    for (i, group) in info.iter() {
-                        let chunk = &self.0[*i];
-                        let df = df_arena.get(&chunk.uuid)?;
+        let groups = THREAD_POOL.install(|| {
+            hashmap
+                .into_par_iter()
+                .map(|(_, info)| {
+                    // Now we construct for each column the correct rows that
+                    // be chosen from each chunk
+                    let mut columns = vec![Vec::new(); column_num];
+                    for (col_idx, column) in columns.iter_mut().enumerate() {
+                        // We pick the rows from the chunks.
+                        for (i, group) in info.iter() {
+                            let chunk = &self.0[*i];
+                            let df_arena = arenas.df_arena.read();
+                            let df = df_arena.get(&chunk.uuid)?;
 
-                        for idx in group.groups.iter() {
-                            column.push(df.columns[col_idx].policies[*idx].clone());
+                            for idx in group.groups.iter() {
+                                column.push(df.columns[col_idx].policies[*idx].clone());
+                            }
                         }
                     }
-                }
 
-                Ok(PolicyGuardedDataFrame {
-                    columns: columns
-                        .into_par_iter()
-                        .map(|c| Arc::new(PolicyGuardedColumn { policies: c }))
-                        .collect(),
+                    Ok(PolicyGuardedDataFrame {
+                        columns: columns
+                            .into_par_iter()
+                            .map(|c| Arc::new(PolicyGuardedColumn { policies: c }))
+                            .collect(),
+                        ..Default::default()
+                    })
                 })
-            })
-            .collect::<PicachvResult<Vec<_>>>()?;
+                .collect::<PicachvResult<Vec<_>>>()
+        })?;
 
-        let groups = groups
-            .into_par_iter()
-            .map(|g| {
-                let gi = GroupInformation {
-                    first: 0,
-                    groups: (0..g.shape().0).collect(),
-                    hash: None,
-                };
-                Ok(Arc::new(groupby_single(
-                    arenas,
-                    &Arc::new(g),
-                    keys,
-                    udfs,
-                    options,
-                    &[gi],
-                    aggs,
-                )?))
-            })
-            .collect::<PicachvResult<Vec<_>>>()?;
-        PolicyGuardedDataFrame::union(&groups)
+        let groups = THREAD_POOL.install(|| {
+            groups
+                .into_par_iter()
+                .map(|g| {
+                    let gi = GroupInformation {
+                        first: 0,
+                        groups: (0..g.shape().0).collect(),
+                        hash: None,
+                    };
+                    Ok(Arc::new(groupby_single(
+                        arenas,
+                        &Arc::new(g),
+                        keys,
+                        udfs,
+                        options,
+                        &[gi],
+                        aggs,
+                    )?))
+                })
+                .collect::<PicachvResult<Vec<_>>>()
+        })?;
+
+        let mut df = PolicyGuardedDataFrame::union(&groups)?;
+        df.additional_info = Some(DfInformation {
+            hash_info: hashmap.iter().enumerate().map(|(k, v)| (*v.0, k)).collect(),
+        });
+
+        Ok(df)
     }
 
     pub fn check(
@@ -145,7 +164,6 @@ impl Chunks {
         aggs: &[&Arc<Expr>],
         udfs: &HashMap<String, Udf>,
         options: &ContextOptions,
-        orders: &[u64],
     ) -> PicachvResult<PolicyGuardedDataFrame> {
         // This algorithm works slightly different since we are on multiple chunks.
         // In this case where multiple chunks need to be grouped, we cannot simply
@@ -159,7 +177,7 @@ impl Chunks {
         // the second element is the group information.
         //
         // At high level, this map represents groups over groups.
-        let mut hashmap = HashMap::<u64, Vec<(usize, &GroupInformation)>>::new();
+        let mut hashmap = HashMap::new();
 
         // We then do a one-time pass over the chunks.
         for (i, chunk) in self.0.iter().enumerate() {
@@ -175,26 +193,8 @@ impl Chunks {
             }
         }
 
-        // picachv_ensure!(
-        //     hashmap.len() == orders.len(),
-        //     ComputeError: "The number of groups does not match the number of orders: {} != {}",
-        //         hashmap.len(),
-        //         orders.len(),
-        // );
-
         // Now we can finally group them together.
-        let df = self.do_groupby(arena, keys, aggs, udfs, &hashmap, options)?;
-
-        // Now we have the hashmap, we can group them together according to `orders`.
-        // `orders[i] = hash_j` means hash_j should occur first.
-        let mut hash_order = HashMap::new();
-        for (i, &hash) in orders.iter().enumerate() {
-            hash_order.insert(hash, i);
-        }
-
-        picachv_ensure!(hash_order.len() == orders.len(), ComputeError: "The orders are not unique.");
-
-        todo!()
+        self.do_groupby(arena, keys, aggs, udfs, &hashmap, options)
     }
 }
 
@@ -243,6 +243,13 @@ impl PolicyGuardedColumn {
     }
 }
 
+/// Some other additional information for the [`PolicyGuardedDataFrame`].
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+pub struct DfInformation {
+    /// Used to quickly look up the index.
+    pub(crate) hash_info: HashMap<u64, usize>,
+}
+
 /// A contiguous growable collection of `Series` that have the same length.
 ///
 /// This [`PolicyGuardedDataFrame`] is just a conceptual wrapper around a vector of
@@ -255,6 +262,9 @@ impl PolicyGuardedColumn {
 pub struct PolicyGuardedDataFrame {
     /// Policies for the column.
     pub(crate) columns: Vec<PolicyGuardedColumnRef>,
+    /// Other additional information. skip.
+    #[serde(skip)]
+    pub(crate) additional_info: Option<DfInformation>,
 }
 
 impl fmt::Display for PolicyGuardedDataFrame {
@@ -333,7 +343,10 @@ impl PolicyGuardedDataFrame {
                 .collect::<PicachvResult<Vec<_>>>()
         })?;
 
-        Ok(PolicyGuardedDataFrame { columns })
+        Ok(PolicyGuardedDataFrame {
+            columns,
+            ..Default::default()
+        })
     }
 
     /// Constructs a new [`PolicyGuardedDataFrame`] from the slice of the original
@@ -353,7 +366,10 @@ impl PolicyGuardedDataFrame {
                 .collect::<Vec<_>>()
         });
 
-        Ok(PolicyGuardedDataFrame { columns })
+        Ok(PolicyGuardedDataFrame {
+            columns,
+            ..Default::default()
+        })
     }
 
     pub fn slice(&self, range: Range<usize>) -> PicachvResult<Self> {
@@ -373,7 +389,10 @@ impl PolicyGuardedDataFrame {
             columns.push(Arc::new(PolicyGuardedColumn { policies }));
         }
 
-        Ok(PolicyGuardedDataFrame { columns })
+        Ok(PolicyGuardedDataFrame {
+            columns,
+            ..Default::default()
+        })
     }
 
     /// Joins two policy-carrying dataframes.
@@ -453,6 +472,36 @@ impl PolicyGuardedDataFrame {
         Ok(res)
     }
 
+    pub fn select_group(&self, hashes: &[u64]) -> PicachvResult<Self> {
+        picachv_ensure!(
+            hashes.len() <= self.shape().0,
+            ComputeError: "The length of the hashes is out of bound. {} > {}",
+            hashes.len(), self.shape().0
+        );
+        picachv_ensure!(
+            self.additional_info.is_some(),
+            ComputeError: "The additional information is missing."
+        );
+
+        let hash_info = &self.additional_info.as_ref().unwrap().hash_info;
+
+        let slices = THREAD_POOL.install(|| {
+            hashes
+                .par_iter()
+                .map(|hash| {
+                        hash_info
+                        .get(hash)
+                        .copied()
+                        .ok_or(PicachvError::InvalidOperation(
+                            "The hash value is missing.".into(),
+                        ))
+                })
+                .collect::<PicachvResult<Vec<_>>>()
+        })?;
+
+        self.new_from_slice(&slices)
+    }
+
     /// According to the `groups` struct, fetch the group of columns.
     pub fn groups(&self, groups: &GroupInformation) -> PicachvResult<Self> {
         let columns = THREAD_POOL.install(|| {
@@ -469,7 +518,10 @@ impl PolicyGuardedDataFrame {
                 .collect::<Vec<_>>()
         });
 
-        Ok(PolicyGuardedDataFrame { columns })
+        Ok(PolicyGuardedDataFrame {
+            columns,
+            ..Default::default()
+        })
     }
 
     pub fn row(&self, idx: usize) -> PicachvResult<Vec<&PolicyRef>> {
@@ -515,6 +567,7 @@ impl PolicyGuardedDataFrame {
 
                 lhs
             },
+            ..Default::default()
         })
     }
 
@@ -541,12 +594,18 @@ impl PolicyGuardedDataFrame {
             columns.push(Arc::new(PolicyGuardedColumn { policies }));
         }
 
-        Ok(PolicyGuardedDataFrame { columns })
+        Ok(PolicyGuardedDataFrame {
+            columns,
+            ..Default::default()
+        })
     }
 
     #[inline]
     pub fn new(columns: Vec<PolicyGuardedColumnRef>) -> Self {
-        PolicyGuardedDataFrame { columns }
+        PolicyGuardedDataFrame {
+            columns,
+            ..Default::default()
+        }
     }
 
     pub(crate) fn projection_by_id(&mut self, project_list: &[usize]) -> PicachvResult<()> {

@@ -245,6 +245,15 @@ impl Context {
         Ok(())
     }
 
+    #[tracing::instrument]
+    pub fn select_group(&self, df_uuid: Uuid, hashes: &[u64]) -> PicachvResult<Uuid> {
+        let mut df_arena = self.arena.df_arena.write();
+        let df = df_arena.get(&df_uuid)?;
+
+        let new_df = df.select_group(hashes)?;
+        df_arena.insert(new_df)
+    }
+
     /// Reify an abstract value of the expression with the given values encoded in the bytes.
     ///
     /// The input values are just a serialized Arrow IPC data represented as record batches.

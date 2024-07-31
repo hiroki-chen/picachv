@@ -64,11 +64,6 @@ message GroupByIdxMultiple {
   }
 
   repeated Chunks chunks = 1;
-  // The orders of each hash value.
-  //
-  // The purpose of this field to let caller determine
-  // fast the position of the group it is interested in.
-  repeated uint64 orders = 2;
 }
 
 message GroupBySlice {

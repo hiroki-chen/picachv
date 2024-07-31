@@ -459,3 +459,36 @@ pub unsafe extern "C" fn enable_tracing(
 
     ErrorCode::Success
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn select_group(
+    ctx_uuid: *const u8,
+    ctx_uuid_len: usize,
+    df_uuid: *const u8,
+    df_len: usize,
+    hash: *const u64,
+    hash_len: usize,
+    out_df_uuid: *mut u8,
+    out_df_len: usize,
+) -> ErrorCode {
+    let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
+    let df_id = try_execute!(recover_uuid(df_uuid, df_len));
+
+    let ctx = match MONITOR_INSTANCE.get_ctx() {
+        Ok(ctx) => ctx,
+        Err(_) => return ErrorCode::NoEntry,
+    };
+
+    let ctx = match ctx.get(&ctx_id) {
+        Some(ctx) => ctx,
+        None => return ErrorCode::NoEntry,
+    };
+
+    let hash = std::slice::from_raw_parts(hash, hash_len);
+    let out = try_execute!(ctx.select_group(df_id, hash));
+
+    std::ptr::copy_nonoverlapping(out.to_bytes_le().as_ptr(), out_df_uuid, out_df_len);
+
+    ErrorCode::Success
+
+}

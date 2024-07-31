@@ -204,5 +204,23 @@ ErrorCode enable_profiling(const uint8_t *ctx_uuid, std::size_t ctx_uuid_len,
  */
 ErrorCode enable_tracing(const uint8_t *ctx_uuid, std::size_t ctx_uuid_len,
                          bool enable);
+
+/**
+ * @brief 
+ * 
+ * @param ctx_uuid 
+ * @param ctx_uuid_len 
+ * @param df_uuid 
+ * @param df_uuid_len 
+ * @param hashes 
+ * @param hash_len 
+ * @param result_uuid 
+ * @param result_uuid_len 
+ * @return ErrorCode 
+ */
+ErrorCode select_group(const uint8_t *ctx_uuid, std::size_t ctx_uuid_len,
+                       const uint8_t *df_uuid, std::size_t df_uuid_len,
+                       const uint64_t *hashes, std::size_t hash_len,
+                       uint8_t *result_uuid, std::size_t result_uuid_len);
 }
 #endif

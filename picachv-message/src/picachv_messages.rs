@@ -70,12 +70,6 @@ pub mod group_by_idx {
 pub struct GroupByIdxMultiple {
     #[prost(message, repeated, tag = "1")]
     pub chunks: ::prost::alloc::vec::Vec<group_by_idx_multiple::Chunks>,
-    /// The orders of each hash value.
-    ///
-    /// The purpose of this field to let caller determine
-    /// fast the position of the group it is interested in.
-    #[prost(uint64, repeated, tag = "2")]
-    pub orders: ::prost::alloc::vec::Vec<u64>,
 }
 /// Nested message and enum types in `GroupByIdxMultiple`.
 pub mod group_by_idx_multiple {

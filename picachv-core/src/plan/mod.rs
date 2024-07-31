@@ -420,9 +420,7 @@ fn groupby_multiple(
 ) -> PicachvResult<PolicyGuardedDataFrame> {
     let chunks = Chunks::new_from_groupby_multiple(gbm)?;
     // Convert this to GroupedDataFrameWithHash
-    chunks.check(arena, keys, aggs, udfs, options, &gbm.orders)?;
-
-    todo!("groupby multiple")
+    chunks.check(arena, keys, aggs, udfs, options)
 }
 
 fn aggregate_keys(
@@ -452,7 +450,10 @@ fn aggregate_keys(
         Ok(Arc::new(PolicyGuardedColumn { policies: cur }))
     }).collect::<PicachvResult<Vec<_>>>())?;
 
-    Ok(PolicyGuardedDataFrame { columns })
+    Ok(PolicyGuardedDataFrame {
+        columns,
+        ..Default::default()
+    })
 }
 
 pub fn early_projection(
@@ -517,8 +518,6 @@ fn check_expressions_agg(
     udfs: &HashMap<String, Udf>,
     options: &ContextOptions,
 ) -> PicachvResult<Uuid> {
-    let mut df_arena = arena.df_arena.write();
-
     let f = || {
         THREAD_POOL.install(|| {
             agg_list
@@ -552,9 +551,10 @@ fn check_expressions_agg(
                 .map(|col| Arc::new(PolicyGuardedColumn { policies: col }))
                 .collect()
         }),
+        ..Default::default()
     };
 
-    df_arena.insert(df)
+    arena.df_arena.write().insert(df)
 }
 
 fn do_check_expressions(
@@ -574,7 +574,7 @@ fn do_check_expressions(
                 .map(|expr| {
                     let cur = (0..rows)
                         .into_par_iter()
-                        .map(|idx| expr.check_policy_in_row(&ctx, idx)) // deadlock?
+                        .map(|idx| expr.check_policy_in_row(&ctx, idx))
                         .collect::<PicachvResult<Vec<_>>>()?;
                     Ok(Arc::new(PolicyGuardedColumn { policies: cur }))
                 })
@@ -588,7 +588,10 @@ fn do_check_expressions(
         f()
     }?;
 
-    Ok(PolicyGuardedDataFrame { columns })
+    Ok(PolicyGuardedDataFrame {
+        columns,
+        ..Default::default()
+    })
 }
 
 fn check_expressions(

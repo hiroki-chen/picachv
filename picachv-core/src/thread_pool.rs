@@ -10,12 +10,14 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 pub static THREAD_POOL: LazyLock<ThreadPool> = LazyLock::new(|| {
     let thread_name = "picachv";
 
+    let nproc = available_parallelism()
+        .unwrap_or(NonZeroUsize::new(1).unwrap())
+        .get();
+
+    println!("THREAD_POOL: Using {} threads", nproc);
+
     ThreadPoolBuilder::new()
-        .num_threads(
-            available_parallelism()
-                .unwrap_or(NonZeroUsize::new(1).unwrap())
-                .get(),
-        )
+        .num_threads(nproc)
         .thread_name(move |i| format!("{}-{}", thread_name, i))
         .build()
         .unwrap()

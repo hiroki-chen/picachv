@@ -1,11 +1,10 @@
-use picachv_error::{PicachvError, PicachvResult};
+use picachv_error::PicachvResult;
 use uuid::Uuid;
 
-use crate::group_by_idx_multiple::Groups;
 use crate::transform_info::Information;
 use crate::{
-    FilterInformation, GroupByProxy, JoinInformation, RenamingInformation, RowJoinInformation,
-    TransformInfo, UnionInformation,
+    FilterInformation, JoinInformation, RenamingInformation, RowJoinInformation, TransformInfo,
+    UnionInformation,
 };
 
 impl TransformInfo {
