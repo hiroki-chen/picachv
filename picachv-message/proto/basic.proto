@@ -71,10 +71,13 @@ message GroupBySlice {
   repeated uint64 groups = 1;
 }
 
+message UngroupedGroupBy {}
+
 message GroupByProxy {
   oneof group_by {
     GroupByIdx group_by_idx = 1;
     GroupByIdxMultiple group_by_idx_multiple = 2;
+    UngroupedGroupBy no_group = 4;
   }
 }
 

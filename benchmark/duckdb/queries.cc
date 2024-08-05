@@ -180,33 +180,37 @@ QueryStat QueryFactory::ExecuteQuery2() {
   const std::string nation = data_path_ + "/" + kTableNames[6] + ".parquet";
   const std::string region = data_path_ + "/" + kTableNames[7] + ".parquet";
 
-  con_->Query("SET threads TO 1");
-
   std::string sub_query =
-      "SELECT min(ps_supplycost) FROM '" + partsupp + "', '" + supplier +
-      "', '" + nation + "', '" + region + "', '" + part +
+      "select min(ps_supplycost) as min_supplycost "
+      "from '" +
+      part + "', '" + supplier + "', '" + partsupp + "', '" + nation + "', '" +
+      region +
       "' "
-      "WHERE p_partkey = ps_partkey and s_suppkey = ps_suppkey and s_nationkey "
-      "= n_nationkey and n_regionkey = r_regionkey and r_name = 'EUROPE'";
+      "where p_partkey = ps_partkey and s_suppkey = ps_suppkey "
+      "and p_size = 15 "
+      "and p_type like '%BRASS' "
+      "and s_nationkey = n_nationkey "
+      "and n_regionkey = r_regionkey "
+      "and r_name = 'EUROPE'";
+  std::string query = "select s_acctbal, s_name, n_name, p_partkey, p_mfgr, "
+                      "s_address, s_phone, s_comment "
+                      "from '" +
+                      part + "', '" + supplier + "', '" + partsupp + "', '" +
+                      nation + "', '" + region +
+                      "' "
+                      "where p_partkey = ps_partkey and s_suppkey = ps_suppkey "
+                      "and p_size = 15 "
+                      "and p_type like '%BRASS' "
+                      "and s_nationkey = n_nationkey "
+                      "and n_regionkey = r_regionkey "
+                      "and r_name = 'EUROPE' "
+                      "and ps_supplycost = (" +
+                      sub_query +
+                      ") "
+                      "order by s_acctbal desc, n_name, s_name, p_partkey "
+                      "limit 100";
 
-  // std::string query =
-  //     "select s_acctbal, s_name, n_name, p_partkey, p_mfgr, s_address, "
-  //     "s_phone, s_comment "
-  //     "from '" +
-  //     part + "', '" + supplier + "', '" + partsupp + "', '" + nation + "', '"
-  //     + region +
-  //     "' "
-  //     "where p_partkey = ps_partkey and s_suppkey = ps_suppkey and p_size =
-  //     15 " "and p_type like '%BRASS' " "and s_nationkey = n_nationkey and
-  //     n_regionkey = r_regionkey and r_name "
-  //     "= 'EUROPE' "
-  //     "and ps_supplycost = (" +
-  //     sub_query +
-  //     ") "
-  //     "order by s_acctbal desc, n_name, s_name, p_partkey "
-  //     "limit 100";
-
-  return ExecuteQueryInternal(sub_query);
+  return ExecuteQueryInternal(query);
 }
 
 QueryStat QueryFactory::ExecuteQuery3() {

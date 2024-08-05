@@ -89,6 +89,7 @@ impl Expr {
             },
 
             Argument::Agg(AggExpr { input_uuid, method }) => {
+                println!("AggExpr: {:?}", input_uuid);
                 let uuid = Uuid::from_slice_le(&input_uuid)
                     .map_err(|_| PicachvError::InvalidOperation("The UUID is invalid.".into()))?;
 
@@ -123,6 +124,11 @@ impl Expr {
                         }),
                         picachv_message::GroupByMethod::Len => Ok(Expr::Agg {
                             expr: crate::expr::AggExpr::Count(uuid, true),
+                            values: None,
+                        }),
+
+                        picachv_message::GroupByMethod::First => Ok(Expr::Agg {
+                            expr: crate::expr::AggExpr::First(uuid),
                             values: None,
                         }),
                         _ => todo!(),

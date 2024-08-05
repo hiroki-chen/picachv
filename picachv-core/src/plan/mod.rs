@@ -238,6 +238,8 @@ impl Plan {
                 gb_proxy,
                 ..
             } => {
+                println!("agg: {self:?}");
+
                 let expr_arena = arena.expr_arena.read();
                 let keys = keys
                     .par_iter()
@@ -257,6 +259,21 @@ impl Plan {
                         let gb_proxy = idx_to_group_info_vec(gbi);
                         let df = arena.df_arena.read().get(&active_df_uuid)?.clone();
                         groupby_single(arena, &df, &keys, udfs, options, &gb_proxy, &aggs)
+                    },
+                    Some(GroupBy::NoGroup(_)) => {
+                        picachv_ensure!(
+                            keys.is_empty(),
+                            ComputeError: "The group by is emptt, but we've got non-empty keys."
+                        );
+
+                        let df = arena.df_arena.read().get(&active_df_uuid)?.clone();
+                        let gi = vec![GroupInformation {
+                            first: 0,
+                            groups: (0..df.shape().0).collect(),
+                            hash: None,
+                        }];
+
+                        groupby_single(arena, &df, &keys, udfs, options, &gi, &aggs)
                     },
                     None => picachv_bail!(ComputeError: "The group by is empty."),
                 }?;

@@ -105,8 +105,11 @@ pub struct GroupBySlice {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UngroupedGroupBy {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupByProxy {
-    #[prost(oneof = "group_by_proxy::GroupBy", tags = "1, 2")]
+    #[prost(oneof = "group_by_proxy::GroupBy", tags = "1, 2, 4")]
     pub group_by: ::core::option::Option<group_by_proxy::GroupBy>,
 }
 /// Nested message and enum types in `GroupByProxy`.
@@ -118,6 +121,8 @@ pub mod group_by_proxy {
         GroupByIdx(super::GroupByIdx),
         #[prost(message, tag = "2")]
         GroupByIdxMultiple(super::GroupByIdxMultiple),
+        #[prost(message, tag = "4")]
+        NoGroup(super::UngroupedGroupBy),
     }
 }
 /// A value that incorporates any primitive data types.
