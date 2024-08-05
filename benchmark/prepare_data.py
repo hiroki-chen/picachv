@@ -133,7 +133,9 @@ def main(percentage: float, skip_dbgen: bool) -> None:
 
         if table_name in ["lineitem", "orders", "part", "partsupp", "customer"]:
             num = int(lf.select(pl.len()).collect().item())
-            lf = lf.limit(int(num * percentage))
+            # lf = lf.limit(int(num * percentage))
+            # FIXME: Remember to remove this.
+            lf = lf.limit(3000)
 
         # The reason why we avoid using `lf.sink_parquet` is that it is buggy when dealing with
         # `row_group_size`; this argument seems to be ignored.

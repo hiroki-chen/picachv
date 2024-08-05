@@ -17,7 +17,7 @@ pub static THREAD_POOL: LazyLock<ThreadPool> = LazyLock::new(|| {
     println!("THREAD_POOL: Using {} threads", nproc);
 
     ThreadPoolBuilder::new()
-        .num_threads(nproc)
+        .num_threads(1)
         .thread_name(move |i| format!("{}-{}", thread_name, i))
         .build()
         .unwrap()

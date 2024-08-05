@@ -202,6 +202,8 @@ impl Plan {
                     expr_arena.get(predicate)?.clone()
                 };
 
+                println!("filtering!!");
+
                 check_expressions(arena, active_df_uuid, &[&predicate], true, udfs, options)?;
 
                 Ok(active_df_uuid)

@@ -31,6 +31,10 @@ private:
   bool PrepareTable(const std::string &table_name);
 
   QueryStat ExecuteQuery1();
+  QueryStat ExecuteQuery2();
+  QueryStat ExecuteQuery3();
+
+  QueryStat ExecuteQueryInternal(const std::string &query);
 
 public:
   QueryFactory(cxxopts::ParseResult &options);

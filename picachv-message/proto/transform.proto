@@ -46,8 +46,7 @@ message GroupByInformation {
 }
 
 message UnionInformation {
-  bytes lhs_df_uuid = 1;
-  bytes rhs_df_uuid = 2;
+  repeated bytes df_uuids = 1;
 }
 
 message ReorderInformation {

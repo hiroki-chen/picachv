@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::ops::{Deref, Range};
 use std::sync::Arc;
@@ -352,7 +352,6 @@ impl PolicyGuardedDataFrame {
     /// Constructs a new [`PolicyGuardedDataFrame`] from the slice of the original
     /// object according to the `slices` parameter.
     pub fn new_from_slice(&self, slices: &[usize]) -> PicachvResult<Self> {
-        // SOMEHOW self becomes empty.
         let columns = THREAD_POOL.install(|| {
             self.columns
                 .par_iter()
@@ -372,29 +371,6 @@ impl PolicyGuardedDataFrame {
         })
     }
 
-    pub fn slice(&self, range: Range<usize>) -> PicachvResult<Self> {
-        tracing::debug!("slicing: range = {range:?}");
-
-        picachv_ensure!(
-            range.end <= self.shape().0,
-            ComputeError: "The range is out of bound.",
-        );
-
-        let mut columns = vec![];
-        for col in self.columns.iter() {
-            let mut policies = vec![];
-            for i in range.clone() {
-                policies.push(col.policies[i].clone());
-            }
-            columns.push(Arc::new(PolicyGuardedColumn { policies }));
-        }
-
-        Ok(PolicyGuardedDataFrame {
-            columns,
-            ..Default::default()
-        })
-    }
-
     /// Joins two policy-carrying dataframes.
     ///
     /// The function iterates over the `row_info` to join the policies specified by `common_list`. After
@@ -405,6 +381,8 @@ impl PolicyGuardedDataFrame {
         info: &JoinInformation,
         options: &ContextOptions,
     ) -> PicachvResult<Self> {
+        println!("join_info => {:?}", info);
+
         let join_preparation = || {
             let left_columns = unsafe {
                 std::slice::from_raw_parts(
@@ -428,7 +406,6 @@ impl PolicyGuardedDataFrame {
                         PicachvResult::Ok(lhs)
                     },
                     || {
-                        // let mut rhs = rhs.clone();
                         rhs.projection_by_id(right_columns)?;
                         PicachvResult::Ok(rhs)
                     },
@@ -467,6 +444,9 @@ impl PolicyGuardedDataFrame {
         });
         let (lhs, rhs) = (lhs?, rhs?);
 
+        println!("lhs.shape() => {:?}", lhs.shape());
+        println!("rhs.shape() => {:?}", rhs.shape());
+
         // We then stitch them together.
         let res = PolicyGuardedDataFrame::stitch(&lhs, &rhs)?;
         Ok(res)
@@ -489,7 +469,7 @@ impl PolicyGuardedDataFrame {
             hashes
                 .par_iter()
                 .map(|hash| {
-                        hash_info
+                    hash_info
                         .get(hash)
                         .copied()
                         .ok_or(PicachvError::InvalidOperation(
@@ -611,17 +591,19 @@ impl PolicyGuardedDataFrame {
     pub(crate) fn projection_by_id(&mut self, project_list: &[usize]) -> PicachvResult<()> {
         picachv_ensure!(
             project_list.par_iter().all(|&col| col < self.columns.len()),
-            ComputeError: "The column is out of bound.",
+            ComputeError: "The column is out of bound: {:?} vs {:?}", self.shape().1, project_list,
         );
+        let index_set: HashSet<_> = project_list.iter().collect();
 
-        let mut index = 0;
-        // Avoid unnecessary clone().
-        self.columns.retain(|_| {
-            let res = project_list.binary_search(&index);
-            index += 1;
-            res.is_ok()
-        });
+        let mut retained = 0;
+        for i in 0..self.columns.len() {
+            if index_set.contains(&i) {
+                self.columns.swap(i, retained);
+                retained += 1;
+            }
+        }
 
+        self.columns.truncate(retained);
         Ok(())
     }
 
@@ -734,7 +716,8 @@ pub fn apply_transform(
             Information::Union(union_info) => {
                 let mut df_arena = df_arena.write();
 
-                let involved_dfs = [union_info.lhs_df_uuid, union_info.rhs_df_uuid]
+                let involved_dfs = union_info
+                    .df_uuids
                     .par_iter()
                     .map(|uuid| {
                         let uuid = Uuid::from_slice_le(uuid)

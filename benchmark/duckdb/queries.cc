@@ -1,8 +1,34 @@
 #include <chrono>
+#include <iostream>
 #include <optional>
 
 #include "picachv_interfaces.h"
 #include "queries.h"
+
+QueryStat QueryFactory::ExecuteQueryInternal(const std::string &query) {
+  bool prev = con_->PolicyCheckingEnabled();
+  if (prev) {
+    con_->DisablePolicyChecking();
+  }
+  auto desc = con_->Query("EXPLAIN(" + query + ")");
+  desc->Print();
+  if (prev) {
+    con_->EnablePolicyChecking();
+  }
+
+  auto start = std::chrono::high_resolution_clock::now();
+  auto result = con_->Query(query);
+  auto end = std::chrono::high_resolution_clock::now();
+  result->Print();
+
+  if (result->HasError()) {
+    std::cerr << "Query 2 failed:\n\t";
+    result->Print();
+    return QueryStat{.success = false, .time = end - start};
+  }
+
+  return QueryStat{.success = true, .time = end - start};
+}
 
 QueryFactory::QueryFactory(cxxopts::ParseResult &options) {
 
@@ -86,6 +112,10 @@ QueryStat QueryFactory::ExecuteQuery() {
   switch (query_num_) {
   case 1:
     return ExecuteQuery1();
+  case 2:
+    return ExecuteQuery2();
+  case 3:
+    return ExecuteQuery3();
   default:
     return QueryStat{.success = false,
                      .time = std::chrono::duration<double>(0)};
@@ -141,4 +171,63 @@ QueryStat QueryFactory::ExecuteQuery1() {
   }
 
   return QueryStat{.success = true, .time = end - start};
+}
+
+QueryStat QueryFactory::ExecuteQuery2() {
+  const std::string part = data_path_ + "/" + kTableNames[2] + ".parquet";
+  const std::string supplier = data_path_ + "/" + kTableNames[3] + ".parquet";
+  const std::string partsupp = data_path_ + "/" + kTableNames[5] + ".parquet";
+  const std::string nation = data_path_ + "/" + kTableNames[6] + ".parquet";
+  const std::string region = data_path_ + "/" + kTableNames[7] + ".parquet";
+
+  con_->Query("SET threads TO 1");
+
+  std::string sub_query =
+      "SELECT min(ps_supplycost) FROM '" + partsupp + "', '" + supplier +
+      "', '" + nation + "', '" + region + "', '" + part +
+      "' "
+      "WHERE p_partkey = ps_partkey and s_suppkey = ps_suppkey and s_nationkey "
+      "= n_nationkey and n_regionkey = r_regionkey and r_name = 'EUROPE'";
+
+  // std::string query =
+  //     "select s_acctbal, s_name, n_name, p_partkey, p_mfgr, s_address, "
+  //     "s_phone, s_comment "
+  //     "from '" +
+  //     part + "', '" + supplier + "', '" + partsupp + "', '" + nation + "', '"
+  //     + region +
+  //     "' "
+  //     "where p_partkey = ps_partkey and s_suppkey = ps_suppkey and p_size =
+  //     15 " "and p_type like '%BRASS' " "and s_nationkey = n_nationkey and
+  //     n_regionkey = r_regionkey and r_name "
+  //     "= 'EUROPE' "
+  //     "and ps_supplycost = (" +
+  //     sub_query +
+  //     ") "
+  //     "order by s_acctbal desc, n_name, s_name, p_partkey "
+  //     "limit 100";
+
+  return ExecuteQueryInternal(sub_query);
+}
+
+QueryStat QueryFactory::ExecuteQuery3() {
+  const std::string customer = data_path_ + "/" + kTableNames[4] + ".parquet";
+  const std::string orders = data_path_ + "/" + kTableNames[1] + ".parquet";
+  const std::string lineitem = data_path_ + "/" + kTableNames[0] + ".parquet";
+
+  std::string query =
+      "SELECT l_orderkey, sum(l_extendedprice * (1 - l_discount)) as revenue, "
+      "o_orderdate, o_shippriority "
+      "FROM '" +
+      customer + "', '" + orders + "', '" + lineitem +
+      "' "
+      "WHERE c_mktsegment = 'BUILDING' "
+      "and c_custkey = o_custkey "
+      "and l_orderkey = o_orderkey "
+      "and l_shipdate > '1995-03-15' "
+      "and l_shipdate < '1995-03-25' "
+      "GROUP BY l_orderkey, o_orderdate, o_shippriority "
+      "ORDER BY revenue desc, o_orderdate "
+      "LIMIT 10";
+
+  return ExecuteQueryInternal(query);
 }

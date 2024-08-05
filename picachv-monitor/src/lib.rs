@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::OpenOptions;
-use std::ops::Range;
 use std::path::Path;
 use std::sync::{Arc, LazyLock};
 
@@ -215,11 +214,12 @@ impl Context {
     }
 
     #[tracing::instrument]
-    pub fn create_slice(&self, df_uuid: Uuid, range: Range<usize>) -> PicachvResult<Uuid> {
+    pub fn create_slice(&self, df_uuid: Uuid, sel_vec: &[u32]) -> PicachvResult<Uuid> {
         let mut df_arena = self.arena.df_arena.write();
         let df = df_arena.get(&df_uuid)?;
+        let sel_vec = sel_vec.into_iter().map(|e| *e as usize).collect::<Vec<_>>();
 
-        let new_df = df.slice(range)?;
+        let new_df = df.new_from_slice(&sel_vec)?;
         df_arena.insert(new_df)
     }
 

@@ -12,7 +12,16 @@ We thus present Picachv, which is a mechanically verified (using Coq), automatic
 You must ensure you have installed the following dependencies on the computer:
 
 - Rust toolchain (can be obtained via rustup)
-- Protobuf (v23.0)
+- Protobuf (v3.21.0; must be built from *source*)
+- libarrow-dev (v53)
+- cmake
+- clang (we are using mold)
+- mold
+- libre2-dev
+- xsimd
+- Apache Arrow (Must be built from *source*)
+
+Please be rather careful about the protobuf versioning especially if you have Anaconda or equivalent installed on your system because this would cause confusion when cmake tries to identify the correct protobuf compiler, library, and header files. It is highly recommended that Anaconda3 is deactivated before building the project. Also, please install protobuf from source and never from any pre-built binary distribution (e.g., via `apt`). These binary distributions are either too old, or simply break the compilation.
 
 Then invoke cargo command in the root:
 
@@ -22,7 +31,10 @@ $ cargo build -r
 
 ## Integration with Other Systems
 
-We currently provide two unofficial modification on the codebase of Polars and DuckDB to support the policy-checking functionalty. Other systems might be supported in the future. We also welcome community contributors to support more data analytical engines and systems on the market.
+We currently provide two unofficial modification on the codebase of Polars and DuckDB to support the policy-checking functionality. Other systems might be supported in the future. We also welcome community contributors to support more data analytical engines and systems on the market.
+
+- Polars.
+- DuckDB.
 
 ## The Proofs
 

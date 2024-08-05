@@ -14,6 +14,7 @@ picachv-monitor = { workspace = true }
 picachv-core = { workspace = true }
 picachv-message = { workspace = true }
 
+bytemuck = { workspace = true }
 jni = { version = "0.21.1", optional = true }
 pyo3 = { version = "0.21.1", optional = true }
 prost = { workspace = true }

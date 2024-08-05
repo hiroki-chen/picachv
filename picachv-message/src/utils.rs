@@ -17,10 +17,12 @@ impl TransformInfo {
     }
 
     pub fn from_union(lhs_df_uuid: Uuid, rhs_df_uuid: Uuid) -> PicachvResult<Self> {
+        let lhs_df_uuid = lhs_df_uuid.to_bytes_le().to_vec();
+        let rhs_df_uuid = rhs_df_uuid.to_bytes_le().to_vec();
+
         Ok(Self {
             information: Some(Information::Union(UnionInformation {
-                lhs_df_uuid: lhs_df_uuid.to_bytes_le().to_vec(),
-                rhs_df_uuid: rhs_df_uuid.to_bytes_le().to_vec(),
+                df_uuids: vec![lhs_df_uuid, rhs_df_uuid],
             })),
         })
     }

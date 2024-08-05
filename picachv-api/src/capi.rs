@@ -216,14 +216,15 @@ pub unsafe extern "C" fn reify_expression(
     ErrorCode::Success
 }
 
+// FIXME: Should be a select vector!
 #[no_mangle]
 pub unsafe extern "C" fn create_slice(
     ctx_uuid: *const u8,
     ctx_uuid_len: usize,
     df_uuid: *const u8,
     df_len: usize,
-    start: usize,
-    end: usize,
+    sel_vec: *const u32,
+    sel_vec_len: usize,
     slice_df_uuid: *mut u8,
     slice_df_len: usize,
 ) -> ErrorCode {
@@ -240,7 +241,11 @@ pub unsafe extern "C" fn create_slice(
         None => return ErrorCode::NoEntry,
     };
 
-    let out = try_execute!(ctx.create_slice(df_id, start..end));
+    let sel_vec = std::slice::from_raw_parts(sel_vec, sel_vec_len);
+
+    println!("Creating a slice with the selection vector: {:?}", sel_vec);
+
+    let out = try_execute!(ctx.create_slice(df_id, sel_vec));
 
     std::ptr::copy_nonoverlapping(out.to_bytes_le().as_ptr(), slice_df_uuid, slice_df_len);
 
@@ -368,7 +373,7 @@ pub unsafe extern "C" fn debug_print_df(
     };
 
     let df = try_execute!(ctx.get_df(df_id));
-    println!("{df}");
+    println!("{df}(shape: {:?})", df.shape());
 
     ErrorCode::Success
 }
@@ -490,5 +495,4 @@ pub unsafe extern "C" fn select_group(
     std::ptr::copy_nonoverlapping(out.to_bytes_le().as_ptr(), out_df_uuid, out_df_len);
 
     ErrorCode::Success
-
 }

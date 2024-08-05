@@ -4,14 +4,15 @@ use picachv_message::{plan_argument, AggregateArgument, HstackArgument};
 use uuid::Uuid;
 
 use super::Plan;
-use crate::{ Arenas};
+use crate::Arenas;
 
 impl Plan {
     /// Build logical plan from the arguments.
     pub fn from_args(arenas: &Arenas, arg: plan_argument::Argument) -> PicachvResult<Self> {
+
+// debug.
         use plan_argument::Argument;
 
-        tracing::debug!("Building logical plan from the arguments {arg:?}");
         let df_arena = arenas.df_arena.write();
         match arg {
             Argument::GetData(data_source) => match data_source.data_source {
