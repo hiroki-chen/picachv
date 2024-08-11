@@ -69,7 +69,7 @@ pub mod group_by_idx {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupByIdxMultiple {
     #[prost(message, repeated, tag = "1")]
-    pub chunks: ::prost::alloc::vec::Vec<group_by_idx_multiple::Chunks>,
+    pub chunks: ::prost::alloc::vec::Vec<group_by_idx_multiple::Chunk>,
 }
 /// Nested message and enum types in `GroupByIdxMultiple`.
 pub mod group_by_idx_multiple {
@@ -88,7 +88,7 @@ pub mod group_by_idx_multiple {
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Chunks {
+    pub struct Chunk {
         /// The uuid of the chunk.
         #[prost(bytes = "vec", tag = "1")]
         pub uuid: ::prost::alloc::vec::Vec<u8>,
@@ -98,6 +98,9 @@ pub mod group_by_idx_multiple {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UngroupedGroupBy {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupBySlice {
     /// A vector of group indices.
     #[prost(uint64, repeated, tag = "1")]
@@ -105,11 +108,8 @@ pub struct GroupBySlice {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UngroupedGroupBy {}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupByProxy {
-    #[prost(oneof = "group_by_proxy::GroupBy", tags = "1, 2, 4")]
+    #[prost(oneof = "group_by_proxy::GroupBy", tags = "1, 2, 3, 4")]
     pub group_by: ::core::option::Option<group_by_proxy::GroupBy>,
 }
 /// Nested message and enum types in `GroupByProxy`.
@@ -121,6 +121,8 @@ pub mod group_by_proxy {
         GroupByIdx(super::GroupByIdx),
         #[prost(message, tag = "2")]
         GroupByIdxMultiple(super::GroupByIdxMultiple),
+        #[prost(message, tag = "3")]
+        GroupBySlice(super::GroupBySlice),
         #[prost(message, tag = "4")]
         NoGroup(super::UngroupedGroupBy),
     }

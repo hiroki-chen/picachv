@@ -51,6 +51,7 @@ QueryFactory::QueryFactory(cxxopts::ParseResult &options) {
   data_path_ = options["data-path"].as<std::string>();
   enable_profiling_ = options["enable-profiling"].as<bool>();
   query_num_ = options["query-num"].as<int>();
+  thread_num_ = options["thread-num"].as<uint32_t>();
 }
 
 bool QueryFactory::PrepareTable(const std::string &table_name) {
@@ -69,8 +70,12 @@ bool QueryFactory::PrepareTable(const std::string &table_name) {
 
 bool QueryFactory::Setup(std::unique_ptr<duckdb::Connection> con) {
   con_ = std::move(con);
-  // A simple multi-threading setting causes deadlock on the rayon side???.
-  // con_->Query("SET threads TO 2");
+
+  if (thread_num_ > 0) {
+    std::cout << "Setting the number of threads to " << thread_num_
+              << std::endl;
+    con_->Query("SET threads TO " + std::to_string(thread_num_));
+  }
 
   if (policy_path_.has_value()) {
     // Set up the context.
@@ -116,6 +121,14 @@ QueryStat QueryFactory::ExecuteQuery() {
     return ExecuteQuery2();
   case 3:
     return ExecuteQuery3();
+  case 4:
+    return ExecuteQuery4();
+  case 5:
+    return ExecuteQuery5();
+  case 6:
+    return ExecuteQuery6();
+  case 7:
+    return ExecuteQuery7();
   default:
     return QueryStat{.success = false,
                      .time = std::chrono::duration<double>(0)};
@@ -232,6 +245,112 @@ QueryStat QueryFactory::ExecuteQuery3() {
       "GROUP BY l_orderkey, o_orderdate, o_shippriority "
       "ORDER BY revenue desc, o_orderdate "
       "LIMIT 10";
+
+  return ExecuteQueryInternal(query);
+}
+
+QueryStat QueryFactory::ExecuteQuery4() {
+  const std::string lineitem = data_path_ + "/" + kTableNames[0] + ".parquet";
+  const std::string orders = data_path_ + "/" + kTableNames[1] + ".parquet";
+
+  std::string sub_query = "select * "
+                          "from '" +
+                          lineitem +
+                          "' "
+                          "where l_commitdate < l_receiptdate";
+
+  std::string query = "select o_orderpriority, count(*) as order_count "
+                      "from '" +
+                      orders +
+                      "' "
+                      "where o_orderdate >= '1993-07-01' "
+                      "and o_orderdate < '1993-10-01' "
+                      "and exists (" +
+                      sub_query +
+                      ") "
+                      "group by o_orderpriority "
+                      "order by o_orderpriority";
+
+  return ExecuteQueryInternal(query);
+}
+
+QueryStat QueryFactory::ExecuteQuery5() {
+  const std::string customer = data_path_ + "/" + kTableNames[4] + ".parquet";
+  const std::string orders = data_path_ + "/" + kTableNames[1] + ".parquet";
+  const std::string lineitem = data_path_ + "/" + kTableNames[0] + ".parquet";
+  const std::string supplier = data_path_ + "/" + kTableNames[3] + ".parquet";
+  const std::string nation = data_path_ + "/" + kTableNames[6] + ".parquet";
+  const std::string region = data_path_ + "/" + kTableNames[7] + ".parquet";
+
+  std::string query =
+      "select n_name, sum(l_extendedprice * (1 - l_discount)) as revenue "
+      "from '" +
+      customer + "', '" + orders + "', '" + lineitem + "', '" + supplier +
+      "', '" + nation + "', '" + region +
+      "' "
+      "where c_custkey = o_custkey "
+      "and l_orderkey = o_orderkey "
+      "and l_suppkey = s_suppkey "
+      "and c_nationkey = s_nationkey "
+      "and s_nationkey = n_nationkey "
+      "and n_regionkey = r_regionkey "
+      "and r_name = 'ASIA' "
+      "and o_orderdate >= '1994-01-01' "
+      "and o_orderdate < '1995-01-01' "
+      "group by n_name "
+      "order by revenue desc";
+  ;
+
+  return ExecuteQueryInternal(query);
+}
+
+QueryStat QueryFactory::ExecuteQuery6() {
+  const std::string lineitem = data_path_ + "/" + kTableNames[0] + ".parquet";
+
+  std::string query = "select sum(l_extendedprice * l_discount) as revenue "
+                      "from '" +
+                      lineitem +
+                      "' "
+                      "where l_shipdate >= '1994-01-01' "
+                      "and l_shipdate < '1995-01-01' "
+                      "and l_discount between 0.06 - 0.01 and 0.06 + 0.01 "
+                      "and l_quantity < 24";
+
+  return ExecuteQueryInternal(query);
+}
+
+QueryStat QueryFactory::ExecuteQuery7() {
+  const std::string supplier = data_path_ + "/" + kTableNames[3] + ".parquet";
+  const std::string lineitem = data_path_ + "/" + kTableNames[0] + ".parquet";
+  const std::string orders = data_path_ + "/" + kTableNames[1] + ".parquet";
+  const std::string customer = data_path_ + "/" + kTableNames[4] + ".parquet";
+  const std::string nation = data_path_ + "/" + kTableNames[6] + ".parquet";
+
+  std::string sub_query =
+      "select n1.name as supp_nation, n2.name as cust_nation, "
+      "extract(year from l_shipdate) as l_year, "
+      "l_extendedprice * (1 - l_discount) as volume "
+      "from '" +
+      supplier + "', '" + lineitem + "', '" + orders + "', '" + customer +
+      "', '" + nation +
+      "' "
+      "where s_suppkey = l_suppkey "
+      "and o_orderkey = l_orderkey "
+      "and c_custkey = o_custkey "
+      "and s_nationkey = n1.nationkey "
+      "and c_nationkey = n2.nationkey "
+      "and ("
+      "(n1.name = 'FRANCE' and n2.name = 'GERMANY') or "
+      "(n1.name = 'GERMANY' and n2.name = 'FRANCE') "
+      ")";
+
+  std::string query =
+      "select supp_nation, cust_nation, l_year, sum(volume) as revenue "
+      "from (" +
+      sub_query +
+      ") as shipping "
+      "group by supp_nation, cust_nation, l_year "
+      "order by supp_nation, cust_nation, l_year";
 
   return ExecuteQueryInternal(query);
 }

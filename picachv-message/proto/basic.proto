@@ -57,26 +57,27 @@ message GroupByIdxMultiple {
     repeated uint64 group = 3;
   }
 
-  message Chunks {
+  message Chunk {
     // The uuid of the chunk.
     bytes uuid = 1;
     repeated Groups groups = 2;
   }
 
-  repeated Chunks chunks = 1;
+  repeated Chunk chunks = 1;
 }
+
+message UngroupedGroupBy {}
 
 message GroupBySlice {
   // A vector of group indices.
   repeated uint64 groups = 1;
 }
 
-message UngroupedGroupBy {}
-
 message GroupByProxy {
   oneof group_by {
     GroupByIdx group_by_idx = 1;
     GroupByIdxMultiple group_by_idx_multiple = 2;
+    GroupBySlice group_by_slice = 3;
     UngroupedGroupBy no_group = 4;
   }
 }

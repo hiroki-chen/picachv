@@ -279,9 +279,9 @@ impl Context {
         // Check if it is a column expression.
         if let Expr::Column(_) = expr {
             // Replace the column name with the actual value.
-            let idx = usize::from_le_bytes(value.try_into().map_err(|e| {
+            let idx = usize::from_le_bytes(value.try_into().map_err(|_| {
                 PicachvError::InvalidOperation(
-                    format!("Failed to convert the value into usize: {e}").into(),
+                    format!("Failed to convert the value into usize: {value:?}").into(),
                 )
             })?);
 

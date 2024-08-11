@@ -21,6 +21,7 @@ struct QueryStat {
 
 class QueryFactory {
   std::optional<std::string> policy_path_;
+  uint32_t thread_num_;
   std::string data_path_;
   bool enable_profiling_;
   int query_num_;
@@ -33,6 +34,10 @@ private:
   QueryStat ExecuteQuery1();
   QueryStat ExecuteQuery2();
   QueryStat ExecuteQuery3();
+  QueryStat ExecuteQuery4();
+  QueryStat ExecuteQuery5();
+  QueryStat ExecuteQuery6();
+  QueryStat ExecuteQuery7();
 
   QueryStat ExecuteQueryInternal(const std::string &query);
 

@@ -275,7 +275,8 @@ impl Plan {
 
                         groupby_single(arena, &df, &keys, udfs, options, &gi, &aggs)
                     },
-                    None => picachv_bail!(ComputeError: "The group by is empty."),
+
+                    _ => picachv_bail!(ComputeError: "Invalid group by proxy."),
                 }?;
 
                 arena.df_arena.write().insert(new_df)

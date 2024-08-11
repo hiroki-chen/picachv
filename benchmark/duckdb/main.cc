@@ -23,7 +23,9 @@ cxxopts::ParseResult ParseCommandLine(int argc, const char *argv[]) {
                                          "The path to the data file",
                                          cxxopts::value<std::string>())(
           "enable-profiling", "Whether to enable profing on the Picachv side",
-          cxxopts::value<bool>()->default_value("false"));
+          cxxopts::value<bool>()->default_value("false"))(
+          "t,thread-num", "The number of availble threads to use (0 = use all)",
+          cxxopts::value<uint32_t>()->default_value("0"));
 
   return options.parse(argc, argv);
 }

@@ -727,7 +727,10 @@ fn check_policy_in_row_apply(
             let (lhs, rhs) = THREAD_POOL.install(|| rayon::join(lhs, rhs));
             let (lhs, rhs) = (lhs?, rhs?);
 
-            check_policy_binary_udf(&lhs, &rhs, udf_name, &values[idx])
+            match idx >= values.len() {
+                true => Ok(Default::default()),
+                false => check_policy_binary_udf(&lhs, &rhs, udf_name, &values[idx]),
+            }
         },
         _ => Err(PicachvError::Unimplemented("UDF not implemented.".into())),
     }

@@ -98,10 +98,6 @@ impl PolicyGuardedDataFrame {
         selection: Option<&[bool]>,
         row_group_index: usize,
     ) -> PicachvResult<Self> {
-        if let Some(sel) = selection {
-            println!("selection_len: {}", sel.len());
-        }
-
         let mut builder = get_initial_builder(path, projection)?;
         let metadata = builder.metadata().clone();
 
