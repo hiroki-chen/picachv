@@ -89,7 +89,6 @@ impl Expr {
             },
 
             Argument::Agg(AggExpr { input_uuid, method }) => {
-                println!("AggExpr: {:?}", input_uuid);
                 let uuid = Uuid::from_slice_le(&input_uuid)
                     .map_err(|_| PicachvError::InvalidOperation("The UUID is invalid.".into()))?;
 

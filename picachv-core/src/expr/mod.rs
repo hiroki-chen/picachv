@@ -4,7 +4,7 @@ use std::{fmt, vec};
 
 use arrow_array::{
     Array, BooleanArray, Date32Array, Float64Array, Int32Array, Int64Array, LargeStringArray,
-    RecordBatch, TimestampNanosecondArray, UInt32Array,
+    RecordBatch, TimestampNanosecondArray, UInt32Array, UInt8Array,
 };
 use arrow_schema::{DataType, TimeUnit};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
@@ -451,6 +451,11 @@ pub(crate) fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<ValueAr
                 let res = columns
                     .into_par_iter()
                     .map(|column| match column.data_type() {
+                        DataType::UInt8 => {
+                            let array = column.as_any().downcast_ref::<UInt8Array>().unwrap();
+                            let value = array.value(i);
+                            Ok(Arc::new(AnyValue::String(value.to_string())))
+                        },
                         DataType::Int32 => {
                             let array = column.as_any().downcast_ref::<Int32Array>().unwrap();
                             let value = array.value(i);

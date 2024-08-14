@@ -90,7 +90,7 @@ unsafe fn recover_uuid(uuid_ptr: *const u8, len: usize) -> PicachvResult<Uuid> {
 pub unsafe extern "C" fn last_error(output: *mut u8, output_len: *mut usize) {
     let s = LAST_ERROR.read();
 
-    let len = s.len();
+    let len = if s.len() < 65535 { s.len() } else { 65535 };
     *output_len = len;
     std::ptr::copy_nonoverlapping(s.as_ptr(), output, len);
 }
@@ -139,9 +139,7 @@ pub unsafe extern "C" fn open_new(uuid_ptr: *mut u8, len: usize) -> ErrorCode {
     match MONITOR_INSTANCE.open_new() {
         Ok(uuid) => {
             let uuid_bytes = uuid.to_bytes_le();
-            println!("copying the uuid to the pointer");
             std::ptr::copy(uuid_bytes.as_ptr(), uuid_ptr, uuid_bytes.len());
-            println!("copying the uuid to the pointer finished");
             tracing::debug!("returning {uuid:?}");
             ErrorCode::Success
         },
@@ -242,8 +240,6 @@ pub unsafe extern "C" fn create_slice(
     };
 
     let sel_vec = std::slice::from_raw_parts(sel_vec, sel_vec_len);
-
-    println!("Creating a slice with the selection vector: {:?}", sel_vec);
 
     let out = try_execute!(ctx.create_slice(df_id, sel_vec));
 

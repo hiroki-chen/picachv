@@ -38,6 +38,21 @@ private:
   QueryStat ExecuteQuery5();
   QueryStat ExecuteQuery6();
   QueryStat ExecuteQuery7();
+  QueryStat ExecuteQuery8();
+  QueryStat ExecuteQuery9();
+  QueryStat ExecuteQuery10();
+  QueryStat ExecuteQuery11();
+  QueryStat ExecuteQuery12();
+  QueryStat ExecuteQuery13();
+  // QueryStat ExecuteQuery14();
+  // QueryStat ExecuteQuery15();
+  QueryStat ExecuteQuery16();
+  QueryStat ExecuteQuery17();
+  QueryStat ExecuteQuery18();
+  QueryStat ExecuteQuery19();
+  QueryStat ExecuteQuery20();
+  QueryStat ExecuteQuery21();
+  QueryStat ExecuteQuery22();
 
   QueryStat ExecuteQueryInternal(const std::string &query);
 

@@ -84,8 +84,6 @@ impl Chunks {
             return Ok(Default::default());
         }
 
-        println!("{:?}", hashmap.keys().collect::<Vec<_>>());
-
         // Don't extend the lifetime of the lock since this causes deadlock otherwise.
         let column_num = arenas
             .df_arena
@@ -381,8 +379,6 @@ impl PolicyGuardedDataFrame {
         info: &JoinInformation,
         options: &ContextOptions,
     ) -> PicachvResult<Self> {
-        println!("join_info => {:?}", info);
-
         let join_preparation = || {
             let left_columns = unsafe {
                 std::slice::from_raw_parts(
@@ -444,9 +440,6 @@ impl PolicyGuardedDataFrame {
         });
         let (lhs, rhs) = (lhs?, rhs?);
 
-        println!("lhs.shape() => {:?}", lhs.shape());
-        println!("rhs.shape() => {:?}", rhs.shape());
-
         // We then stitch them together.
         let res = PolicyGuardedDataFrame::stitch(&lhs, &rhs)?;
         Ok(res)
@@ -463,18 +456,25 @@ impl PolicyGuardedDataFrame {
             ComputeError: "The additional information is missing."
         );
 
-        let hash_info = &self.additional_info.as_ref().unwrap().hash_info;
+        println!("hashes: {:?}", hashes);
 
-        let slices = THREAD_POOL.install(|| {
+        let hash_info = &self.additional_info.as_ref().unwrap().hash_info;
+        println!("hash_info: {:?}", hash_info);
+
+        let slices =  THREAD_POOL.install(|| {
             hashes
                 .par_iter()
                 .map(|hash| {
                     hash_info
                         .get(hash)
                         .copied()
-                        .ok_or(PicachvError::InvalidOperation(
-                            "The hash value is missing.".into(),
-                        ))
+                        .ok_or({
+                            println!("cannot find {hash}");
+
+                            PicachvError::InvalidOperation(
+                                "This hash value is not found.".into(),
+                            )
+                        })
                 })
                 .collect::<PicachvResult<Vec<_>>>()
         })?;
