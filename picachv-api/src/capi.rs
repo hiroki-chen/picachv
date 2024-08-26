@@ -473,14 +473,14 @@ pub unsafe extern "C" fn select_group(
     out_df_len: usize,
 ) -> ErrorCode {
     let ctx_id = try_execute!(recover_uuid(ctx_uuid, ctx_uuid_len));
-    let df_id = try_execute!(recover_uuid(df_uuid, df_len));
+    let df_id: Uuid = try_execute!(recover_uuid(df_uuid, df_len));
 
     let ctx = match MONITOR_INSTANCE.get_ctx() {
         Ok(ctx) => ctx,
         Err(_) => return ErrorCode::NoEntry,
     };
 
-    let ctx = match ctx.get(&ctx_id) {
+    let ctx: &picachv_monitor::Context = match ctx.get(&ctx_id) {
         Some(ctx) => ctx,
         None => return ErrorCode::NoEntry,
     };

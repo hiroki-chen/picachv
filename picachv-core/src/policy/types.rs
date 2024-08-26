@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 pub type AnyValueRef = Arc<AnyValue>;
 pub type ValueArrayRef = Arc<Vec<AnyValueRef>>;
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Hash, Debug, Serialize, Deserialize)]
 pub struct DpParam(OrderedFloat<f64>, Option<OrderedFloat<f64>>);
 
 impl DpParam {

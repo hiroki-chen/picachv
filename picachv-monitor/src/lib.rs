@@ -250,8 +250,9 @@ impl Context {
         let mut df_arena = self.arena.df_arena.write();
         let df = df_arena.get(&df_uuid)?;
 
-        let new_df = df.select_group(hashes)?;
-        df_arena.insert(new_df)
+        let new_df = df.select_group(hashes);
+        println!("new_df.is_err() = {}", new_df.is_err());
+        df_arena.insert(new_df?)
     }
 
     /// Reify an abstract value of the expression with the given values encoded in the bytes.

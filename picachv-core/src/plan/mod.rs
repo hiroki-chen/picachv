@@ -272,7 +272,7 @@ impl Plan {
                         groupby_single(arena, &df, &keys, udfs, options, &gi, &aggs)
                     },
 
-                    _ => picachv_bail!(ComputeError: "Invalid group by proxy."),
+                    _ => picachv_bail!(ComputeError: "By slice is not supported anymore"),
                 }?;
 
                 arena.df_arena.write().insert(new_df)
@@ -448,12 +448,8 @@ fn aggregate_keys(
             .into_par_iter()
             .map(|group| {
                     group.groups.par_iter().fold(|| Ok(Arc::new(Policy::PolicyClean)), |mut acc, idx| {
-                    picachv_ensure!(
-                        (*idx as usize) < df.columns[col_idx].policies.len(),
-                        ComputeError: "The index {idx} is out of range {}", df.columns[col_idx].policies.len()
-                    );
-                    let p = df.columns[col_idx].policies[*idx as usize].clone();
-                    acc = Ok(Arc::new(acc?.join(&p)?));
+                    let p = &df.columns[col_idx][*idx as usize];
+                    acc = Ok(Arc::new(acc?.join(p)?));
                     acc
                 })
                 .reduce(|| Ok(Arc::new(Policy::PolicyClean)), |mut acc, next| {
@@ -463,7 +459,7 @@ fn aggregate_keys(
             })
             .collect::<PicachvResult<Vec<_>>>()?;
 
-        Ok(Arc::new(PolicyGuardedColumn { policies: cur }))
+        Ok(Arc::new(PolicyGuardedColumn::new_from_iter(cur.iter())?))
     }).collect::<PicachvResult<Vec<_>>>())?;
 
     Ok(PolicyGuardedDataFrame {
@@ -564,9 +560,9 @@ fn check_expressions_agg(
     let df = PolicyGuardedDataFrame {
         columns: THREAD_POOL.install(|| {
             res.into_par_iter()
-                .map(|col| Arc::new(PolicyGuardedColumn { policies: col }))
-                .collect()
-        }),
+                .map(|col| Ok(Arc::new(PolicyGuardedColumn::new_from_iter(col.iter())?)))
+                .collect::<PicachvResult<Vec<_>>>()
+        })?,
         ..Default::default()
     };
 
@@ -592,7 +588,7 @@ fn do_check_expressions(
                         .into_par_iter()
                         .map(|idx| expr.check_policy_in_row(&ctx, idx))
                         .collect::<PicachvResult<Vec<_>>>()?;
-                    Ok(Arc::new(PolicyGuardedColumn { policies: cur }))
+                    Ok(Arc::new(PolicyGuardedColumn::new_from_iter(cur.iter())?))
                 })
                 .collect::<PicachvResult<Vec<_>>>()
         })

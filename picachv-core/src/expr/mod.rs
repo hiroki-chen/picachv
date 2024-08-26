@@ -4,7 +4,7 @@ use std::{fmt, vec};
 
 use arrow_array::{
     Array, BooleanArray, Date32Array, Float64Array, Int32Array, Int64Array, LargeStringArray,
-    RecordBatch, TimestampNanosecondArray, UInt32Array, UInt8Array,
+    RecordBatch, StringArray, TimestampNanosecondArray, UInt16Array, UInt32Array, UInt8Array,
 };
 use arrow_schema::{DataType, TimeUnit};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
@@ -194,20 +194,18 @@ impl Expr {
                         ComputeError: "Must reify column `{name}` into index"
                     ),
                 };
-                THREAD_POOL.install(|| {
+
+                picachv_ensure!(
+                    col < groups.columns.len(),
+                    ComputeError: "The column index is out of bounds"
+                );
+
+                Ok(THREAD_POOL.install(|| {
                     (0..groups.shape().0)
                         .into_par_iter()
-                        .map(|i| {
-                            groups.columns[col]
-                                .policies
-                                .get(i)
-                                .ok_or(PicachvError::ComputeError(
-                                    "The column does not exist.".into(),
-                                ))
-                                .cloned()
-                        })
-                        .collect::<PicachvResult<Vec<_>>>()
-                })
+                        .map(|i| groups.columns[col][i].clone())
+                        .collect::<Vec<_>>()
+                }))
             },
 
             Expr::Apply {
@@ -233,7 +231,7 @@ impl Expr {
                         for (j, arg) in args.iter().enumerate() {
                             let arg = arg.check_policy_in_row(ctx, i)?;
                             p = check_policy_binary_udf(
-                                &groups.columns[j].policies[i],
+                                &groups.columns[j][i],
                                 &arg,
                                 &udf_desc.name,
                                 value,
@@ -397,13 +395,10 @@ impl Expr {
                     "The condition values are not reified".into(),
                 ))?;
 
-                picachv_ensure!(
-                    cond_values.len() == 1 || cond_values.len() == ctx.df.shape().0,
-                    ComputeError: "The condition values are not correct"
-                );
-
                 let cond = if cond_values.len() == 1 {
                     cond_values[0]
+                } else if idx >= cond_values.len() {
+                    false
                 } else {
                     cond_values[idx]
                 };
@@ -456,6 +451,11 @@ pub(crate) fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<ValueAr
                             let value = array.value(i);
                             Ok(Arc::new(AnyValue::String(value.to_string())))
                         },
+                        DataType::UInt16 => {
+                            let array = column.as_any().downcast_ref::<UInt16Array>().unwrap();
+                            let value = array.value(i);
+                            Ok(Arc::new(AnyValue::String(value.to_string())))
+                        },
                         DataType::Int32 => {
                             let array = column.as_any().downcast_ref::<Int32Array>().unwrap();
                             let value = array.value(i);
@@ -497,6 +497,11 @@ pub(crate) fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<ValueAr
                                 ))))
                             },
                             _ => todo!(),
+                        },
+                        DataType::Utf8 => {
+                            let array = column.as_any().downcast_ref::<StringArray>().unwrap();
+                            let value = array.value(i);
+                            Ok(Arc::new(AnyValue::String(value.to_string())))
                         },
                         DataType::LargeUtf8 => {
                             let array = column.as_any().downcast_ref::<LargeStringArray>().unwrap();

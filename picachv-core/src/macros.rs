@@ -2,12 +2,9 @@
 macro_rules! policy_unary_transform_label {
     ($name:expr) => {
         $crate::policy::PolicyLabel::PolicyTransform {
-            ops: $crate::policy::TransformOps(::std::collections::HashSet::from_iter(
-                vec![$crate::policy::TransformType::Unary(
-                    $crate::policy::UnaryTransformType { name: $name },
-                )]
-                .into_iter(),
-            )),
+            ops: $crate::policy::TransformOps(vec![$crate::policy::TransformType::Unary(
+                $crate::policy::UnaryTransformType { name: $name },
+            )]),
         }
     };
 }
@@ -16,23 +13,18 @@ macro_rules! policy_unary_transform_label {
 macro_rules! policy_binary_transform_label {
     ($name:expr) => {
         $crate::policy::PolicyLabel::PolicyTransform {
-            ops: $crate::policy::TransformOps(::std::collections::HashSet::from_iter(
-                vec![$name].into_iter(),
-            )),
+            ops: $crate::policy::TransformOps(vec![$name]),
         }
     };
 
     ($name:expr, $arg:expr) => {
         $crate::policy::PolicyLabel::PolicyTransform {
-            ops: $crate::policy::TransformOps(::std::collections::HashSet::from_iter(
-                vec![$crate::policy::TransformType::Binary(
-                    $crate::policy::BinaryTransformType {
-                        name: $name.into(),
-                        arg: $arg,
-                    },
-                )]
-                .into_iter(),
-            )),
+            ops: $crate::policy::TransformOps(vec![$crate::policy::TransformType::Binary(
+                $crate::policy::BinaryTransformType {
+                    name: $name.into(),
+                    arg: $arg,
+                },
+            )]),
         }
     };
 }
@@ -41,13 +33,10 @@ macro_rules! policy_binary_transform_label {
 macro_rules! policy_agg_label {
     ($how:expr, $size:expr) => {
         $crate::policy::PolicyLabel::PolicyAgg {
-            ops: $crate::policy::AggOps(::std::collections::HashSet::from_iter(
-                vec![$crate::policy::AggType {
-                    how: $how,
-                    group_size: $size,
-                }]
-                .into_iter(),
-            )),
+            ops: $crate::policy::AggOps(vec![$crate::policy::AggType {
+                how: $how,
+                group_size: $size,
+            }]),
         }
     };
 }

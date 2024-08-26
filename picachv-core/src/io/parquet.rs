@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::ops::Deref;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -9,7 +10,7 @@ use parquet::file::properties::WriterProperties;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use rayon::prelude::*;
 
-use crate::dataframe::PolicyGuardedDataFrame;
+use crate::dataframe::{PolicyGuardedColumnProxy, PolicyGuardedDataFrame};
 use crate::io::BinIo;
 use crate::thread_pool::THREAD_POOL;
 
@@ -138,9 +139,10 @@ impl PolicyGuardedDataFrame {
                 .par_iter()
                 .enumerate()
                 .map(|(idx, col)| {
+                    let col = PolicyGuardedColumnProxy::from(col.deref());
                     let policies = col
                         .policies
-                        .par_iter()
+                        .into_par_iter()
                         .map(|p| {
                             p.to_byte_array()
                                 .map_err(|e| PicachvError::InvalidOperation(e.to_string().into()))
