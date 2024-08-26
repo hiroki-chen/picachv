@@ -6,8 +6,12 @@
 //! context and pass the context to the function.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use crate::dataframe::PolicyGuardedDataFrame;
+use spin::RwLock;
+
+use crate::dataframe::{PolicyGuardedDataFrame, PolicyRef};
+use crate::expr::Expr;
 use crate::udf::Udf;
 use crate::{Arenas, GroupInformation};
 
@@ -28,6 +32,7 @@ pub(crate) struct ExpressionEvalContext<'ctx> {
     pub(crate) udfs: &'ctx HashMap<String, Udf>,
     /// The reference to the arena.
     pub(crate) arena: &'ctx Arenas,
+    pub(crate) expr_cache: Arc<RwLock<HashMap<u64, PolicyRef>>>,
 }
 
 impl<'ctx> ExpressionEvalContext<'ctx> {
@@ -43,6 +48,19 @@ impl<'ctx> ExpressionEvalContext<'ctx> {
             gi: None,
             udfs,
             arena,
+            expr_cache: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    pub fn lookup(&self, expr: &Expr, idx: usize) -> Option<PolicyRef> {
+        let hash = expr.compute_hash(self.df.row(idx).as_ref().unwrap(), &self.arena.expr_arena);
+
+        self.expr_cache.read().get(&hash).cloned()
+    }
+
+    pub fn update_cache(&self, expr: &Expr, idx: usize, policy: PolicyRef) {
+        let hash = expr.compute_hash(self.df.row(idx).as_ref().unwrap(), &self.arena.expr_arena);
+
+        self.expr_cache.write().insert(hash, policy);
     }
 }

@@ -134,7 +134,7 @@ impl PolicyGuardedDataFrame {
     }
 
     pub fn to_parquet<P: AsRef<Path>>(&self, path: P) -> PicachvResult<()> {
-        let bin = THREAD_POOL.install(|| {
+        let bin: Vec<(String, Arc<dyn arrow_array::Array>)> = THREAD_POOL.install(|| {
             self.columns
                 .par_iter()
                 .enumerate()

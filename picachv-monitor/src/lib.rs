@@ -228,7 +228,6 @@ impl Context {
         let df_arena = self.arena.df_arena.read();
 
         let df = df_arena.get(&df_uuid)?;
-        df.finalize()?;
 
         if self.profiling_enabled() {
             let dump = PROFILER.dump();
@@ -242,7 +241,7 @@ impl Context {
             })?;
         }
 
-        Ok(())
+        df.finalize()
     }
 
     #[tracing::instrument]

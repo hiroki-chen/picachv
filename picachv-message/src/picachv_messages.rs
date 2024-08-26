@@ -190,7 +190,7 @@ pub struct BinaryOperator {
 /// Nested message and enum types in `BinaryOperator`.
 pub mod binary_operator {
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    #[derive(Clone, PartialEq, Hash, ::prost::Oneof)]
     pub enum Operator {
         #[prost(enumeration = "super::LogicalBinaryOperator", tag = "1")]
         LogicalOperator(i32),

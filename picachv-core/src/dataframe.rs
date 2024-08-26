@@ -266,10 +266,16 @@ impl PolicyGuardedColumn {
         }
     }
 
+    /// Construct a new [`PolicyGuardedColumn`] from an iterator.
+    ///
+    /// # Note
+    ///
+    /// This method is not recommended for frequent use as it is not efficient.
     pub fn new_from_iter<'a>(iter: impl IntoIterator<Item = &'a PolicyRef>) -> PicachvResult<Self> {
+        let vec = iter.into_iter().collect::<Vec<_>>();
         let mut policies = HashMap::new();
         let mut policy_count = HashMap::new();
-        for (i, p) in iter.into_iter().enumerate() {
+        for (i, &p) in vec.iter().enumerate() {
             policy_count.entry(p).and_modify(|e| *e += 1).or_insert(1);
             policies.insert(i, p.clone());
         }
@@ -295,13 +301,13 @@ impl PolicyGuardedColumn {
 
         Ok(Self {
             base_policy: base_policy.clone(),
-            len: policies.len(),
+            len: vec.len(),
             policies,
         })
     }
 
     /// Append to this column.
-    pub fn append(&self, other: &Self) -> PicachvResult<Self> {
+    pub fn append(&self, _other: &Self) -> PicachvResult<Self> {
         todo!("append")
     }
 

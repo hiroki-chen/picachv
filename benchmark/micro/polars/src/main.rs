@@ -35,7 +35,7 @@ fn select(with_policy: bool) -> DataFrame {
     }
     let df = LazyFrame::scan_parquet(path, scan_arg).unwrap();
     let ctx_id = open_new().unwrap();
-    enable_profiling(ctx_id, false).unwrap();
+    enable_profiling(ctx_id, true).unwrap();
     enable_tracing(ctx_id, false).unwrap();
 
     let df = df
@@ -43,7 +43,7 @@ fn select(with_policy: bool) -> DataFrame {
         .set_policy_checking(with_policy)
         .set_ctx_id(ctx_id);
 
-    df.collect().unwrap()
+    df.collect().unwrap_or_default()
 }
 
 fn projection(with_policy: bool) -> DataFrame {
@@ -64,5 +64,5 @@ fn projection(with_policy: bool) -> DataFrame {
         .set_policy_checking(with_policy)
         .set_ctx_id(ctx_id);
 
-    df.collect().unwrap()
+    df.collect().unwrap_or_default()
 }
