@@ -1,15 +1,16 @@
 use std::fs::File;
+use std::ops::Deref;
 use std::path::Path;
 use std::sync::Arc;
 
-use arrow_array::{BinaryArray, BooleanArray, RecordBatch};
+use arrow_array::{BooleanArray, LargeBinaryArray, RecordBatch};
 use parquet::arrow::arrow_reader::{ArrowReaderBuilder, RowSelection, SyncReader};
 use parquet::arrow::{ArrowWriter, ProjectionMask};
 use parquet::file::properties::WriterProperties;
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use rayon::prelude::*;
 
-use crate::dataframe::PolicyGuardedDataFrame;
+use crate::dataframe::{PolicyGuardedColumnProxy, PolicyGuardedDataFrame};
 use crate::io::BinIo;
 use crate::thread_pool::THREAD_POOL;
 
@@ -133,20 +134,21 @@ impl PolicyGuardedDataFrame {
     }
 
     pub fn to_parquet<P: AsRef<Path>>(&self, path: P) -> PicachvResult<()> {
-        let bin = THREAD_POOL.install(|| {
+        let bin: Vec<(String, Arc<dyn arrow_array::Array>)> = THREAD_POOL.install(|| {
             self.columns
                 .par_iter()
                 .enumerate()
                 .map(|(idx, col)| {
+                    let col = PolicyGuardedColumnProxy::from(col.deref());
                     let policies = col
                         .policies
-                        .par_iter()
+                        .into_par_iter()
                         .map(|p| {
                             p.to_byte_array()
                                 .map_err(|e| PicachvError::InvalidOperation(e.to_string().into()))
                         })
                         .collect::<PicachvResult<Vec<_>>>()?;
-                    let policies = Arc::new(BinaryArray::from_vec(
+                    let policies = Arc::new(LargeBinaryArray::from_vec(
                         policies.iter().map(|e| e.as_ref()).collect(),
                     )) as _;
                     Ok((format!("col_{idx}"), policies))

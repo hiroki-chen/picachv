@@ -26,8 +26,9 @@ in proxy_to_arg: gb GroupsIdx { sorted: false, first: [2, 0, 1, 3], all: [UnitVe
 
 
 ## Optimizations
-[ ] Policy compression
-[ ] Faster de- and serialization.
+[x] Policy compression
+[x] Faster de- and serialization.
 [x] Parallelism
 ## Misc
 [ ] Add a licence?
+[ ] There is a conflict between polars' thread pool and picachv's thread pool.

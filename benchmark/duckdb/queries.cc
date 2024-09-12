@@ -141,6 +141,8 @@ QueryStat QueryFactory::ExecuteQuery() {
     return ExecuteQuery12();
   case 13:
     return ExecuteQuery13();
+  case 14:
+    return ExecuteQuery14();
   case 16:
     return ExecuteQuery16();
   case 17:
@@ -378,9 +380,7 @@ QueryStat QueryFactory::ExecuteQuery7() {
   return ExecuteQueryInternal(query);
 }
 
-// todo: fix case when:
-// invalid operation: get: the object xxx does not exist in the arena
-// expr_arena.
+// PASSED.
 QueryStat QueryFactory::ExecuteQuery8() {
   const std::string part = data_path_ + "/" + kTableNames[2] + ".parquet";
   const std::string supplier = data_path_ + "/" + kTableNames[3] + ".parquet";
@@ -512,7 +512,7 @@ QueryStat QueryFactory::ExecuteQuery11() {
   return ExecuteQueryInternal(query);
 }
 
-// TODO: case when
+// PASSED
 QueryStat QueryFactory::ExecuteQuery12() {
   const std::string orders = data_path_ + "/" + kTableNames[1] + ".parquet";
   const std::string lineitem = data_path_ + "/" + kTableNames[0] + ".parquet";
@@ -543,7 +543,6 @@ QueryStat QueryFactory::ExecuteQuery12() {
   return ExecuteQueryInternal(query);
 }
 
-// TODO: Left outer join.
 QueryStat QueryFactory::ExecuteQuery13() {
   const std::string customer = data_path_ + "/" + kTableNames[4] + ".parquet";
   const std::string orders = data_path_ + "/" + kTableNames[1] + ".parquet";
@@ -553,13 +552,35 @@ QueryStat QueryFactory::ExecuteQuery13() {
                       "select c_custkey, count(o_orderkey) as c_count "
                       "from '" +
                       customer + "', '" + orders +
-                      "' "
+                      "' " // due to technical limitation we don't use outer
+                           // join here; but can be implemented.
                       "where c_custkey = o_custkey "
                       "and o_comment not like '%special%requests%' "
                       "group by c_custkey "
                       ") as c_orders (c_custkey, c_count)"
                       "group by c_count "
                       "order by custdist desc, c_count desc";
+
+  return ExecuteQueryInternal(query);
+}
+
+// CASE WHEN.
+QueryStat QueryFactory::ExecuteQuery14() {
+  const std::string linitem = data_path_ + "/" + kTableNames[0] + ".parquet";
+  const std::string part = data_path_ + "/" + kTableNames[2] + ".parquet";
+
+  std::string query =
+      "select 100.00 * sum(case "
+      "when p_type like 'PROMO%' "
+      "then l_extendedprice * (1 - l_discount) "
+      "else 0 "
+      "end) / sum(l_extendedprice * (1 - l_discount)) as promo_revenue "
+      "from '" +
+      linitem + "', '" + part +
+      "' "
+      "where l_partkey = p_partkey "
+      "and l_shipdate >= '1995-09-01' "
+      "and l_shipdate < '1995-10-01'";
 
   return ExecuteQueryInternal(query);
 }
@@ -585,9 +606,9 @@ QueryStat QueryFactory::ExecuteQuery16() {
       "and p_brand <> 'Brand#45' "
       "and p_type not like 'MEDIUM POLISHED%' "
       // "and p_size in (49, 14, 23, 45, 19, 3, 36, 9) "
-      // "and ps_suppkey not in (" +
-      // sub_query +
-      // ") "
+      "and ps_suppkey not in (" +
+      sub_query +
+      ") "
       "group by p_brand, p_type, p_size ";
   // "order by supplier_cnt desc, p_brand, p_type, p_size";
 
@@ -618,7 +639,7 @@ QueryStat QueryFactory::ExecuteQuery17() {
   return ExecuteQueryInternal(query);
 }
 
-// The groupby hash calculuation seems buggy.
+// PASSED
 QueryStat QueryFactory::ExecuteQuery18() {
   const std::string customer = data_path_ + "/" + kTableNames[4] + ".parquet";
   const std::string lineitem = data_path_ + "/" + kTableNames[0] + ".parquet";
@@ -650,6 +671,7 @@ QueryStat QueryFactory::ExecuteQuery18() {
   return ExecuteQueryInternal(query);
 }
 
+// PASSED
 QueryStat QueryFactory::ExecuteQuery19() {
   const std::string lineitem = data_path_ + "/" + kTableNames[0] + ".parquet";
   const std::string part = data_path_ + "/" + kTableNames[2] + ".parquet";
@@ -691,6 +713,7 @@ QueryStat QueryFactory::ExecuteQuery19() {
   return ExecuteQueryInternal(query);
 }
 
+// PASSED.
 QueryStat QueryFactory::ExecuteQuery20() {
   const std::string part = data_path_ + "/" + kTableNames[2] + ".parquet";
   const std::string lineitem = data_path_ + "/" + kTableNames[0] + ".parquet";

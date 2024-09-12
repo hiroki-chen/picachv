@@ -110,8 +110,10 @@ impl Context {
         selection: Option<&[bool]>,
         row_group: usize,
     ) -> PicachvResult<Uuid> {
+        let now = std::time::Instant::now();
         let df =
             PolicyGuardedDataFrame::from_parquet_row_group(path, projection, selection, row_group)?;
+        println!("read parquet took {:?}", now.elapsed());
         self.register_policy_dataframe(df)
     }
 
@@ -122,6 +124,7 @@ impl Context {
         projection: &[usize],
         selection: Option<&[bool]>,
     ) -> PicachvResult<Uuid> {
+        let now = std::time::Instant::now();
         let df = if self.options.enable_profiling {
             PROFILER.profile(
                 || PolicyGuardedDataFrame::from_parquet(path.as_ref(), projection, selection),
@@ -130,6 +133,8 @@ impl Context {
         } else {
             PolicyGuardedDataFrame::from_parquet(path.as_ref(), projection, selection)
         }?;
+        println!("read parquet took {:?}", now.elapsed());
+
         self.register_policy_dataframe(df)
     }
 
@@ -228,7 +233,6 @@ impl Context {
         let df_arena = self.arena.df_arena.read();
 
         let df = df_arena.get(&df_uuid)?;
-        df.finalize()?;
 
         if self.profiling_enabled() {
             let dump = PROFILER.dump();
@@ -242,7 +246,7 @@ impl Context {
             })?;
         }
 
-        Ok(())
+        df.finalize()
     }
 
     #[tracing::instrument]
@@ -250,8 +254,9 @@ impl Context {
         let mut df_arena = self.arena.df_arena.write();
         let df = df_arena.get(&df_uuid)?;
 
-        let new_df = df.select_group(hashes)?;
-        df_arena.insert(new_df)
+        let new_df = df.select_group(hashes);
+        println!("new_df.is_err() = {}", new_df.is_err());
+        df_arena.insert(new_df?)
     }
 
     /// Reify an abstract value of the expression with the given values encoded in the bytes.

@@ -1,0 +1,28 @@
+[package]
+name = "polars"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+polars = { path = "../../../../polars/crates/polars", default-features = false, features = [
+  "performant",
+  "fmt",
+  "simd",
+  "lazy",
+  "ipc",
+  "top_k",
+  "streaming",
+  "dtype-categorical",
+  "round_series",
+  "dtype-struct",
+  "parquet",
+  "is_in",
+  "temporal",
+  "cross_join",
+  "dtype-date",
+  "regex",
+  "strings",
+  "dtype-datetime",
+  "semi_anti_join",
+] }
+chrono = "*"

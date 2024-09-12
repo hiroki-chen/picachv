@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::ops::{Deref, Range};
+use std::ops::{Deref, Index};
 use std::sync::Arc;
 
-use arrow_array::{BinaryArray, RecordBatch};
+use arrow_array::{LargeBinaryArray, RecordBatch};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::transform_info::Information;
 use picachv_message::{
@@ -29,7 +29,8 @@ use crate::{Arenas, GroupInformation};
 
 pub type PolicyGuardedColumnRef = Arc<PolicyGuardedColumn>;
 pub type PolicyRef = Arc<Policy>;
-pub type Row = Vec<PolicyRef>;
+pub type PolicyId = Uuid;
+pub type Row = Vec<PolicyId>;
 
 pub type DfArena = Arena<PolicyGuardedDataFrame>;
 
@@ -109,7 +110,7 @@ impl Chunks {
                             let df = df_arena.get(&chunk.uuid)?;
 
                             for idx in group.groups.iter() {
-                                column.push(df.columns[col_idx].policies[*idx].clone());
+                                column.push(df.columns[col_idx][*idx].clone());
                             }
                         }
                     }
@@ -117,8 +118,8 @@ impl Chunks {
                     Ok(PolicyGuardedDataFrame {
                         columns: columns
                             .into_par_iter()
-                            .map(|c| Arc::new(PolicyGuardedColumn { policies: c }))
-                            .collect(),
+                            .map(|c| Ok(Arc::new(PolicyGuardedColumn::new_from_iter(c.iter())?)))
+                            .collect::<PicachvResult<Vec<_>>>()?,
                         ..Default::default()
                     })
                 })
@@ -148,9 +149,9 @@ impl Chunks {
         })?;
 
         let mut df = PolicyGuardedDataFrame::union(&groups)?;
-        df.additional_info = Some(DfInformation {
+        df.additional_info = DfInformation {
             hash_info: hashmap.iter().enumerate().map(|(k, v)| (*v.0, k)).collect(),
-        });
+        };
 
         Ok(df)
     }
@@ -197,18 +198,20 @@ impl Chunks {
 }
 
 pub(crate) fn idx_to_group_info_vec(idx: &GroupByIdx) -> Vec<GroupInformation> {
-    idx.groups
-        .par_iter()
-        .map(|group| {
-            let first = group.first as usize;
-            let groups = group.group.par_iter().map(|e| *e as usize).collect();
-            GroupInformation {
-                first,
-                groups,
-                hash: None,
-            }
-        })
-        .collect()
+    THREAD_POOL.install(|| {
+        idx.groups
+            .par_iter()
+            .map(|group| {
+                let first = group.first as usize;
+                let groups = group.group.par_iter().map(|e| *e as usize).collect();
+                GroupInformation {
+                    first,
+                    groups,
+                    hash: None,
+                }
+            })
+            .collect()
+    })
 }
 
 /// A column in a [`DataFrame`] that is guarded by a vector of policies.
@@ -222,22 +225,153 @@ pub(crate) fn idx_to_group_info_vec(idx: &GroupByIdx) -> Vec<GroupInformation> {
 /// It is thus more efficient to keep policies as a separate vector and ensure that
 /// the column and the policies are in sync.
 ///
-/// # TODOs
+/// # Optimizations
 ///
-/// - Sometimes the cell-level policies can be "sparse" which means there is plentiful
-///     space for us to optimize. For example, we can "fold" the policy and "expand" it
-///     whenever it is needed.
-/// - Perhaps we can even make the policy guarded data frame a bitmap or something.
-/// - In order to be consistent with the formal model, we should make it indexed by
-///   identifiers like UUIDs?
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+/// In reality the policies are often sparse which means that most of the cells share
+/// the same policy. We can use a bitmap to indicate which cells differ from the base
+/// policy.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct PolicyGuardedColumn {
+    /// The policies for the column.
+    pub(crate) base_policy: PolicyRef,
+    /// The length of this column.
+    pub(crate) len: usize,
+    /// The policies for each cell.
+    pub(crate) policies: HashMap<usize, PolicyRef>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub(crate) struct PolicyGuardedColumnProxy {
     pub(crate) policies: Vec<PolicyRef>,
 }
 
+impl Index<usize> for PolicyGuardedColumn {
+    type Output = PolicyRef;
+
+    #[inline]
+    fn index(&self, index: usize) -> &Self::Output {
+        self.policies.get(&index).unwrap_or(&self.base_policy)
+    }
+}
+
 impl PolicyGuardedColumn {
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn new(base_policy: PolicyRef, len: usize, policies: HashMap<usize, PolicyRef>) -> Self {
+        PolicyGuardedColumn {
+            base_policy,
+            len,
+            policies,
+        }
+    }
+
+    /// Construct a new [`PolicyGuardedColumn`] from an iterator.
+    ///
+    /// # Note
+    ///
+    /// This method is not recommended for frequent use as it is not efficient.
+    pub fn new_from_iter<'a>(iter: impl IntoIterator<Item = &'a PolicyRef>) -> PicachvResult<Self> {
+        let vec = iter.into_iter().collect::<Vec<_>>();
+        let mut policies = HashMap::new();
+        let mut policy_count = HashMap::new();
+        for (i, &p) in vec.iter().enumerate() {
+            policy_count.entry(p).and_modify(|e| *e += 1).or_insert(1);
+            policies.insert(i, p.clone());
+        }
+
+        let base_policy = THREAD_POOL.install(|| {
+            policy_count
+                .into_par_iter()
+                .max_by_key(|(_, v)| *v)
+                .map(|(k, _)| k)
+        });
+
+        picachv_ensure!(
+            base_policy.is_some() || policies.len() == 0,
+            ComputeError: "Failed to find the base policy."
+        );
+
+        let base_policy = match base_policy {
+            Some(bp) => bp,
+            None => &Arc::new(Policy::PolicyClean),
+        };
+
+        policies.retain(|_, v: &mut Arc<Policy>| v != base_policy);
+
+        Ok(Self {
+            base_policy: base_policy.clone(),
+            len: vec.len(),
+            policies,
+        })
+    }
+
+    /// Append to this column.
+    pub fn append(&self, other: &Self) -> PicachvResult<Self> {
+        let mut policies = self.policies.clone();
+        for (k, v) in other.policies.iter() {
+            policies.insert(k + self.len, v.clone());
+        }
+
+        Ok(Self {
+            base_policy: self.base_policy.clone(),
+            len: self.len + other.len,
+            policies,
+        })
+    }
+
+    /// Apply the filter.
+    pub fn filter(&self, filter: &[bool]) -> PicachvResult<Self> {
+        picachv_ensure!(
+            filter.len() == self.len,
+            ComputeError: "The length of the filter does not match the column: {} != {}", filter.len(), self.len,
+        );
+
+        let slice = filter
+            .par_iter()
+            .enumerate()
+            .filter_map(|(i, b)| if *b { Some(i) } else { None })
+            .collect::<Vec<_>>();
+
+        self.new_from_slice(&slice)
+    }
+
+    /// According to the `groups` struct, fetch the group of columns.
+    pub fn groups(&self, groups: &GroupInformation) -> PicachvResult<Self> {
+        let policies = groups
+            .groups
+            .par_iter()
+            .map(|g| self[*g as usize].clone())
+            .collect::<Vec<_>>();
+
+        Self::new_from_iter(policies.iter())
+    }
+
+    /// Construct a new [`PolicyGuardedColumn`] from a slice of the original object.
+    pub fn new_from_slice(&self, slice: &[usize]) -> PicachvResult<Self> {
+        Ok(Self {
+            base_policy: self.base_policy.clone(),
+            len: slice.len(),
+            policies: self
+                .policies
+                .par_iter()
+                .filter_map(|(k, v)| {
+                    if slice.contains(k) {
+                        Some((*k, v.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        })
+    }
+}
+
+impl PolicyGuardedColumnProxy {
     pub fn new(policies: Vec<PolicyRef>) -> Self {
-        PolicyGuardedColumn { policies }
+        PolicyGuardedColumnProxy { policies }
     }
 }
 
@@ -256,13 +390,62 @@ pub struct DfInformation {
 ///
 /// The reason we use a vector of [`PolicyGuardedColumnRef`]s is that it is more efficient
 /// to store the reference to avoid unnecessary cloning.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Clone, PartialEq, Default)]
 pub struct PolicyGuardedDataFrame {
     /// Policies for the column.
     pub(crate) columns: Vec<PolicyGuardedColumnRef>,
-    /// Other additional information. skip.
-    #[serde(skip)]
-    pub(crate) additional_info: Option<DfInformation>,
+    /// Other additional information.
+    pub(crate) additional_info: DfInformation,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub(crate) struct PolicyGuardedDataFrameProxy {
+    pub(crate) columns: Vec<PolicyGuardedColumnProxy>,
+}
+
+impl From<&PolicyGuardedColumn> for PolicyGuardedColumnProxy {
+    fn from(c: &PolicyGuardedColumn) -> Self {
+        let mut policies = vec![c.base_policy.clone(); c.len()];
+
+        for (&k, v) in c.policies.iter() {
+            policies[k] = v.clone();
+        }
+
+        Self { policies }
+    }
+}
+
+impl From<PolicyGuardedColumnProxy> for PolicyGuardedColumn {
+    #[inline]
+    fn from(proxy: PolicyGuardedColumnProxy) -> Self {
+        Self::new_from_iter(proxy.policies.iter()).expect("Failed to create a new column.")
+    }
+}
+
+impl From<&PolicyGuardedDataFrame> for PolicyGuardedDataFrameProxy {
+    fn from(df: &PolicyGuardedDataFrame) -> Self {
+        let columns =
+            THREAD_POOL.install(|| df.columns.par_iter().map(|c| c.deref().into()).collect());
+
+        Self { columns }
+    }
+}
+
+impl From<PolicyGuardedDataFrameProxy> for PolicyGuardedDataFrame {
+    fn from(proxy: PolicyGuardedDataFrameProxy) -> Self {
+        let columns = THREAD_POOL.install(|| {
+            proxy
+                .columns
+                .into_par_iter()
+                .map(|c| Arc::new(c.into()))
+                .collect()
+        });
+
+        Self {
+            columns,
+            ..Default::default()
+        }
+    }
 }
 
 impl fmt::Display for PolicyGuardedDataFrame {
@@ -286,7 +469,7 @@ impl fmt::Debug for PolicyGuardedDataFrame {
         for i in (0..self.shape().0).take(15) {
             let mut row = vec![i.to_string()];
             for j in 0..self.shape().1 {
-                row.push(format!("{}", self.columns[j].policies[i]));
+                row.push(format!("{}", self.columns[j][i]));
             }
             builder.push_record(row);
         }
@@ -302,32 +485,17 @@ impl fmt::Debug for PolicyGuardedDataFrame {
     }
 }
 
-impl PolicyGuardedDataFrame {
-    pub fn reorder(&mut self, perm: &[usize]) -> PicachvResult<()> {
-        THREAD_POOL.install(|| {
-            self.columns.par_iter_mut().for_each(|c| {
-                let policies = perm
-                    .par_iter()
-                    .map(|&i| c.policies[i].clone())
-                    .collect::<Vec<_>>();
-                // c.policies = policies;
-            })
-        });
-
-        Ok(())
-    }
-
-    /// Constructs a new [`PolicyGuardedDataFrame`] from a [`RecordBatch`].
-    pub fn new_from_record_batch(rb: RecordBatch) -> PicachvResult<Self> {
+impl PolicyGuardedDataFrameProxy {
+    pub(crate) fn new_from_record_batch(rb: RecordBatch) -> PicachvResult<Self> {
         let columns = THREAD_POOL.install(|| {
             rb.columns()
                 .par_iter()
                 .map(|c| {
                     let policies = c
                         .as_any()
-                        .downcast_ref::<BinaryArray>()
+                        .downcast_ref::<LargeBinaryArray>()
                         .ok_or(PicachvError::InvalidOperation(
-                            "Failed to downcast to BinaryArray.".into(),
+                            "Failed to downcast to LargeBinaryArray.".into(),
                         ))?
                         .iter()
                         .map(|e| {
@@ -336,15 +504,34 @@ impl PolicyGuardedDataFrame {
                             )?))
                         })
                         .collect::<PicachvResult<Vec<_>>>()?;
-                    Ok(Arc::new(PolicyGuardedColumn { policies }))
+                    Ok(PolicyGuardedColumnProxy { policies })
                 })
                 .collect::<PicachvResult<Vec<_>>>()
         })?;
 
-        Ok(PolicyGuardedDataFrame {
-            columns,
-            ..Default::default()
-        })
+        Ok(Self { columns })
+    }
+}
+
+impl PolicyGuardedDataFrame {
+    pub fn reorder(&mut self, _perm: &[usize]) -> PicachvResult<()> {
+        // THREAD_POOL.install(|| {
+        //     self.columns.par_iter_mut().for_each(|c| {
+        //         let policies = perm
+        //             .par_iter()
+        //             .map(|&i| c.policies[i].clone())
+        //             .collect::<Vec<_>>();
+        //         // c.policies = policies;
+        //     })
+        // });
+
+        Ok(())
+    }
+
+    /// Constructs a new [`PolicyGuardedDataFrame`] from a [`RecordBatch`].
+    #[inline]
+    pub fn new_from_record_batch(rb: RecordBatch) -> PicachvResult<Self> {
+        PolicyGuardedDataFrameProxy::new_from_record_batch(rb).map(Into::into)
     }
 
     /// Constructs a new [`PolicyGuardedDataFrame`] from the slice of the original
@@ -353,15 +540,9 @@ impl PolicyGuardedDataFrame {
         let columns = THREAD_POOL.install(|| {
             self.columns
                 .par_iter()
-                .map(|c| {
-                    let policies = slices
-                        .par_iter()
-                        .map(|&i| c.policies[i].clone())
-                        .collect::<Vec<_>>();
-                    Arc::new(PolicyGuardedColumn { policies })
-                })
-                .collect::<Vec<_>>()
-        });
+                .map(|c| Ok(Arc::new(c.new_from_slice(slices)?)))
+                .collect::<PicachvResult<Vec<_>>>()
+        })?;
 
         Ok(PolicyGuardedDataFrame {
             columns,
@@ -451,33 +632,26 @@ impl PolicyGuardedDataFrame {
             ComputeError: "The length of the hashes is out of bound. {} > {}",
             hashes.len(), self.shape().0
         );
-        picachv_ensure!(
-            self.additional_info.is_some(),
-            ComputeError: "The additional information is missing."
-        );
 
-        println!("hashes: {:?}", hashes);
+        let hash_info = &self.additional_info.hash_info;
 
-        let hash_info = &self.additional_info.as_ref().unwrap().hash_info;
-        println!("hash_info: {:?}", hash_info);
-
-        let slices =  THREAD_POOL.install(|| {
+        let slices = match THREAD_POOL.install(|| {
             hashes
                 .par_iter()
                 .map(|hash| {
-                    hash_info
-                        .get(hash)
-                        .copied()
-                        .ok_or({
-                            println!("cannot find {hash}");
-
-                            PicachvError::InvalidOperation(
-                                "This hash value is not found.".into(),
-                            )
-                        })
+                    hash_info.get(hash).copied().ok_or({
+                        PicachvError::InvalidOperation(
+                            format!("The hash {} is missing.", hash).into(),
+                        )
+                    })
                 })
                 .collect::<PicachvResult<Vec<_>>>()
-        })?;
+        }) {
+            Ok(s) => s,
+            Err(e) => {
+                panic!("Error: {e:?}");
+            },
+        };
 
         self.new_from_slice(&slices)
     }
@@ -487,16 +661,9 @@ impl PolicyGuardedDataFrame {
         let columns = THREAD_POOL.install(|| {
             self.columns
                 .par_iter()
-                .map(|c| {
-                    let policies = groups
-                        .groups
-                        .par_iter()
-                        .map(|g| c.policies[*g as usize].clone())
-                        .collect::<Vec<_>>();
-                    Arc::new(PolicyGuardedColumn { policies })
-                })
-                .collect::<Vec<_>>()
-        });
+                .map(|c: &Arc<PolicyGuardedColumn>| Ok(Arc::new(c.groups(groups)?)))
+                .collect::<PicachvResult<Vec<_>>>()
+        })?;
 
         Ok(PolicyGuardedDataFrame {
             columns,
@@ -510,12 +677,8 @@ impl PolicyGuardedDataFrame {
             ComputeError: "The index is out of bound.",
         );
 
-        let res = THREAD_POOL.install(|| {
-            self.columns
-                .par_iter()
-                .map(|c| &c.policies[idx])
-                .collect::<Vec<_>>()
-        });
+        let res =
+            THREAD_POOL.install(|| self.columns.par_iter().map(|c| &c[idx]).collect::<Vec<_>>());
 
         Ok(res)
     }
@@ -567,11 +730,11 @@ impl PolicyGuardedDataFrame {
         // Do unions.
         let mut columns = vec![];
         for i in 0..inputs[0].columns.len() {
-            let mut policies = vec![];
+            let mut policies = PolicyGuardedColumn::default();
             for input in inputs.iter() {
-                policies.extend(input.columns[i].policies.clone());
+                policies = policies.append(&input.columns[i])?;
             }
-            columns.push(Arc::new(PolicyGuardedColumn { policies }));
+            columns.push(Arc::new(policies));
         }
 
         Ok(PolicyGuardedDataFrame {
@@ -590,7 +753,7 @@ impl PolicyGuardedDataFrame {
 
     pub(crate) fn projection_by_id(&mut self, project_list: &[usize]) -> PicachvResult<()> {
         picachv_ensure!(
-            project_list.par_iter().all(|&col| col < self.columns.len()),
+            project_list.iter().all(|&col| col < self.columns.len()),
             ComputeError: "The column is out of bound: {:?} vs {:?}", self.shape().1, project_list,
         );
         let index_set: HashSet<_> = project_list.iter().collect();
@@ -607,21 +770,6 @@ impl PolicyGuardedDataFrame {
         Ok(())
     }
 
-    /// Convert the [`PolicyGuardedDataFrame`] into a vector of rows.
-    pub fn into_rows(&self) -> Vec<Row> {
-        let shape = self.shape();
-
-        let mut rows = vec![];
-        for i in 0..shape.0 {
-            let mut row = vec![];
-            for j in 0..shape.1 {
-                row.push(self.columns[j].policies[i].clone());
-            }
-            rows.push(row);
-        }
-        rows
-    }
-
     /// This checks if we can safely release this dataframe.
     pub fn finalize(&self) -> PicachvResult<()> {
         tracing::debug!("finalizing\n{self}");
@@ -629,8 +777,8 @@ impl PolicyGuardedDataFrame {
         for c in self.columns.iter() {
             picachv_ensure!(
                 c.policies.par_iter().all(
-                    |p| matches!(p.deref(), Policy::PolicyClean),
-                ),
+                    |(_, v)| matches!(v.deref(), Policy::PolicyClean),
+                ) && matches!(c.base_policy.deref(), Policy::PolicyClean),
                 ComputeError: "Possible policy breach detected; abort early.\n\nThe required policy is\n{self}",
             );
         }
@@ -642,7 +790,7 @@ impl PolicyGuardedDataFrame {
     pub fn shape(&self) -> (usize, usize) {
         match self.columns.as_slice() {
             &[] => (0, 0),
-            v => (v[0].policies.len(), v.len()),
+            v => (v[0].len(), v.len()),
         }
     }
 
@@ -656,18 +804,9 @@ impl PolicyGuardedDataFrame {
         self.columns = THREAD_POOL.install(|| {
             self.columns
                 .par_iter()
-                .map(|c| {
-                    let policies = c
-                        .policies
-                        .par_iter()
-                        .zip(pred.par_iter())
-                        .filter_map(|(p, b)| if *b { Some(p.clone()) } else { None })
-                        .collect::<Vec<_>>();
-
-                    Arc::new(PolicyGuardedColumn { policies })
-                })
-                .collect()
-        });
+                .map(|c| Ok(Arc::new(c.filter(pred)?)))
+                .collect::<PicachvResult<Vec<_>>>()
+        })?;
 
         Ok(())
     }
@@ -684,7 +823,18 @@ pub fn apply_transform(
     transform: TransformInfo,
     options: &ContextOptions,
 ) -> PicachvResult<Uuid> {
-    match transform.information {
+    let name = match &transform.information {
+        Some(ti) => match ti {
+            Information::Filter(_) => "filter",
+            Information::Union(_) => "union",
+            Information::Join(_) => "join",
+            Information::Reorder(_) => "reorder",
+            _ => todo!(),
+        },
+        None => "none",
+    };
+
+    let f = || match transform.information {
         Some(ti) => match ti {
             Information::Filter(pred) => {
                 let mut df_arena = df_arena.write();
@@ -786,5 +936,11 @@ pub fn apply_transform(
             _ => todo!(),
         },
         None => Ok(df_uuid),
+    };
+
+    if options.enable_profiling {
+        PROFILER.profile(f, name.into())
+    } else {
+        f()
     }
 }

@@ -1,10 +1,11 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{fmt, vec};
 
 use arrow_array::{
     Array, BooleanArray, Date32Array, Float64Array, Int32Array, Int64Array, LargeStringArray,
-    RecordBatch, TimestampNanosecondArray, UInt32Array, UInt8Array,
+    RecordBatch, StringArray, TimestampNanosecondArray, UInt16Array, UInt32Array, UInt8Array,
 };
 use arrow_schema::{DataType, TimeUnit};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
@@ -33,7 +34,7 @@ pub mod builder;
 /// Stores the expressions.
 pub type ExprArena = Arena<Expr>;
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Hash, Clone)]
 pub enum AggExpr {
     Min { input: Uuid, propagate_nans: bool },
     Max { input: Uuid, propagate_nans: bool },
@@ -94,14 +95,14 @@ impl AggExpr {
 }
 
 /// How we access a column.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Hash, Clone, PartialEq)]
 pub enum ColumnIdent {
     ColumnName(String),
     ColumnId(usize),
 }
 
 /// An expression type for describing a node in the query.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Hash, PartialEq)]
 pub enum Expr {
     /// Aggregation.
     Agg {
@@ -165,6 +166,70 @@ impl Expr {
         )
     }
 
+    pub fn resolve_columns(
+        &self,
+        expr_arena: &Arc<RwLock<ExprArena>>,
+    ) -> PicachvResult<Vec<usize>> {
+        match self {
+            Self::Column(ColumnIdent::ColumnId(id)) => Ok(vec![*id]),
+            Self::Alias { expr, .. } => {
+                let expr = expr_arena.read().get(expr).cloned()?;
+                expr.resolve_columns(expr_arena)
+            },
+            Self::Apply { args, .. } => args
+                .iter()
+                .map(|e| expr_arena.read().get(e).cloned())
+                .collect::<PicachvResult<Vec<_>>>()?
+                .into_iter()
+                .map(|e| e.resolve_columns(expr_arena))
+                .collect::<PicachvResult<Vec<_>>>()
+                .map(|v| v.into_iter().flatten().collect()),
+            Self::BinaryExpr { left, right, .. } => {
+                let left = expr_arena.read().get(left).cloned()?;
+                let right = expr_arena.read().get(right).cloned()?;
+                let left = left.resolve_columns(expr_arena)?;
+                let right = right.resolve_columns(expr_arena)?;
+                Ok(left.into_iter().chain(right.into_iter()).collect())
+            },
+            Self::UnaryExpr { arg, .. } => {
+                let arg = expr_arena.read().get(arg).cloned()?;
+                arg.resolve_columns(expr_arena)
+            },
+            Self::Literal => Ok(vec![]),
+            Self::Ternary {
+                cond,
+                then,
+                otherwise,
+                ..
+            } => {
+                let cond = expr_arena.read().get(cond).cloned()?;
+                let then = expr_arena.read().get(then).cloned()?;
+                let otherwise = expr_arena.read().get(otherwise).cloned()?;
+                let cond = cond.resolve_columns(expr_arena)?;
+                let then = then.resolve_columns(expr_arena)?;
+                let otherwise = otherwise.resolve_columns(expr_arena)?;
+                Ok(cond
+                    .into_iter()
+                    .chain(then.into_iter())
+                    .chain(otherwise.into_iter())
+                    .collect())
+            },
+            _ => picachv_bail!(ComputeError: "impossible {self:?}"),
+        }
+    }
+
+    pub fn compute_hash(&self, row: &[&PolicyRef], expr_arena: &Arc<RwLock<ExprArena>>) -> u64 {
+        let mut hasher: DefaultHasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        let columns = self.resolve_columns(expr_arena).unwrap();
+
+        for col in columns {
+            row[col].hash(&mut hasher);
+        }
+
+        hasher.finish()
+    }
+
     /// This function checks the policy enforcement for the expression type in aggregation context.
     ///
     /// `eval_expr` in `expression.v`.
@@ -194,20 +259,13 @@ impl Expr {
                         ComputeError: "Must reify column `{name}` into index"
                     ),
                 };
-                THREAD_POOL.install(|| {
+
+                Ok(THREAD_POOL.install(|| {
                     (0..groups.shape().0)
                         .into_par_iter()
-                        .map(|i| {
-                            groups.columns[col]
-                                .policies
-                                .get(i)
-                                .ok_or(PicachvError::ComputeError(
-                                    "The column does not exist.".into(),
-                                ))
-                                .cloned()
-                        })
-                        .collect::<PicachvResult<Vec<_>>>()
-                })
+                        .map(|i| groups.columns[col][i].clone())
+                        .collect::<Vec<_>>()
+                }))
             },
 
             Expr::Apply {
@@ -219,30 +277,33 @@ impl Expr {
                     format!("{udf_desc:?} does not have values reified.").into(),
                 ))?;
 
-                let args = args
-                    .par_iter()
-                    .map(|e| expr_arena.get(e))
-                    .collect::<PicachvResult<Vec<_>>>()?;
+                let args = THREAD_POOL.install(|| {
+                    args.par_iter()
+                        .map(|e| expr_arena.get(e))
+                        .collect::<PicachvResult<Vec<_>>>()
+                })?;
 
-                values
-                    .par_iter()
-                    .take(groups.shape().0)
-                    .enumerate()
-                    .map(|(i, value)| {
-                        let mut p = Default::default();
-                        for (j, arg) in args.iter().enumerate() {
-                            let arg = arg.check_policy_in_row(ctx, i)?;
-                            p = check_policy_binary_udf(
-                                &groups.columns[j].policies[i],
-                                &arg,
-                                &udf_desc.name,
-                                value,
-                            )?;
-                        }
+                THREAD_POOL.install(|| {
+                    values
+                        .par_iter()
+                        .take(groups.shape().0)
+                        .enumerate()
+                        .map(|(i, value)| {
+                            let mut p = Default::default();
+                            for (j, arg) in args.iter().enumerate() {
+                                let arg = arg.check_policy_in_row(ctx, i)?;
+                                p = check_policy_binary_udf(
+                                    &groups.columns[j][i],
+                                    &arg,
+                                    &udf_desc.name,
+                                    value,
+                                )?;
+                            }
 
-                        Ok(p.into())
-                    })
-                    .collect::<PicachvResult<Vec<_>>>()
+                            Ok(p.into())
+                        })
+                        .collect::<PicachvResult<Vec<_>>>()
+                })
             },
 
             Expr::BinaryExpr {
@@ -251,7 +312,7 @@ impl Expr {
                 right,
                 values,
             } => {
-                let values = values.clone().ok_or(PicachvError::ComputeError(
+                let values = values.as_ref().ok_or(PicachvError::ComputeError(
                     format!("{self:?} does not have values reified.").into(),
                 ))?;
 
@@ -289,134 +350,145 @@ impl Expr {
         ctx: &ExpressionEvalContext,
         idx: usize,
     ) -> PicachvResult<PolicyRef> {
-        let expr_arena = ctx.arena.expr_arena.read();
+        return Ok(Default::default());
+        
+        match ctx.lookup(self, idx) {
+            Some(p) => Ok(p),
+            None => {
+                let expr_arena = ctx.arena.expr_arena.read();
 
-        match self {
-            // A literal expression is always allowed because it does not
-            // contain any sensitive information.
-            Expr::Literal => Ok(Default::default()),
-            // Deal with the UDF case.
-            Expr::Apply {
-                udf_desc: Udf { name },
-                args,
-                values, // todo.
-            } => match values {
-                Some(values) => Ok(Arc::new(check_policy_in_row_apply(
-                    ctx, name, args, values, idx,
-                )?)),
-                None => picachv_bail!(ComputeError: "The values are not reified for {self:?}"),
+                let p = match self {
+                    // A literal expression is always allowed because it does not
+                    // contain any sensitive information.
+                    Expr::Literal => Ok(Default::default()),
+                    // Deal with the UDF case.
+                    Expr::Apply {
+                        udf_desc: Udf { name },
+                        args,
+                        values,
+                    } => match values {
+                        Some(values) => Ok(Arc::new(check_policy_in_row_apply(
+                            ctx, name, args, values, idx,
+                        )?)),
+                        None => {
+                            picachv_bail!(ComputeError: "The values are not reified for {self:?}")
+                        },
+                    },
+
+                    Expr::BinaryExpr {
+                        left,
+                        right,
+                        op,
+                        values,
+                    } => {
+                        let left = expr_arena.get(left)?;
+                        let right = expr_arena.get(right)?;
+
+                        let lhs = || left.check_policy_in_row(ctx, idx);
+                        let rhs = || right.check_policy_in_row(ctx, idx);
+                        let (lhs, rhs) = THREAD_POOL.install(|| rayon::join(lhs, rhs));
+                        let (lhs, rhs) = (lhs?, rhs?);
+
+                        if matches!(
+                            op,
+                            binary_operator::Operator::ComparisonOperator(_)
+                                | binary_operator::Operator::LogicalOperator(_)
+                        ) {
+                            return Ok(Arc::new(lhs.join(&rhs)?));
+                        }
+
+                        let values = values.as_ref().ok_or(PicachvError::ComputeError(
+                            format!("The values are not reified for {self:?}").into(),
+                        ))?;
+
+                        picachv_ensure!(
+                            !values.is_empty() && values[0].len() == 2,
+                            InvalidOperation: "The argument to the binary expression is incorrect"
+                        );
+
+                        Ok(Arc::new(check_policy_binary(&lhs, &rhs, op, &values[idx])?))
+                    },
+                    // This is truly interesting.
+                    //
+                    // See `eval_unary_expression_in_cell`.
+                    Expr::UnaryExpr { arg, op } => {
+                        let arg = expr_arena.get(arg)?;
+                        let policy = arg.check_policy_in_row(ctx, idx)?;
+                        Ok(Arc::new(
+                            policy.downgrade(&Arc::new(build_unary_expr!(op.clone())))?,
+                        ))
+                    },
+                    Expr::Column(col) => {
+                        let col = match col {
+                            ColumnIdent::ColumnId(id) => *id,
+                            ColumnIdent::ColumnName(name) => picachv_bail!(
+                                ComputeError: "Must reify column `{name}` into index"
+                            ),
+                        };
+
+                        // For column expression this is an interesting undecidable case
+                        // where we cannot determine what operation it will be applied.
+                        //
+                        // We neverthelss approve this operation per evaluation semantics.
+                        //
+                        // See `EvalColumnNotAgg` in `expression.v`.
+                        Ok(ctx.df.row(idx)?[col].clone())
+                    },
+                    Expr::Alias { expr, .. } => {
+                        let expr = expr_arena.get(expr)?;
+                        expr.check_policy_in_row(ctx, idx)
+                    },
+                    Expr::Filter { input, filter } => {
+                        let input = expr_arena.get(input)?;
+                        let filter = expr_arena.get(filter)?;
+                        input.check_policy_in_row(ctx, idx)?;
+                        filter.check_policy_in_row(ctx, idx)
+                    },
+                    Expr::Agg { .. } => Err(PicachvError::ComputeError(
+                        "Aggregation expression is not allowed in row context.".into(),
+                    )),
+                    Expr::Ternary {
+                        cond_values,
+                        then,
+                        otherwise,
+                        ..
+                    } => {
+                        picachv_ensure!(
+                            cond_values.is_some(),
+                            ComputeError: "The condition values are not reified"
+                        );
+
+                        let then = expr_arena.get(then)?;
+                        let otherwise = expr_arena.get(otherwise)?;
+
+                        let cond_values =
+                            cond_values.as_ref().ok_or(PicachvError::ComputeError(
+                                "The condition values are not reified".into(),
+                            ))?;
+
+                        let cond = if cond_values.len() == 1 {
+                            cond_values[0]
+                        } else if idx >= cond_values.len() {
+                            false
+                        } else {
+                            cond_values[idx]
+                        };
+                        let then = || then.check_policy_in_row(ctx, idx);
+                        let otherwise = || otherwise.check_policy_in_row(ctx, idx);
+                        let (then, otherwise) =
+                            THREAD_POOL.install(|| rayon::join(then, otherwise));
+                        let (then, otherwise) = (then?, otherwise?);
+
+                        Ok(if cond { then } else { otherwise })
+                    },
+
+                    _ => Ok(Default::default()),
+                }?;
+
+                ctx.update_cache(self, idx, p.clone());
+
+                Ok(p)
             },
-
-            Expr::BinaryExpr {
-                left,
-                right,
-                op,
-                values,
-            } => {
-                let left = expr_arena.get(left)?;
-                let right = expr_arena.get(right)?;
-
-                let lhs = || left.check_policy_in_row(ctx, idx);
-                let rhs = || right.check_policy_in_row(ctx, idx);
-                let (lhs, rhs) = THREAD_POOL.install(|| rayon::join(lhs, rhs));
-                let (lhs, rhs) = (lhs?, rhs?);
-
-                if matches!(
-                    op,
-                    binary_operator::Operator::ComparisonOperator(_)
-                        | binary_operator::Operator::LogicalOperator(_)
-                ) {
-                    return Ok(Arc::new(lhs.join(&rhs)?));
-                }
-
-                let values = values.as_ref().ok_or(PicachvError::ComputeError(
-                    format!("The values are not reified for {self:?}").into(),
-                ))?;
-
-                picachv_ensure!(
-                    !values.is_empty() && values[0].len() == 2,
-                    InvalidOperation: "The argument to the binary expression is incorrect"
-                );
-
-                Ok(Arc::new(check_policy_binary(&lhs, &rhs, op, &values[idx])?))
-            },
-            // This is truly interesting.
-            //
-            // See `eval_unary_expression_in_cell`.
-            Expr::UnaryExpr { arg, op } => {
-                let arg = expr_arena.get(arg)?;
-                let policy = arg.check_policy_in_row(ctx, idx)?;
-                Ok(Arc::new(
-                    policy.downgrade(&Arc::new(build_unary_expr!(op.clone())))?,
-                ))
-            },
-            Expr::Column(col) => {
-                let col = match col {
-                    ColumnIdent::ColumnId(id) => *id,
-                    ColumnIdent::ColumnName(name) => picachv_bail!(
-                        ComputeError: "Must reify column `{name}` into index"
-                    ),
-                };
-
-                // For column expression this is an interesting undecidable case
-                // where we cannot determine what operation it will be applied.
-                //
-                // We neverthelss approve this operation per evaluation semantics.
-                //
-                // See `EvalColumnNotAgg` in `expression.v`.
-                Ok(ctx.df.row(idx)?[col].clone())
-            },
-            Expr::Alias { expr, .. } => {
-                let expr = expr_arena.get(expr)?;
-                expr.check_policy_in_row(ctx, idx)
-            },
-            Expr::Filter { input, filter } => {
-                let input = expr_arena.get(input)?;
-                let filter = expr_arena.get(filter)?;
-                input.check_policy_in_row(ctx, idx)?;
-                filter.check_policy_in_row(ctx, idx)
-            },
-            Expr::Agg { .. } => Err(PicachvError::ComputeError(
-                "Aggregation expression is not allowed in row context.".into(),
-            )),
-            Expr::Ternary {
-                cond_values,
-                then,
-                otherwise,
-                ..
-            } => {
-                picachv_ensure!(
-                    cond_values.is_some(),
-                    ComputeError: "The condition values are not reified"
-                );
-
-                let then = expr_arena.get(then)?;
-                let otherwise = expr_arena.get(otherwise)?;
-
-                let cond_values = cond_values.as_ref().ok_or(PicachvError::ComputeError(
-                    "The condition values are not reified".into(),
-                ))?;
-
-                picachv_ensure!(
-                    cond_values.len() == 1 || cond_values.len() == ctx.df.shape().0,
-                    ComputeError: "The condition values are not correct"
-                );
-
-                let cond = if cond_values.len() == 1 {
-                    cond_values[0]
-                } else {
-                    cond_values[idx]
-                };
-                let then = || then.check_policy_in_row(ctx, idx);
-                let otherwise = || otherwise.check_policy_in_row(ctx, idx);
-                let (then, otherwise) = THREAD_POOL.install(|| rayon::join(then, otherwise));
-                let (then, otherwise) = (then?, otherwise?);
-
-                Ok(if cond { then } else { otherwise })
-            },
-
-            // todo.
-            _ => Ok(Default::default()),
         }
     }
 
@@ -453,6 +525,11 @@ pub(crate) fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<ValueAr
                     .map(|column| match column.data_type() {
                         DataType::UInt8 => {
                             let array = column.as_any().downcast_ref::<UInt8Array>().unwrap();
+                            let value = array.value(i);
+                            Ok(Arc::new(AnyValue::String(value.to_string())))
+                        },
+                        DataType::UInt16 => {
+                            let array = column.as_any().downcast_ref::<UInt16Array>().unwrap();
                             let value = array.value(i);
                             Ok(Arc::new(AnyValue::String(value.to_string())))
                         },
@@ -497,6 +574,11 @@ pub(crate) fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<ValueAr
                                 ))))
                             },
                             _ => todo!(),
+                        },
+                        DataType::Utf8 => {
+                            let array = column.as_any().downcast_ref::<StringArray>().unwrap();
+                            let value = array.value(i);
+                            Ok(Arc::new(AnyValue::String(value.to_string())))
                         },
                         DataType::LargeUtf8 => {
                             let array = column.as_any().downcast_ref::<LargeStringArray>().unwrap();

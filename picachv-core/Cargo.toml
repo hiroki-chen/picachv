@@ -18,6 +18,7 @@ arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 bincode = { workspace = true, optional = true }
+bitmaps = { version = "3.2.1" }
 chrono = { workspace = true }
 jemallocator = { workspace = true }
 tabled = { version = "0.15.0" }
@@ -30,7 +31,7 @@ rayon = { workspace = true }
 spin = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-uuid = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
 
 typetag = "0.2.16"
 parse_duration = "2.1.1"
@@ -38,7 +39,10 @@ parse_duration = "2.1.1"
 [features]
 default = ["arena_for_plan", "fast_bin", "use_parquet", "json"]
 json = []
-coq = [] # Enable this feature if we need to translate code into Coq
+coq = []                                                        # Enable this feature if we need to translate code into Coq
 use_parquet = ["parquet", "fast_bin"]
 fast_bin = ["bincode"]
 arena_for_plan = []
+
+[profile.release]
+debug = true

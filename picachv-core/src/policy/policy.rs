@@ -30,7 +30,7 @@ pub fn policy_ok(p: &Policy) -> bool {
 }
 
 /// Denotes the privacy schemes that should be applied to the result and/or the dataset.
-#[derive(Clone, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, Hash, PartialEq, PartialOrd, Serialize, Deserialize)]
 
 pub enum PrivacyScheme {
     /// Differential privacy with a given set of parameters (`epsilon`, `delta`).
@@ -134,15 +134,14 @@ pub trait SetLike {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 
-pub struct TransformOps(pub HashSet<TransformType>);
+pub struct TransformOps(pub Vec<TransformType>);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+pub struct AggOps(pub Vec<AggType>);
 
-pub struct AggOps(pub HashSet<AggType>);
-#[derive(Debug, Clone, Serialize, Deserialize)]
-
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct PrivacyOp(pub PrivacyScheme);
 
 impl SetLike for TransformOps {
@@ -151,11 +150,17 @@ impl SetLike for TransformOps {
     }
 
     fn intersection(&self, other: &Self) -> Self {
-        TransformOps(self.0.intersection(&other.0).cloned().collect())
+        let lhs = self.0.iter().collect::<HashSet<_>>();
+        let rhs = other.0.iter().collect::<HashSet<_>>();
+
+        TransformOps(lhs.intersection(&rhs).map(|e| (*e).clone()).collect())
     }
 
     fn union(&self, other: &Self) -> Self {
-        TransformOps(self.0.union(&other.0).cloned().collect())
+        let lhs = self.0.iter().collect::<HashSet<_>>();
+        let rhs = other.0.iter().collect::<HashSet<_>>();
+
+        TransformOps(lhs.union(&rhs).map(|e| (*e).clone()).collect())
     }
 }
 
@@ -165,9 +170,12 @@ impl SetLike for AggOps {
     }
 
     fn intersection(&self, other: &Self) -> Self {
+        let lhs = self.0.iter().collect::<HashSet<_>>();
+        let rhs = other.0.iter().collect::<HashSet<_>>();
+
         let mut v = vec![];
-        for item in other.0.iter() {
-            if let Some(this) = self.0.get(item) {
+        for item in rhs.iter() {
+            if let Some(this) = lhs.get(item) {
                 v.push(AggType {
                     how: this.how,
                     group_size: this.group_size.max(item.group_size),
@@ -179,7 +187,20 @@ impl SetLike for AggOps {
     }
 
     fn union(&self, other: &Self) -> Self {
-        AggOps(self.0.union(&other.0).cloned().collect())
+        let lhs = self.0.iter().collect::<HashSet<_>>();
+        let rhs = other.0.iter().collect::<HashSet<_>>();
+
+        let mut v = vec![];
+        for item in rhs.iter() {
+            if let Some(this) = lhs.get(item) {
+                v.push(AggType {
+                    how: this.how,
+                    group_size: this.group_size.min(item.group_size),
+                })
+            }
+        }
+
+        AggOps(v.into_iter().collect())
     }
 }
 
@@ -206,7 +227,7 @@ impl SetLike for PrivacyOp {
 }
 
 /// The full-fledged policy label with downgrading operators attached.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Hash, Serialize, Deserialize)]
 
 pub enum PolicyLabel {
     PolicyBot,
@@ -217,8 +238,7 @@ pub enum PolicyLabel {
 }
 
 /// Denotes the policy that is applied to each individual cell.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-
+#[derive(Clone, Debug, Hash, Serialize, Deserialize)]
 pub enum Policy {
     /// No policy is applied.
     PolicyClean,
@@ -293,8 +313,10 @@ impl PartialEq for PolicyLabel {
                 PolicyLabel::PolicyTransform { ops: rhs },
             ) => lhs.set_eq(rhs),
             (PolicyLabel::PolicyAgg { ops: lhs }, PolicyLabel::PolicyAgg { ops: rhs }) => {
+                let rhs = rhs.0.iter().collect::<HashSet<_>>();
+
                 for l in lhs.0.iter() {
-                    match rhs.0.get(l) {
+                    match rhs.get(l) {
                         None => return false,
                         Some(r) => {
                             if l.group_size != r.group_size {
@@ -606,6 +628,8 @@ impl PartialEq for Policy {
         matches!((self.le(other), other.le(self)), (Ok(true), Ok(true)))
     }
 }
+
+impl Eq for Policy {}
 
 impl PartialOrd for Policy {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {

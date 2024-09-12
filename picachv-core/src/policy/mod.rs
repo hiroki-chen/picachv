@@ -30,14 +30,13 @@ macro_rules! build_unary_expr {
     } };
     ($($ops:expr),*) => {
         $crate::policy::PolicyLabel::PolicyTransform {
-            ops: $crate::policy::TransformOps(std::collections::HashSet::from_iter(vec![$($ops),*].into_iter())),
+            ops: $crate::policy::TransformOps(vec![$($ops),*]),
         }
     };
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -49,7 +48,7 @@ mod tests {
     #[test]
     fn test_build_policy() {
         let policy = build_policy!(PolicyLabel::PolicyTransform {
-            ops: TransformOps(HashSet::from_iter(vec![TransformType::Binary(BinaryTransformType{name: "dt.offset_by".into(), arg: Arc::new(AnyValue::Duration(Duration::new(5, 0))) })].into_iter()))
+            ops: TransformOps(vec![TransformType::Binary(BinaryTransformType{name: "dt.offset_by".into(), arg: Arc::new(AnyValue::Duration(Duration::new(5, 0))) })])
         } => PolicyLabel::PolicyBot);
         assert!(policy.is_ok());
         let policy = build_policy!(PolicyLabel::PolicyTop => PolicyLabel::PolicyBot => PolicyLabel::PolicyTop);
@@ -59,7 +58,7 @@ mod tests {
     #[test]
     fn test_serde_policy() {
         let prev = build_policy!(PolicyLabel::PolicyTransform {
-            ops: TransformOps(HashSet::from_iter(vec![TransformType::Binary(BinaryTransformType{name: "dt.offset_by".into(), arg: Arc::new(AnyValue::Duration(Duration::new(5, 0))) })].into_iter()))
+            ops: TransformOps(vec![TransformType::Binary(BinaryTransformType{name: "dt.offset_by".into(), arg: Arc::new(AnyValue::Duration(Duration::new(5, 0))) })])
         } => PolicyLabel::PolicyBot)
         .unwrap();
         let policy_str = serde_json::to_string(&prev).unwrap();

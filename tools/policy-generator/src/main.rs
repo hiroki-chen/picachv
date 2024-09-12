@@ -7,9 +7,11 @@ use std::sync::Arc;
 use clap::{Parser, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use picachv_core::constants::GroupByMethod;
 use picachv_core::dataframe::{PolicyGuardedColumn, PolicyGuardedDataFrame};
 use picachv_core::io::{BinIo, JsonIO};
-use picachv_core::policy::Policy;
+use picachv_core::policy::types::AnyValue;
+use picachv_core::policy::{AggType, BinaryTransformType, Policy, PolicyLabel, TransformType};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub enum Format {
@@ -57,6 +59,8 @@ pub struct Args {
         help = "The format of the policy file"
     )]
     format: Format,
+    #[clap(long)]
+    is_micro: bool,
 }
 
 /// A simple generator that produces dummy policies for testing.
@@ -146,14 +150,62 @@ impl PolicyGenerator {
 
             let pb = ProgressBar::new(row_num as _);
             pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})").unwrap().progress_chars("#>-"));
+
             for _ in 0..row_num {
-                let p = Policy::PolicyClean;
+                let p = if self.args.is_micro {
+                    if col.name() == "l_discount" {
+                        // Policy::PolicyDeclassify {
+                        //     label: PolicyLabel::PolicyTop.into(),
+                        //     next: Policy::PolicyClean.into(),
+                        // }
+                        let agg = Policy::PolicyDeclassify {
+                            label: PolicyLabel::PolicyAgg {
+                                ops: picachv_core::policy::AggOps(vec![AggType {
+                                    how: GroupByMethod::Max,
+                                    group_size: 5,
+                                }]),
+                            }
+                            .into(),
+                            next: Policy::PolicyClean.into(),
+                        };
+                        Policy::PolicyDeclassify {
+                            label: PolicyLabel::PolicyTransform {
+                                ops: picachv_core::policy::TransformOps(vec![
+                                    TransformType::Binary(BinaryTransformType {
+                                        name: "+".into(),
+                                        arg: AnyValue::Float64(1.0.into()).into(),
+                                    }),
+                                ]),
+                            }
+                            .into(),
+                            next: agg.into(),
+                        }
+                        // Policy::PolicyClean
+
+                        // } else if col.name() == "l_discount" {
+                        //     Policy::PolicyDeclassify {
+                        //         label: PolicyLabel::PolicyAgg {
+                        //             ops: picachv_core::policy::AggOps(vec![AggType {
+                        //                 how: GroupByMethod::Max,
+                        //                 group_size: 5,
+                        //             }]),
+                        //         }
+                        //         .into(),
+                        //         next: Policy::PolicyClean.into(),
+                        //     }
+                    } else {
+                        Policy::PolicyClean
+                    }
+                } else {
+                    Policy::PolicyClean
+                };
+
                 c.push(p.into());
                 pb.inc(1);
             }
             pb.finish_with_message("done");
 
-            columns.push(Arc::new(PolicyGuardedColumn::new(c)));
+            columns.push(Arc::new(PolicyGuardedColumn::new_from_iter(c.iter())?));
             names.push(col.name().to_string());
         }
 

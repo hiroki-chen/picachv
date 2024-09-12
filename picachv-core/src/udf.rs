@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Hash, Debug, Serialize, Deserialize)]
 pub struct Udf {
     pub(crate) name: String,
 }
