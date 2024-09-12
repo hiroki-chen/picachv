@@ -87,6 +87,16 @@ impl fmt::Debug for Plan {
 }
 
 impl Plan {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Select { .. } => "Select",
+            Self::Projection { .. } => "Projection",
+            Self::Aggregation { .. } => "Aggregation",
+            Self::DataFrameScan { .. } => "DataFrameScan",
+            Self::Hstack { .. } => "Hstack",
+        }
+    }
+
     /// Formats the current physical plan according to the given `indent`.
     pub(crate) fn format(&self, f: &mut fmt::Formatter<'_>, indent: usize) -> fmt::Result {
         match self {
@@ -182,7 +192,7 @@ impl Plan {
             self
         );
 
-        match self {
+        let f = || match self {
             // See the semantics for `apply_proj_in_relation`.
             Plan::Projection {
                 expressions: expression,
@@ -193,7 +203,6 @@ impl Plan {
                     .par_iter()
                     .map(|e| expr_arena.get(e))
                     .collect::<PicachvResult<Vec<_>>>()?;
-
                 check_expressions(arena, active_df_uuid, &expression, false, udfs, options)
             },
             Plan::Select { predicate, .. } => {
@@ -289,6 +298,12 @@ impl Plan {
                 udfs,
                 options,
             ),
+        };
+
+        if options.enable_profiling {
+            PROFILER.profile(f, self.name().to_string().into())
+        } else {
+            f()
         }
     }
 }
@@ -320,18 +335,21 @@ pub(crate) fn groupby_single(
     // we use `check_expressions_agg`.
     let second_part = || check_expressions_agg(arena, df, gi, &aggs, udfs, options);
 
-    let (first_part, second_part) = if options.enable_profiling {
-        THREAD_POOL.install(|| {
-            rayon::join(
-                || PROFILER.profile(first_part, "groupby_keys".into()),
-                || PROFILER.profile(second_part, "check_expressions_agg".into()),
-            )
-        })
-    } else {
-        THREAD_POOL.install(|| rayon::join(first_part, second_part))
-    };
-    let first_part = first_part?;
-    let second_part = second_part?;
+    // let (first_part, second_part) = if false && options.enable_profiling {
+    //     THREAD_POOL.install(|| {
+    //         rayon::join(
+    //             || PROFILER.profile(first_part, "groupby_keys".into()),
+    //             || PROFILER.profile(second_part, "check_expressions_agg".into()),
+    //         )
+    //     })
+    // } else {
+    //     THREAD_POOL.install(|| rayon::join(first_part, second_part))
+    // };
+    // let first_part = first_part?;
+    // let second_part = second_part?;
+
+    let first_part = first_part()?;
+    let second_part = second_part()?;
 
     // Combine the two parts.
     let df_arena = arena.df_arena.read();
@@ -443,24 +461,38 @@ fn aggregate_keys(
     df: &PolicyGuardedDataFrame,
     gi: &[GroupInformation],
 ) -> PicachvResult<PolicyGuardedDataFrame> {
-    let columns =THREAD_POOL.install(|| (0..df.shape().1).into_par_iter().map(|col_idx| {
-        let cur =  gi
+    let columns = THREAD_POOL.install(|| {
+        (0..df.shape().1)
             .into_par_iter()
-            .map(|group| {
-                    group.groups.par_iter().fold(|| Ok(Arc::new(Policy::PolicyClean)), |mut acc, idx| {
-                    let p = &df.columns[col_idx][*idx as usize];
-                    acc = Ok(Arc::new(acc?.join(p)?));
-                    acc
-                })
-                .reduce(|| Ok(Arc::new(Policy::PolicyClean)), |mut acc, next| {
-                    acc = Ok(Arc::new(acc?.join(next?.as_ref())?));
-                    acc
-                })
-            })
-            .collect::<PicachvResult<Vec<_>>>()?;
+            .map(|col_idx| {
+                let cur = gi
+                    .into_par_iter()
+                    .map(|group| {
+                        group
+                            .groups
+                            .par_iter()
+                            .fold(
+                                || Ok(Arc::new(Policy::PolicyClean)),
+                                |mut acc, idx| {
+                                    let p = &df.columns[col_idx][*idx as usize];
+                                    acc = Ok(Arc::new(acc?.join(p)?));
+                                    acc
+                                },
+                            )
+                            .reduce(
+                                || Ok(Arc::new(Policy::PolicyClean)),
+                                |mut acc, next| {
+                                    acc = Ok(Arc::new(acc?.join(next?.as_ref())?));
+                                    acc
+                                },
+                            )
+                    })
+                    .collect::<PicachvResult<Vec<_>>>()?;
 
-        Ok(Arc::new(PolicyGuardedColumn::new_from_iter(cur.iter())?))
-    }).collect::<PicachvResult<Vec<_>>>())?;
+                Ok(Arc::new(PolicyGuardedColumn::new_from_iter(cur.iter())?))
+            })
+            .collect::<PicachvResult<Vec<_>>>()
+    })?;
 
     Ok(PolicyGuardedDataFrame {
         columns,

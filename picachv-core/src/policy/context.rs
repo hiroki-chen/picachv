@@ -33,6 +33,7 @@ pub(crate) struct ExpressionEvalContext<'ctx> {
     /// The reference to the arena.
     pub(crate) arena: &'ctx Arenas,
     pub(crate) expr_cache: Arc<RwLock<HashMap<u64, PolicyRef>>>,
+    pub(crate) group_expr_cache: Arc<RwLock<HashMap<u64, PolicyRef>>>,
 }
 
 impl<'ctx> ExpressionEvalContext<'ctx> {
@@ -49,6 +50,7 @@ impl<'ctx> ExpressionEvalContext<'ctx> {
             udfs,
             arena,
             expr_cache: Arc::new(RwLock::new(HashMap::new())),
+            group_expr_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 

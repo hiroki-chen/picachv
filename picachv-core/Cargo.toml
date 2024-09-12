@@ -43,3 +43,6 @@ coq = []                                                        # Enable this fe
 use_parquet = ["parquet", "fast_bin"]
 fast_bin = ["bincode"]
 arena_for_plan = []
+
+[profile.release]
+debug = true

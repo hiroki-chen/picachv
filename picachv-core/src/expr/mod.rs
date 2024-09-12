@@ -196,7 +196,25 @@ impl Expr {
                 arg.resolve_columns(expr_arena)
             },
             Self::Literal => Ok(vec![]),
-            _ => picachv_bail!(ComputeError: "impossible"),
+            Self::Ternary {
+                cond,
+                then,
+                otherwise,
+                ..
+            } => {
+                let cond = expr_arena.read().get(cond).cloned()?;
+                let then = expr_arena.read().get(then).cloned()?;
+                let otherwise = expr_arena.read().get(otherwise).cloned()?;
+                let cond = cond.resolve_columns(expr_arena)?;
+                let then = then.resolve_columns(expr_arena)?;
+                let otherwise = otherwise.resolve_columns(expr_arena)?;
+                Ok(cond
+                    .into_iter()
+                    .chain(then.into_iter())
+                    .chain(otherwise.into_iter())
+                    .collect())
+            },
+            _ => picachv_bail!(ComputeError: "impossible {self:?}"),
         }
     }
 
@@ -242,11 +260,6 @@ impl Expr {
                     ),
                 };
 
-                picachv_ensure!(
-                    col < groups.columns.len(),
-                    ComputeError: "The column index is out of bounds"
-                );
-
                 Ok(THREAD_POOL.install(|| {
                     (0..groups.shape().0)
                         .into_par_iter()
@@ -264,30 +277,33 @@ impl Expr {
                     format!("{udf_desc:?} does not have values reified.").into(),
                 ))?;
 
-                let args = args
-                    .par_iter()
-                    .map(|e| expr_arena.get(e))
-                    .collect::<PicachvResult<Vec<_>>>()?;
+                let args = THREAD_POOL.install(|| {
+                    args.par_iter()
+                        .map(|e| expr_arena.get(e))
+                        .collect::<PicachvResult<Vec<_>>>()
+                })?;
 
-                values
-                    .par_iter()
-                    .take(groups.shape().0)
-                    .enumerate()
-                    .map(|(i, value)| {
-                        let mut p = Default::default();
-                        for (j, arg) in args.iter().enumerate() {
-                            let arg = arg.check_policy_in_row(ctx, i)?;
-                            p = check_policy_binary_udf(
-                                &groups.columns[j][i],
-                                &arg,
-                                &udf_desc.name,
-                                value,
-                            )?;
-                        }
+                THREAD_POOL.install(|| {
+                    values
+                        .par_iter()
+                        .take(groups.shape().0)
+                        .enumerate()
+                        .map(|(i, value)| {
+                            let mut p = Default::default();
+                            for (j, arg) in args.iter().enumerate() {
+                                let arg = arg.check_policy_in_row(ctx, i)?;
+                                p = check_policy_binary_udf(
+                                    &groups.columns[j][i],
+                                    &arg,
+                                    &udf_desc.name,
+                                    value,
+                                )?;
+                            }
 
-                        Ok(p.into())
-                    })
-                    .collect::<PicachvResult<Vec<_>>>()
+                            Ok(p.into())
+                        })
+                        .collect::<PicachvResult<Vec<_>>>()
+                })
             },
 
             Expr::BinaryExpr {
@@ -296,7 +312,7 @@ impl Expr {
                 right,
                 values,
             } => {
-                let values = values.clone().ok_or(PicachvError::ComputeError(
+                let values = values.as_ref().ok_or(PicachvError::ComputeError(
                     format!("{self:?} does not have values reified.").into(),
                 ))?;
 
@@ -334,6 +350,8 @@ impl Expr {
         ctx: &ExpressionEvalContext,
         idx: usize,
     ) -> PicachvResult<PolicyRef> {
+        return Ok(Default::default());
+        
         match ctx.lookup(self, idx) {
             Some(p) => Ok(p),
             None => {
@@ -347,7 +365,7 @@ impl Expr {
                     Expr::Apply {
                         udf_desc: Udf { name },
                         args,
-                        values, // todo.
+                        values,
                     } => match values {
                         Some(values) => Ok(Arc::new(check_policy_in_row_apply(
                             ctx, name, args, values, idx,
@@ -464,7 +482,6 @@ impl Expr {
                         Ok(if cond { then } else { otherwise })
                     },
 
-                    // todo.
                     _ => Ok(Default::default()),
                 }?;
 

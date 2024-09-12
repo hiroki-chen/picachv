@@ -153,21 +153,12 @@ impl PolicyGenerator {
 
             for _ in 0..row_num {
                 let p = if self.args.is_micro {
-                    if col.name() == "l_quantity" {
-                        Policy::PolicyDeclassify {
-                            label: PolicyLabel::PolicyTransform {
-                                ops: picachv_core::policy::TransformOps(vec![
-                                    TransformType::Binary(BinaryTransformType {
-                                        name: "+".into(),
-                                        arg: AnyValue::UInt64(1).into(),
-                                    }),
-                                ]),
-                            }
-                            .into(),
-                            next: Policy::PolicyClean.into(),
-                        }
-                    } else if col.name() == "l_discount" {
-                        Policy::PolicyDeclassify {
+                    if col.name() == "l_discount" {
+                        // Policy::PolicyDeclassify {
+                        //     label: PolicyLabel::PolicyTop.into(),
+                        //     next: Policy::PolicyClean.into(),
+                        // }
+                        let agg = Policy::PolicyDeclassify {
                             label: PolicyLabel::PolicyAgg {
                                 ops: picachv_core::policy::AggOps(vec![AggType {
                                     how: GroupByMethod::Max,
@@ -176,7 +167,32 @@ impl PolicyGenerator {
                             }
                             .into(),
                             next: Policy::PolicyClean.into(),
+                        };
+                        Policy::PolicyDeclassify {
+                            label: PolicyLabel::PolicyTransform {
+                                ops: picachv_core::policy::TransformOps(vec![
+                                    TransformType::Binary(BinaryTransformType {
+                                        name: "+".into(),
+                                        arg: AnyValue::Float64(1.0.into()).into(),
+                                    }),
+                                ]),
+                            }
+                            .into(),
+                            next: agg.into(),
                         }
+                        // Policy::PolicyClean
+
+                        // } else if col.name() == "l_discount" {
+                        //     Policy::PolicyDeclassify {
+                        //         label: PolicyLabel::PolicyAgg {
+                        //             ops: picachv_core::policy::AggOps(vec![AggType {
+                        //                 how: GroupByMethod::Max,
+                        //                 group_size: 5,
+                        //             }]),
+                        //         }
+                        //         .into(),
+                        //         next: Policy::PolicyClean.into(),
+                        //     }
                     } else {
                         Policy::PolicyClean
                     }

@@ -25,3 +25,4 @@ polars = { path = "../../../../polars/crates/polars", default-features = false, 
   "dtype-datetime",
   "semi_anti_join",
 ] }
+chrono = "*"

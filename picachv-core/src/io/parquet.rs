@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::path::Path;
 use std::sync::Arc;
 
-use arrow_array::{BinaryArray, BooleanArray, RecordBatch};
+use arrow_array::{BooleanArray, LargeBinaryArray, RecordBatch};
 use parquet::arrow::arrow_reader::{ArrowReaderBuilder, RowSelection, SyncReader};
 use parquet::arrow::{ArrowWriter, ProjectionMask};
 use parquet::file::properties::WriterProperties;
@@ -148,7 +148,7 @@ impl PolicyGuardedDataFrame {
                                 .map_err(|e| PicachvError::InvalidOperation(e.to_string().into()))
                         })
                         .collect::<PicachvResult<Vec<_>>>()?;
-                    let policies = Arc::new(BinaryArray::from_vec(
+                    let policies = Arc::new(LargeBinaryArray::from_vec(
                         policies.iter().map(|e| e.as_ref()).collect(),
                     )) as _;
                     Ok((format!("col_{idx}"), policies))

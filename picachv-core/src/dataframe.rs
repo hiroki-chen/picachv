@@ -3,7 +3,7 @@ use std::fmt;
 use std::ops::{Deref, Index};
 use std::sync::Arc;
 
-use arrow_array::{BinaryArray, RecordBatch};
+use arrow_array::{LargeBinaryArray, RecordBatch};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::transform_info::Information;
 use picachv_message::{
@@ -198,18 +198,20 @@ impl Chunks {
 }
 
 pub(crate) fn idx_to_group_info_vec(idx: &GroupByIdx) -> Vec<GroupInformation> {
-    idx.groups
-        .par_iter()
-        .map(|group| {
-            let first = group.first as usize;
-            let groups = group.group.par_iter().map(|e| *e as usize).collect();
-            GroupInformation {
-                first,
-                groups,
-                hash: None,
-            }
-        })
-        .collect()
+    THREAD_POOL.install(|| {
+        idx.groups
+            .par_iter()
+            .map(|group| {
+                let first = group.first as usize;
+                let groups = group.group.par_iter().map(|e| *e as usize).collect();
+                GroupInformation {
+                    first,
+                    groups,
+                    hash: None,
+                }
+            })
+            .collect()
+    })
 }
 
 /// A column in a [`DataFrame`] that is guarded by a vector of policies.
@@ -307,8 +309,17 @@ impl PolicyGuardedColumn {
     }
 
     /// Append to this column.
-    pub fn append(&self, _other: &Self) -> PicachvResult<Self> {
-        todo!("append")
+    pub fn append(&self, other: &Self) -> PicachvResult<Self> {
+        let mut policies = self.policies.clone();
+        for (k, v) in other.policies.iter() {
+            policies.insert(k + self.len, v.clone());
+        }
+
+        Ok(Self {
+            base_policy: self.base_policy.clone(),
+            len: self.len + other.len,
+            policies,
+        })
     }
 
     /// Apply the filter.
@@ -482,9 +493,9 @@ impl PolicyGuardedDataFrameProxy {
                 .map(|c| {
                     let policies = c
                         .as_any()
-                        .downcast_ref::<BinaryArray>()
+                        .downcast_ref::<LargeBinaryArray>()
                         .ok_or(PicachvError::InvalidOperation(
-                            "Failed to downcast to BinaryArray.".into(),
+                            "Failed to downcast to LargeBinaryArray.".into(),
                         ))?
                         .iter()
                         .map(|e| {
@@ -650,14 +661,7 @@ impl PolicyGuardedDataFrame {
         let columns = THREAD_POOL.install(|| {
             self.columns
                 .par_iter()
-                .map(|c: &Arc<PolicyGuardedColumn>| {
-                    // let policies = groups
-                    //     .groups
-                    //     .par_iter()
-                    //     .map(|g| c[*g as usize].clone())
-                    //     .collect::<Vec<_>>();
-                    Ok(Arc::new(c.groups(groups)?))
-                })
+                .map(|c: &Arc<PolicyGuardedColumn>| Ok(Arc::new(c.groups(groups)?)))
                 .collect::<PicachvResult<Vec<_>>>()
         })?;
 
@@ -749,7 +753,7 @@ impl PolicyGuardedDataFrame {
 
     pub(crate) fn projection_by_id(&mut self, project_list: &[usize]) -> PicachvResult<()> {
         picachv_ensure!(
-            project_list.par_iter().all(|&col| col < self.columns.len()),
+            project_list.iter().all(|&col| col < self.columns.len()),
             ComputeError: "The column is out of bound: {:?} vs {:?}", self.shape().1, project_list,
         );
         let index_set: HashSet<_> = project_list.iter().collect();
@@ -819,7 +823,18 @@ pub fn apply_transform(
     transform: TransformInfo,
     options: &ContextOptions,
 ) -> PicachvResult<Uuid> {
-    match transform.information {
+    let name = match &transform.information {
+        Some(ti) => match ti {
+            Information::Filter(_) => "filter",
+            Information::Union(_) => "union",
+            Information::Join(_) => "join",
+            Information::Reorder(_) => "reorder",
+            _ => todo!(),
+        },
+        None => "none",
+    };
+
+    let f = || match transform.information {
         Some(ti) => match ti {
             Information::Filter(pred) => {
                 let mut df_arena = df_arena.write();
@@ -921,5 +936,11 @@ pub fn apply_transform(
             _ => todo!(),
         },
         None => Ok(df_uuid),
+    };
+
+    if options.enable_profiling {
+        PROFILER.profile(f, name.into())
+    } else {
+        f()
     }
 }
