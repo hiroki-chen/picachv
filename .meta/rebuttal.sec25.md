@@ -1,63 +1,56 @@
-We thank the reviewers for their constructive feedback, which will greatly improve our paper! Below, we address key concerns and outline revisions.
+We thank the reviewers for their constructive feedback, which will significantly improve our paper! Below, we address key concerns and outline planned revisions.
 
-## Performance
+## Performance (A/B/C/D)
 
-The overhead primarily arises from enforcement at the *cell* granularity, requiring operations like projection and aggregation to perform linear-scans and label transformations. This increases latency depending on the relation’s tuple size. We plan to add thorough micro-benchmarks to identify specific bottlenecks.
+The performance issues stem from enforcing policies at the cell level, requiring operations like projection to perform linear scans. We will add detailed micro-benchmarks to identify and analyze bottlenecks.
 
-Additionally, we will integrate database optimization techniques into our implementation, such as:
+We have already implemented the following optimizations:
 
-- foo
-- bar
+- Parallelized policy-checking using the Rust library `rayon`, a well-established framework for parallel computation.
+- Policy encoding with fast in-memory formats like Apache-Arrow to accelerate computation by exploiting memory locality.
 
-We will also include updated experimental results to demonstrate how these optimizations reduce overheads.
+Additionally, we plan to implement materialization, a well-established database technique that caches frequently-used and representative workloads. This approach is generic and directly applicable to Picachv’s policy-checking framework. Prior related research ([PrivateSQL](https://dl.acm.org/doi/pdf/10.14778/3342263.3342274), [IncShrink](https://arxiv.org/pdf/2203.05084)) and industry solutions ([SnowFlake](https://docs.snowflake.com/en/user-guide/views-materialized), [BigQuery](https://cloud.google.com/bigquery/docs/materialized-views-create)) show that this is feasible while simple.
 
-## Presentation
+Our revised paper will include benchmarks to demonstrate the effectiveness of these techniques and extend the discussion on hybrid static-dynamic schemes for future work.
 
-We acknowledge concerns about the clarity and completeness of the formal semantics. Planned revisions include:
+## Presentation (A/B/C/D)
 
-- Focusing on key stepping rules with detailed explanations.
-- Refactoring the formalism by defining missing terms (e.g., update) and correcting typos for consistency.
-- Clarifying how the security monitor blocks bad queries and why stepping rules always progress.
+We acknowledge the reviewers’ concerns about clarity and completeness of the formalism. To improve presentation, we will:
 
-## TEE Relevance
+- Revise the formalism’s structure, first introducing the complete syntax and then explaining the stepping rules for improved readability.
+- Focus on key stepping rules, providing detailed explanations, and move full semantics to the appendix.
+- Define missing terms (e.g., `update`) in both syntax and semantics.
+- Elaborate on how the runtime monitor operates.
 
-Picachv targets cloud-based data analytics scenarios, such as Data Clean Rooms (DCR), where users often distrust cloud service providers like Google Cloud. While Picachv enforces data use policies, risks of malicious tampering or data theft persist due to the untrusted environment.
+We will also polish the paper to fix language errors and make sentences more accessible.
 
-TEEs address these concerns by:
+## TEE Relevance (A/B/D)
 
-- **Confidentiality:** Encrypting data-in-use, ensuring no leakage to the cloud.
-- **Integrity:** Ensuring tamper-resistance for Picachv and user data.
-- **Remote Attestation:** Allowing users to verify that the TEE is running genuine Picachv via its cryptographic measurement (hash), which can be compared against verified source code.
+TEEs are indispensable when data owners require *proofs* that data analytics comply with policies. TEEs provide cryptographic reports via remote attestation, ensuring that the runtime monitor and query is authentic and verified. While our mechanism does not rely exclusively on TEEs, it can also be applied to scenarios like on-premise databases.
 
-We will further clarify these points in the revision.
+## Policy composability (A)
 
-## Policy Language and Case Studies
+Our rules enforce a descending order of policies, as declassification to higher sensitivity levels is impractical. Well-ordered policies can always be pattern-matched, allowing label comparisons and appropriate rule insertions into policy chains. We will revise Fig. 5 for clarity and apologize for its current presentation.
 
-We will enhance the discussion of the policy language by incorporating examples from diverse real-world applications, showcasing how our framework captures and enforces their requirements.
+## Dynamic policies and Access controls (B)
 
-# Responses
+Picachv supports dynamic policies since they are provided alongside the data, allowing flexibility across different use cases. Its policy composition capabilities also enable joint policies from multiple entities, supporting access controls within our framework.
 
-## Review A
+## Blocking Bad Queries (C)
 
-- **Performance:** Addressed above.
-- **Policy composability:** Our rules require policies to be in descending order, as declassification to "higher levels" seems unreasonable in reality. Well-ordered policies can always be pattern-matched by our rules, allowing us to compare labels and "insert" appropriate requirements into the policy chain. We apologize for the unclear presentation in Fig. 5 and will revise it for clarity.
-- **TEE Relevance:** Addressed above.
+When an operation is applied to a cell carrying policies, as in the `FUnary` case, two outcomes are possible. If the operation is defined in the declassification operations for the current sensitivity level, the label is downgraded. Otherwise, the monitor preserves the label, preventing it from being downgraded. Eventually a sink function is applied at the end of query execution that checks that all data has only $\mathbf{L}$ labels remaining. If any non-$\mathbf{L}$ labels persist, the query result is blocked.
 
-## Review B
+For example, if the `zipcode` column requires redaction and a query attempts to output it directly, the `zipcode` will retain a non-$\mathbf{L}$ label since the policy is unsatisfied. When the sink function is invoked, it detects the violation and blocks the output, ensuring the policy is upheld. `FUnary` alone doesn't block bad queries.
 
-- **TEE Connection:** Addressed above.
-- **Dynamic policies:**
-- **Access control:** While not our primary focus, this is feasible.
+## Policy Expressiveness (C)
 
-## Review C
+Our policies are designed around the five relational operators foundational to data analytics. Therefore, Picachv supports policies in the realm of relational algebra. We now already support HIPAA, CCPA, NIH All-of-Us policies widely used in reality. While our prototype’s policies are not comprehensive, policymakers can extend the language by adding new labels to the lattice as our high-level idea is generic.
 
-`FUnary` does not block queries directly. The runtime monitor applies a sink function at the end of execution to check whether all data complies with policies (i.e., no labels remain). Permitted operations lower the label until requirements are met; non-compliant labels remain and trigger a block by the sink function. Label preservation offers flexibility. For example, if the `zipcode` column is redacted per policy but later requires summation, a transformation like `length(zipcode)` may be allowed.
+## Limitations (D)
 
-## Review D
-
-- Identifying protected parts of such data is a challenge for policy-makers and outside our scope. However, if predefined policies exist, Picachv can enforce them effectively.
-- While we focus on relational algebra, our semantics are general and could be extended to other paradigms like ML algebra by identifying lattice elements, key operators, and expressions.
-- Achieving full verification is engineering-intensive but feasible. As a research prototype, we prioritize verifying critical components to demonstrate our approach's viability.
-- Policy interpretation is important but orthogonal to our work, which assumes predefined, machine-readable policies.
+- Identifying protected parts of semi- or unstructured data is a challenge for policy-makers and outside our scope. However, if predefined policies exist, Picachv can enforce them effectively.
+- While we focus on relational algebra, our semantics are general and could be extended to other paradigms like ML algebra; relational algebra is expressive enough to capture a wide range of important analytical tasks.
+- Achieving full verification is engineering-intensive but feasible. As a research prototype, we prioritize verifying critical components.
+- Policy interpretation is important but orthogonal to our work.
 
 Despite these challenges, Picachv’s contributions establish a strong foundation for future extensions and broader applicability.
