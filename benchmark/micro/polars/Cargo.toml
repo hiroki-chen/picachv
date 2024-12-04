@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-polars = { path = "../../../../polars/crates/polars", default-features = false, features = [
+polars = { workspace = true, default-features = false, features = [
   "performant",
   "fmt",
   "simd",

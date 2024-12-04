@@ -489,7 +489,9 @@ fn aggregate_keys(
                     })
                     .collect::<PicachvResult<Vec<_>>>()?;
 
-                Ok(Arc::new(PolicyGuardedColumn::new_from_iter(cur.iter())?))
+                Ok(Arc::new(PolicyGuardedColumn::new_from_iter(
+                    cur.par_iter(),
+                )?))
             })
             .collect::<PicachvResult<Vec<_>>>()
     })?;
@@ -592,7 +594,11 @@ fn check_expressions_agg(
     let df = PolicyGuardedDataFrame {
         columns: THREAD_POOL.install(|| {
             res.into_par_iter()
-                .map(|col| Ok(Arc::new(PolicyGuardedColumn::new_from_iter(col.iter())?)))
+                .map(|col| {
+                    Ok(Arc::new(PolicyGuardedColumn::new_from_iter(
+                        col.par_iter(),
+                    )?))
+                })
                 .collect::<PicachvResult<Vec<_>>>()
         })?,
         ..Default::default()
@@ -620,7 +626,9 @@ fn do_check_expressions(
                         .into_par_iter()
                         .map(|idx| expr.check_policy_in_row(&ctx, idx))
                         .collect::<PicachvResult<Vec<_>>>()?;
-                    Ok(Arc::new(PolicyGuardedColumn::new_from_iter(cur.iter())?))
+                    Ok(Arc::new(PolicyGuardedColumn::new_from_iter(
+                        cur.par_iter(),
+                    )?))
                 })
                 .collect::<PicachvResult<Vec<_>>>()
         })

@@ -9,8 +9,8 @@ macro_rules! impl_ctx_api {
         pub fn $fn_name($ctx_id: Uuid, $($arg_name: $arg_type),*) -> PicachvResult<$ret> {
             tracing::debug!("{} called for ctx_id: {}", stringify!($fn_name), $ctx_id);
 
-            let mut ctx = MONITOR_INSTANCE.get_ctx_mut()?;
-            let ctx = ctx.get_mut(&$ctx_id).ok_or(PicachvError::InvalidOperation(
+            let ctx = MONITOR_INSTANCE.read();
+            let ctx = ctx.get_ctx().get(&$ctx_id).ok_or(PicachvError::InvalidOperation(
                 "The context does not exist.".into(),
             ))?;
 
@@ -25,7 +25,7 @@ pub fn init_monitor() -> PicachvResult<()> {
 }
 
 pub fn open_new() -> PicachvResult<Uuid> {
-    MONITOR_INSTANCE.open_new()
+    MONITOR_INSTANCE.write().open_new()
 }
 
 impl_ctx_api!(build_expr, expr_from_args, ctx_id: Uuid, expr_arg: ExprArgument => Uuid);

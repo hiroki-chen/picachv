@@ -118,7 +118,9 @@ impl Chunks {
                     Ok(PolicyGuardedDataFrame {
                         columns: columns
                             .into_par_iter()
-                            .map(|c| Ok(Arc::new(PolicyGuardedColumn::new_from_iter(c.iter())?)))
+                            .map(|c| {
+                                Ok(Arc::new(PolicyGuardedColumn::new_from_iter(c.par_iter())?))
+                            })
                             .collect::<PicachvResult<Vec<_>>>()?,
                         ..Default::default()
                     })
@@ -273,14 +275,40 @@ impl PolicyGuardedColumn {
     /// # Note
     ///
     /// This method is not recommended for frequent use as it is not efficient.
-    pub fn new_from_iter<'a>(iter: impl IntoIterator<Item = &'a PolicyRef>) -> PicachvResult<Self> {
-        let vec = iter.into_iter().collect::<Vec<_>>();
-        let mut policies = HashMap::new();
-        let mut policy_count = HashMap::new();
-        for (i, &p) in vec.iter().enumerate() {
-            policy_count.entry(p).and_modify(|e| *e += 1).or_insert(1);
-            policies.insert(i, p.clone());
-        }
+    pub fn new_from_iter<'a>(
+        iter: impl IntoParallelIterator<Item = &'a PolicyRef>,
+    ) -> PicachvResult<Self> {
+        let vec = iter.into_par_iter().collect::<Vec<_>>();
+        // let mut policies = HashMap::new();
+        // let mut policy_count = HashMap::new();
+        // // for (i, &p) in vec.par_iter().enumerate() {
+        // //     policy_count.entry(p).and_modify(|e| *e += 1).or_insert(1);
+        // //     policies.insert(i, p.clone());
+        // // }
+        let (policy_count, mut policies): (HashMap<_, _>, HashMap<_, _>) = vec
+            .par_iter()
+            .enumerate()
+            .fold(
+                || (HashMap::new(), HashMap::new()),
+                |(mut policy_count, mut policies), (i, &p)| {
+                    policy_count.entry(p).and_modify(|e| *e += 1).or_insert(1);
+                    policies.insert(i, p.clone());
+                    (policy_count, policies)
+                },
+            )
+            .reduce(
+                || (HashMap::new(), HashMap::new()),
+                |(mut acc_count, mut acc_policies), (count, policies)| {
+                    for (key, value) in count {
+                        acc_count
+                            .entry(key)
+                            .and_modify(|e| *e += value)
+                            .or_insert(value);
+                    }
+                    acc_policies.extend(policies);
+                    (acc_count, acc_policies)
+                },
+            );
 
         let base_policy = THREAD_POOL.install(|| {
             policy_count
@@ -299,7 +327,10 @@ impl PolicyGuardedColumn {
             None => &Arc::new(Policy::PolicyClean),
         };
 
-        policies.retain(|_, v: &mut Arc<Policy>| v != base_policy);
+        policies = policies
+            .into_par_iter()
+            .filter(|(_, v)| v != base_policy)
+            .collect();
 
         Ok(Self {
             base_policy: base_policy.clone(),
@@ -346,7 +377,7 @@ impl PolicyGuardedColumn {
             .map(|g| self[*g as usize].clone())
             .collect::<Vec<_>>();
 
-        Self::new_from_iter(policies.iter())
+        Self::new_from_iter(policies.par_iter())
     }
 
     /// Construct a new [`PolicyGuardedColumn`] from a slice of the original object.
@@ -418,7 +449,7 @@ impl From<&PolicyGuardedColumn> for PolicyGuardedColumnProxy {
 impl From<PolicyGuardedColumnProxy> for PolicyGuardedColumn {
     #[inline]
     fn from(proxy: PolicyGuardedColumnProxy) -> Self {
-        Self::new_from_iter(proxy.policies.iter()).expect("Failed to create a new column.")
+        Self::new_from_iter(proxy.policies.par_iter()).expect("Failed to create a new column.")
     }
 }
 
@@ -672,10 +703,10 @@ impl PolicyGuardedDataFrame {
     }
 
     pub fn row(&self, idx: usize) -> PicachvResult<Vec<&PolicyRef>> {
-        picachv_ensure!(
-            idx < self.shape().0,
-            ComputeError: "The index is out of bound.",
-        );
+        // picachv_ensure!(
+        //     idx < self.shape().0,
+        //     ComputeError: "The index is out of bound.",
+        // );
 
         let res =
             THREAD_POOL.install(|| self.columns.par_iter().map(|c| &c[idx]).collect::<Vec<_>>());
