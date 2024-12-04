@@ -26,6 +26,7 @@ picachv-error = { path = "picachv-error", default-features = false }
 picachv-message = { path = "picachv-message", default-features = false }
 picachv-monitor = { path = "picachv-monitor", default-features = false }
 
+ahash = "0.8.11"
 arrow-ipc = "51.0.0"
 arrow-array = "51.0.0"
 arrow-schema = { version = "51.0.0", features = ["serde"] }

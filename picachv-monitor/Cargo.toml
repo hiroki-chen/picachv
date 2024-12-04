@@ -10,6 +10,7 @@ picachv-error = { workspace = true }
 picachv-core = { workspace = true }
 picachv-message = { workspace = true }
 
+ahash = { workspace = true }
 arrow-array = { workspace = true }
 prost = { workspace = true }
 readonly = "0.2.12"

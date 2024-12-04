@@ -1,10 +1,10 @@
 pub mod builder;
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
+use ahash::{HashMap, HashMapExt};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvResult};
 use picachv_message::group_by_idx::Groups;
 use picachv_message::group_by_proxy::GroupBy;

@@ -1,10 +1,10 @@
 //! Profiler implementation
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, RwLock};
 use std::time::{Duration, SystemTime};
 
+use ahash::{HashMap, HashMapExt};
 use serde::{Deserialize, Serialize};
 
 pub type Tick = (u128, u128);

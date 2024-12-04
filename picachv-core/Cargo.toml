@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 picachv-error = { workspace = true }
 picachv-message = { workspace = true }
 
+ahash = { workspace = true }
 arrow-ipc = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }

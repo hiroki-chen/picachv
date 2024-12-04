@@ -5,9 +5,9 @@
 //! sense that function signature change breaks the code. Instead, we can wrap all the arguments in a
 //! context and pass the context to the function.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
+use ahash::{HashMap, HashMapExt};
 use spin::RwLock;
 
 use crate::dataframe::{PolicyGuardedDataFrame, PolicyRef};

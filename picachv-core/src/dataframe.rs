@@ -1,8 +1,8 @@
-use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::ops::{Deref, Index};
 use std::sync::Arc;
 
+use ahash::{HashMap, HashMapExt, HashSet};
 use arrow_array::{LargeBinaryArray, RecordBatch};
 use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
 use picachv_message::transform_info::Information;
@@ -285,30 +285,31 @@ impl PolicyGuardedColumn {
         // //     policy_count.entry(p).and_modify(|e| *e += 1).or_insert(1);
         // //     policies.insert(i, p.clone());
         // // }
-        let (policy_count, mut policies): (HashMap<_, _>, HashMap<_, _>) = vec
-            .par_iter()
-            .enumerate()
-            .fold(
-                || (HashMap::new(), HashMap::new()),
-                |(mut policy_count, mut policies), (i, &p)| {
-                    policy_count.entry(p).and_modify(|e| *e += 1).or_insert(1);
-                    policies.insert(i, p.clone());
-                    (policy_count, policies)
-                },
-            )
-            .reduce(
-                || (HashMap::new(), HashMap::new()),
-                |(mut acc_count, mut acc_policies), (count, policies)| {
-                    for (key, value) in count {
-                        acc_count
-                            .entry(key)
-                            .and_modify(|e| *e += value)
-                            .or_insert(value);
-                    }
-                    acc_policies.extend(policies);
-                    (acc_count, acc_policies)
-                },
-            );
+        let (policy_count, mut policies) = THREAD_POOL.install(|| {
+            vec.par_iter()
+                .enumerate()
+                .fold(
+                    || (HashMap::new(), HashMap::new()),
+                    |(mut policy_count, mut policies), (i, &p)| {
+                        policy_count.entry(p).and_modify(|e| *e += 1).or_insert(1);
+                        policies.insert(i, p.clone());
+                        (policy_count, policies)
+                    },
+                )
+                .reduce(
+                    || (HashMap::new(), HashMap::new()),
+                    |(mut acc_count, mut acc_policies), (count, policies)| {
+                        for (key, value) in count {
+                            acc_count
+                                .entry(key)
+                                .and_modify(|e| *e += value)
+                                .or_insert(value);
+                        }
+                        acc_policies.extend(policies);
+                        (acc_count, acc_policies)
+                    },
+                )
+        });
 
         let base_policy = THREAD_POOL.install(|| {
             policy_count

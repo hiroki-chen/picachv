@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use std::fmt;
 use std::fs::OpenOptions;
 use std::path::Path;
 use std::sync::{Arc, LazyLock};
 
+use ahash::{HashMap, HashMapExt};
 use picachv_core::dataframe::{apply_transform, PolicyGuardedDataFrame};
 use picachv_core::expr::{ColumnIdent, Expr};
 use picachv_core::io::{BinIo, JsonIO};
