@@ -32,3 +32,13 @@ in proxy_to_arg: gb GroupsIdx { sorted: false, first: [2, 0, 1, 3], all: [UnitVe
 ## Misc
 [ ] Add a licence?
 [ ] There is a conflict between polars' thread pool and picachv's thread pool.
+
+Two interfaces causing major overhead:
+
+[x] `reify_expression`:
+  - `get_ctx_mut` that locks the global context which seems unnecessary.
+  - `expr_arena` lock and unlock stuff (writer waiting other writer but writers always modify different ).
+
+[ ] `convert_record_batch` introduces extra overhead which seems unnecessary.
+  - Or, we simply don't convert but rather maintains a `Arc<RecordBatch>` to it.
+    

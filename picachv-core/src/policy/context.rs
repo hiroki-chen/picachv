@@ -11,7 +11,6 @@ use std::sync::Arc;
 use spin::RwLock;
 
 use crate::dataframe::{PolicyGuardedDataFrame, PolicyRef};
-use crate::expr::Expr;
 use crate::udf::Udf;
 use crate::{Arenas, GroupInformation};
 
@@ -52,17 +51,5 @@ impl<'ctx> ExpressionEvalContext<'ctx> {
             expr_cache: Arc::new(RwLock::new(HashMap::new())),
             group_expr_cache: Arc::new(RwLock::new(HashMap::new())),
         }
-    }
-
-    pub fn lookup(&self, expr: &Expr, idx: usize) -> Option<PolicyRef> {
-        let hash = expr.compute_hash(self.df.row(idx).as_ref().unwrap(), &self.arena.expr_arena);
-
-        self.expr_cache.read().get(&hash).cloned()
-    }
-
-    pub fn update_cache(&self, expr: &Expr, idx: usize, policy: PolicyRef) {
-        let hash = expr.compute_hash(self.df.row(idx).as_ref().unwrap(), &self.arena.expr_arena);
-
-        self.expr_cache.write().insert(hash, policy);
     }
 }

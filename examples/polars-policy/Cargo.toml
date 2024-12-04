@@ -11,7 +11,7 @@ env_logger = "0.11.3"
 log = "0.4.21"
 # Let us use the forked version; since the dependency of polars is not published, we
 # use the local path to the polars crate.
-polars = { path = "../../../polars/crates/polars", features = [
+polars = { workspace = true, features = [
   "lazy",
   "temporal",    # We can use more data types.
   "date_offset",

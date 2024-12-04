@@ -36,6 +36,7 @@ chrono = "0.4.38"
 jemallocator = "0.5.4"
 num_enum = { version = "0.7.2" }
 ordered-float = { version = "4.2.0", features = ["serde"] }
+polars = { path = "../polars/crates/polars" }
 parquet = "51.0.0"
 prost = { version = "0.12" }
 rayon = { version = "1.10.0" }
