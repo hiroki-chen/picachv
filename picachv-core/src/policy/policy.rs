@@ -356,6 +356,7 @@ impl Lattice for PolicyLabel {
                 PolicyLabel::PolicyAgg {
                     ops: {
                         let res = lhs.intersection(rhs);
+                        #[cfg(feature = "trace")]
                         tracing::debug!("agg join: {:?} vs {:?} => {:?}", lhs, rhs, res);
                         res
                     },
@@ -537,6 +538,7 @@ impl Policy {
                     next: n2,
                 },
             ) => {
+                #[cfg(feature = "trace")]
                 tracing::debug!("{} and {}", l1.flowsto(l2), n1.le(n2));
                 l1.flowsto(l2) && n1.le(n2)
             },
@@ -608,8 +610,9 @@ impl Policy {
     /// Checks and downgrades the policy by a given label.
     pub fn downgrade(&self, by: &Arc<PolicyLabel>) -> PicachvResult<Self> {
         let p = build_policy!(by.clone())?;
+        #[cfg(feature = "trace")]
         tracing::debug!("in downgrade: constructed policy: {p:?}");
-
+        #[cfg(feature = "trace")]
         tracing::debug!("downgrading: {self:?} vs {p:?}");
 
         match self.le(&p) {

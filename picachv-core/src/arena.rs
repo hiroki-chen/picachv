@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+// use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
+use ahash::{HashMap, HashMapExt};
 use picachv_error::{PicachvError, PicachvResult};
 use uuid::Uuid;
 

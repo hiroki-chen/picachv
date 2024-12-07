@@ -18,7 +18,7 @@ use tabled::settings::{Alignment, Style};
 use uuid::Uuid;
 
 use crate::arena::Arena;
-use crate::expr::Expr;
+use crate::expr::AExpr;
 use crate::io::BinIo;
 use crate::plan::groupby_single;
 use crate::policy::Policy;
@@ -75,8 +75,8 @@ impl Chunks {
     fn do_groupby(
         &self,
         arenas: &Arenas,
-        keys: &[&Arc<Expr>],
-        aggs: &[&Arc<Expr>],
+        keys: &[&Arc<AExpr>],
+        aggs: &[&Arc<AExpr>],
         udfs: &HashMap<String, Udf>,
         hashmap: &HashMap<u64, Vec<(usize, &GroupInformation)>>,
         options: &ContextOptions,
@@ -161,8 +161,8 @@ impl Chunks {
     pub fn check(
         &self,
         arena: &Arenas,
-        keys: &[&Arc<Expr>],
-        aggs: &[&Arc<Expr>],
+        keys: &[&Arc<AExpr>],
+        aggs: &[&Arc<AExpr>],
         udfs: &HashMap<String, Udf>,
         options: &ContextOptions,
     ) -> PicachvResult<PolicyGuardedDataFrame> {
@@ -704,10 +704,10 @@ impl PolicyGuardedDataFrame {
     }
 
     pub fn row(&self, idx: usize) -> PicachvResult<Vec<&PolicyRef>> {
-        // picachv_ensure!(
-        //     idx < self.shape().0,
-        //     ComputeError: "The index is out of bound.",
-        // );
+        picachv_ensure!(
+            idx < self.shape().0,
+            ComputeError: "The index is out of bound.",
+        );
 
         let res =
             THREAD_POOL.install(|| self.columns.par_iter().map(|c| &c[idx]).collect::<Vec<_>>());
@@ -720,6 +720,7 @@ impl PolicyGuardedDataFrame {
         lhs: &PolicyGuardedDataFrame,
         rhs: &PolicyGuardedDataFrame,
     ) -> PicachvResult<PolicyGuardedDataFrame> {
+        #[cfg(feature = "trace")]
         tracing::debug!("stitching\n{lhs}\n{rhs}");
 
         if lhs.columns.is_empty() {
@@ -804,6 +805,7 @@ impl PolicyGuardedDataFrame {
 
     /// This checks if we can safely release this dataframe.
     pub fn finalize(&self) -> PicachvResult<()> {
+        #[cfg(feature = "trace")]
         tracing::debug!("finalizing\n{self}");
 
         for c in self.columns.iter() {

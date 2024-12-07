@@ -3,16 +3,17 @@ use picachv_message::column_specifier::Column;
 use picachv_message::{expr_argument, AggExpr, ApplyExpr, TernaryExpr};
 use uuid::Uuid;
 
-use super::Expr;
+use super::AExpr;
 use crate::expr::ColumnIdent;
 use crate::udf::Udf;
 use crate::Arenas;
 
-impl Expr {
+impl AExpr {
     /// Build expression from the arguments.
     pub fn from_args(arenas: &Arenas, arg: expr_argument::Argument) -> PicachvResult<Self> {
         use expr_argument::Argument;
-
+        
+        #[cfg(feature = "trace")]
         tracing::debug!("Building expression from the arguments {arg:?}");
         let expr_arena = arenas.expr_arena.read();
         match arg {
@@ -20,9 +21,9 @@ impl Expr {
                 Some(column) => match column.column {
                     Some(column) => match column {
                         Column::ColumnIndex(idx) => {
-                            Ok(Expr::Column(ColumnIdent::ColumnId(idx as usize)))
+                            Ok(AExpr::Column(ColumnIdent::ColumnId(idx as usize)))
                         },
-                        Column::ColumnName(name) => Ok(Expr::Column(ColumnIdent::ColumnName(name))),
+                        Column::ColumnName(name) => Ok(AExpr::Column(ColumnIdent::ColumnName(name))),
                     },
                     None => Err(PicachvError::InvalidOperation(
                         "The column is empty.".into(),
@@ -55,15 +56,15 @@ impl Expr {
                         "Empty operator found".into(),
                     ))?;
 
-                Ok(Expr::BinaryExpr {
+                Ok(AExpr::BinaryExpr {
                     left: left_uuid,
                     op,
                     right: right_uuid,
                     values: None, // must be reified later.
                 })
             },
-            Argument::Count(_) => Ok(Expr::Count),
-            Argument::Literal(_) => Ok(Expr::Literal),
+            Argument::Count(_) => Ok(AExpr::Count),
+            Argument::Literal(_) => Ok(AExpr::Literal),
             Argument::Apply(ApplyExpr { input_uuids, name }) => {
                 let args = input_uuids
                     .into_iter()
@@ -81,7 +82,7 @@ impl Expr {
                     );
                 }
 
-                Ok(Expr::Apply {
+                Ok(AExpr::Apply {
                     udf_desc: Udf { name },
                     args,
                     values: None, // must be reified later.
@@ -99,35 +100,35 @@ impl Expr {
 
                 match picachv_message::GroupByMethod::try_from(method) {
                     Ok(how) => match how {
-                        picachv_message::GroupByMethod::Sum => Ok(Expr::Agg {
-                            expr: crate::expr::AggExpr::Sum(uuid),
+                        picachv_message::GroupByMethod::Sum => Ok(AExpr::Agg {
+                            expr: crate::expr::AAggExpr::Sum(uuid),
                             values: None,
                         }),
-                        picachv_message::GroupByMethod::Mean => Ok(Expr::Agg {
-                            expr: crate::expr::AggExpr::Mean(uuid),
+                        picachv_message::GroupByMethod::Mean => Ok(AExpr::Agg {
+                            expr: crate::expr::AAggExpr::Mean(uuid),
                             values: None,
                         }),
-                        picachv_message::GroupByMethod::Max => Ok(Expr::Agg {
-                            expr: crate::expr::AggExpr::Max {
+                        picachv_message::GroupByMethod::Max => Ok(AExpr::Agg {
+                            expr: crate::expr::AAggExpr::Max {
                                 input: uuid,
                                 propagate_nans: true,
                             },
                             values: None,
                         }),
-                        picachv_message::GroupByMethod::Min => Ok(Expr::Agg {
-                            expr: crate::expr::AggExpr::Min {
+                        picachv_message::GroupByMethod::Min => Ok(AExpr::Agg {
+                            expr: crate::expr::AAggExpr::Min {
                                 input: uuid,
                                 propagate_nans: true,
                             },
                             values: None,
                         }),
-                        picachv_message::GroupByMethod::Len => Ok(Expr::Agg {
-                            expr: crate::expr::AggExpr::Count(uuid, true),
+                        picachv_message::GroupByMethod::Len => Ok(AExpr::Agg {
+                            expr: crate::expr::AAggExpr::Count(uuid, true),
                             values: None,
                         }),
 
-                        picachv_message::GroupByMethod::First => Ok(Expr::Agg {
-                            expr: crate::expr::AggExpr::First(uuid),
+                        picachv_message::GroupByMethod::First => Ok(AExpr::Agg {
+                            expr: crate::expr::AAggExpr::First(uuid),
                             values: None,
                         }),
                         _ => todo!(),
@@ -155,7 +156,7 @@ impl Expr {
                     InvalidOperation: "The UUID is invalid."
                 );
 
-                Ok(Expr::Ternary {
+                Ok(AExpr::Ternary {
                     cond: cond_uuid,
                     then: then_uuid,
                     otherwise: else_uuid,

@@ -200,12 +200,16 @@ impl PolicyGenerator {
                     Policy::PolicyClean
                 };
 
-                c.push(p.into());
+                let p = Arc::new(p);
+                c.push(p);
                 pb.inc(1);
             }
             pb.finish_with_message("done");
 
-            columns.push(Arc::new(PolicyGuardedColumn::new_from_iter(c.iter())?));
+            // TODO: Fixme.
+            columns.push(Arc::new(PolicyGuardedColumn::new_from_iter(
+                c.iter().collect::<Vec<_>>(),
+            )?));
             names.push(col.name().to_string());
         }
 

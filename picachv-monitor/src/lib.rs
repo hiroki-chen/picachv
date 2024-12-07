@@ -1,11 +1,10 @@
 use std::fmt;
-use std::fs::OpenOptions;
 use std::path::Path;
 use std::sync::{Arc, LazyLock};
 
 use ahash::{HashMap, HashMapExt};
 use picachv_core::dataframe::{apply_transform, PolicyGuardedDataFrame};
-use picachv_core::expr::{ColumnIdent, Expr};
+use picachv_core::expr::{AExpr, ColumnIdent};
 use picachv_core::io::{BinIo, JsonIO};
 use picachv_core::plan::{early_projection, Plan};
 use picachv_core::profiler::PROFILER;
@@ -15,8 +14,6 @@ use picachv_error::{PicachvError, PicachvResult};
 use picachv_message::{plan_argument, ContextOptions, ExprArgument, PlanArgument};
 use prost::Message;
 use spin::RwLock;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
 
 /// An activate context for the data analysis.
@@ -70,13 +67,13 @@ impl Context {
     }
 
     #[inline]
-    #[tracing::instrument]
+    #[cfg_attr(feature = "trace", tracing::instrument)]
     pub fn register_policy_dataframe(&self, df: PolicyGuardedDataFrame) -> PicachvResult<Uuid> {
         let mut df_arena = self.arena.df_arena.write();
         df_arena.insert(df)
     }
 
-    #[tracing::instrument]
+    #[cfg_attr(feature = "trace", tracing::instrument)]
     pub fn register_policy_dataframe_json<P: AsRef<Path> + fmt::Debug>(
         &self,
         path: P,
@@ -85,7 +82,7 @@ impl Context {
         self.register_policy_dataframe(df)
     }
 
-    #[tracing::instrument]
+    #[cfg_attr(feature = "trace", tracing::instrument)]
     pub fn register_policy_dataframe_bin<P: AsRef<Path> + fmt::Debug>(
         &self,
         path: P,
@@ -94,7 +91,7 @@ impl Context {
         self.register_policy_dataframe(df)
     }
 
-    #[tracing::instrument]
+    #[cfg_attr(feature = "trace", tracing::instrument)]
     pub fn register_policy_dataframe_from_row_group<P: AsRef<Path> + fmt::Debug>(
         &self,
         path: P,
@@ -109,7 +106,7 @@ impl Context {
         self.register_policy_dataframe(df)
     }
 
-    #[tracing::instrument]
+    #[cfg_attr(feature = "trace", tracing::instrument)]
     pub fn register_policy_dataframe_parquet<P: AsRef<Path> + fmt::Debug>(
         &self,
         path: P,
@@ -131,20 +128,22 @@ impl Context {
     }
 
     #[inline]
-    #[tracing::instrument]
+    #[cfg_attr(feature = "trace", tracing::instrument)]
     pub fn early_projection(&self, df_uuid: Uuid, project_list: &[usize]) -> PicachvResult<Uuid> {
         early_projection(&self.arena, df_uuid, project_list)
     }
 
-    #[tracing::instrument]
+    #[cfg_attr(feature = "trace", tracing::instrument)]
     pub fn expr_from_args(&self, expr_arg: ExprArgument) -> PicachvResult<Uuid> {
         let expr_arg = expr_arg.argument.ok_or(PicachvError::InvalidOperation(
             "The argument is empty.".into(),
         ))?;
 
-        let expr = Expr::from_args(&self.arena, expr_arg)?;
+        let expr = AExpr::from_args(&self.arena, expr_arg)?;
         let mut expr_arena = self.arena.expr_arena.write();
         let uuid = expr_arena.insert(expr)?;
+
+        #[cfg(feature = "trace")]
         tracing::debug!("expr_from_args: uuid = {uuid}");
 
         Ok(uuid)
@@ -154,7 +153,7 @@ impl Context {
     /// the invovled dataframes so that we can keep sync with the original dataframe since policies
     /// are de-coupled with their data. After succesful application it returns the UUID of the new
     /// dataframe allocated in the arena.
-    #[tracing::instrument]
+    #[cfg_attr(feature = "trace", tracing::instrument)]
     pub fn execute_epilogue(
         &self,
         df_uuid: Uuid,
@@ -246,7 +245,7 @@ impl Context {
         }
     }
 
-    #[tracing::instrument]
+    #[cfg_attr(feature = "trace", tracing::instrument)]
     pub fn create_slice(&self, df_uuid: Uuid, sel_vec: &[u32]) -> PicachvResult<Uuid> {
         let mut df_arena = self.arena.df_arena.write();
         let df = df_arena.get(&df_uuid)?;
@@ -256,7 +255,7 @@ impl Context {
         df_arena.insert(new_df)
     }
 
-    #[tracing::instrument]
+    #[cfg_attr(feature = "trace", tracing::instrument)]
     pub fn finalize(&self, df_uuid: Uuid) -> PicachvResult<()> {
         let df_arena = self.arena.df_arena.read();
 
@@ -277,7 +276,7 @@ impl Context {
         df.finalize()
     }
 
-    #[tracing::instrument]
+    #[cfg_attr(feature = "trace", tracing::instrument)]
     pub fn select_group(&self, df_uuid: Uuid, hashes: &[u64]) -> PicachvResult<Uuid> {
         let mut df_arena = self.arena.df_arena.write();
         let df = df_arena.get(&df_uuid)?;
@@ -290,7 +289,7 @@ impl Context {
     /// Reify an abstract value of the expression with the given values encoded in the bytes.
     ///
     /// The input values are just a serialized Arrow IPC data represented as record batches.
-    // #[tracing::instrument]
+    // #[cfg_attr(feature = "trace", tracing::instrument)]
     pub fn reify_expression(&self, expr_uuid: Uuid, value: &[u8]) -> PicachvResult<()> {
         let expr_arena = self.arena.expr_arena.read();
 
@@ -301,7 +300,7 @@ impl Context {
                 panic!("trying to reify an expression in use. This is internal logic error.");
             }
 
-            &mut *(Arc::as_ptr(expr) as *mut Expr)
+            &mut *(Arc::as_ptr(expr) as *mut AExpr)
         };
 
         if !expr.needs_reify() {
@@ -309,7 +308,7 @@ impl Context {
         }
 
         // Check if it is a column expression.
-        if let Expr::Column(_) = expr {
+        if let AExpr::Column(_) = expr {
             // Replace the column name with the actual value.
             let idx = usize::from_le_bytes(value.try_into().map_err(|_| {
                 PicachvError::InvalidOperation(
@@ -317,9 +316,9 @@ impl Context {
                 )
             })?);
 
-            *expr = Expr::Column(ColumnIdent::ColumnId(idx));
-        } else if let Expr::Ternary { cond_values, .. } = expr {
-            cond_values.replace(value.iter().map(|v| *v != 0).collect());
+            *expr = AExpr::Column(ColumnIdent::ColumnId(idx));
+        } else if let AExpr::Ternary { cond_values, .. } = expr {
+            cond_values.replace(value.iter().map(|v| *v != 0).collect::<Vec<_>>().into());
         } else {
             let f = || {
                 // Convert values into the Arrow record batch.
@@ -342,7 +341,7 @@ impl Context {
         self.id
     }
 
-    #[tracing::instrument]
+    #[cfg_attr(feature = "trace", tracing::instrument)]
     pub fn get_df(&self, df_uuid: Uuid) -> PicachvResult<Arc<PolicyGuardedDataFrame>> {
         let df_arena = self.arena.df_arena.read();
         df_arena.get(&df_uuid).cloned()
@@ -411,6 +410,7 @@ impl PicachvMonitor {
     }
 
     pub fn build_expr(&self, ctx_id: Uuid, expr_arg: &[u8]) -> PicachvResult<Uuid> {
+        #[cfg(feature = "trace")]
         tracing::debug!("build_expr");
 
         let ctx = self
@@ -458,9 +458,14 @@ impl PicachvMonitor {
 pub static MONITOR_INSTANCE: LazyLock<Arc<RwLock<PicachvMonitor>>> =
     LazyLock::new(|| Arc::new(RwLock::new(PicachvMonitor::new())));
 
+#[cfg(feature = "trace")]
 fn enable_tracing<P: AsRef<Path>>(path: P) -> PicachvResult<()> {
-    let log_file = OpenOptions::new().create(true).append(true).open(path)?;
+    use std::fs::OpenOptions;
 
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let log_file = OpenOptions::new().create(true).append(true).open(path)?;
     let debug_log = tracing_subscriber::fmt::layer()
         .with_writer(Arc::new(log_file))
         .with_ansi(false);
@@ -469,4 +474,9 @@ fn enable_tracing<P: AsRef<Path>>(path: P) -> PicachvResult<()> {
         .with(debug_log)
         .try_init()
         .map_err(|e| PicachvError::Already(e.to_string().into()))
+}
+
+#[cfg(not(feature = "trace"))]
+fn enable_tracing<P: AsRef<Path>>(_: P) -> PicachvResult<()> {
+    Ok(())
 }

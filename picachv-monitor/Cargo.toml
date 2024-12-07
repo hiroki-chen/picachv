@@ -15,6 +15,10 @@ arrow-array = { workspace = true }
 prost = { workspace = true }
 readonly = "0.2.12"
 spin = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
 uuid = { workspace = true }
+
+[features]
+default = []
+trace = ["tracing", "tracing-subscriber"]

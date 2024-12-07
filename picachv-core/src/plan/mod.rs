@@ -15,7 +15,8 @@ use uuid::Uuid;
 use crate::dataframe::{
     idx_to_group_info_vec, Chunks, PolicyGuardedColumn, PolicyGuardedDataFrame,
 };
-use crate::expr::{fold_on_groups, Expr};
+use crate::expr::pexpr::PExpr;
+use crate::expr::{fold_on_groups, AExpr};
 use crate::policy::context::ExpressionEvalContext;
 use crate::policy::Policy;
 use crate::profiler::PROFILER;
@@ -187,6 +188,7 @@ impl Plan {
         udfs: &HashMap<String, Udf>,
         options: &ContextOptions,
     ) -> PicachvResult<Uuid> {
+        #[cfg(feature = "trace")]
         tracing::debug!(
             "execute_prologue: checking {:?} with {active_df_uuid}",
             self
@@ -311,11 +313,11 @@ impl Plan {
 pub(crate) fn groupby_single(
     arena: &Arenas,
     df: &Arc<PolicyGuardedDataFrame>,
-    keys: &[&Arc<Expr>],
+    keys: &[&Arc<AExpr>],
     udfs: &HashMap<String, Udf>,
     options: &ContextOptions,
     gi: &[GroupInformation],
-    aggs: &[&Arc<Expr>],
+    aggs: &[&Arc<AExpr>],
 ) -> PicachvResult<PolicyGuardedDataFrame> {
     // There are two steps for the check:
     //
@@ -446,8 +448,8 @@ fn convert_slice_to_idx(slice: &GroupBySlice) -> PicachvResult<GroupByIdx> {
 
 fn groupby_multiple(
     arena: &Arenas,
-    keys: &[&Arc<Expr>],
-    aggs: &[&Arc<Expr>],
+    keys: &[&Arc<AExpr>],
+    aggs: &[&Arc<AExpr>],
     udfs: &HashMap<String, Udf>,
     options: &ContextOptions,
     gbm: &GroupByIdxMultiple,
@@ -527,7 +529,7 @@ pub fn early_projection(
 ///
 /// Implements the semantic of `apply_fold_on_groups_once` in `semantics.v`.
 fn check_policy_agg(
-    expr: &Expr,
+    expr: &AExpr,
     ctx: &ExpressionEvalContext,
     options: &ContextOptions,
 ) -> PicachvResult<Policy> {
@@ -537,8 +539,8 @@ fn check_policy_agg(
     );
 
     let agg_expr = match expr {
-        Expr::Agg { expr, .. } => expr,
-        Expr::Count => return Ok(Policy::PolicyClean),
+        AExpr::Agg { expr, .. } => expr,
+        AExpr::Count => return Ok(Policy::PolicyClean),
         _ => {
             // We must ensure that the expression being checked is an aggregation expression.
             picachv_bail!(ComputeError: "The expression {expr:?} is not an aggregation expression.")
@@ -546,6 +548,7 @@ fn check_policy_agg(
     };
 
     let inner_expr = agg_expr.extract_expr(&ctx.arena.expr_arena)?;
+    let inner_expr = PExpr::new_from_aexpr(&inner_expr, &ctx.arena.expr_arena)?;
     // We first check the policy enforcement for the inner expression.
     let inner = inner_expr.check_policy_in_group(ctx, options)?;
     // We then apply the `fold` thing on `inner`.
@@ -560,7 +563,7 @@ fn check_expressions_agg(
     arena: &Arenas,
     df: &Arc<PolicyGuardedDataFrame>,
     gi: &[GroupInformation],
-    agg_list: &[&Arc<Expr>],
+    agg_list: &[&Arc<AExpr>],
     udfs: &HashMap<String, Udf>,
     options: &ContextOptions,
 ) -> PicachvResult<Uuid> {
@@ -588,6 +591,7 @@ fn check_expressions_agg(
         f()
     }?;
 
+    #[cfg(feature = "trace")]
     tracing::debug!("check_expressions_agg: res = {res:?}");
 
     // Let us now construct a new dataframe.
@@ -610,16 +614,26 @@ fn check_expressions_agg(
 fn do_check_expressions(
     arena: &Arenas,
     df: &PolicyGuardedDataFrame,
-    expression: &[&Arc<Expr>],
+    expression: &[&Arc<AExpr>],
     udfs: &HashMap<String, Udf>,
     options: &ContextOptions,
 ) -> PicachvResult<PolicyGuardedDataFrame> {
     let rows = df.shape().0;
     let ctx = ExpressionEvalContext::new(df, false, udfs, arena);
 
+    // TODO: Convert here from AExpr into PExpr and do
+    // evalaution here.
+
+    let physical_expressions = THREAD_POOL.install(|| {
+        expression
+            .into_par_iter()
+            .map(|e| PExpr::new_from_aexpr(e, &arena.expr_arena))
+            .collect::<PicachvResult<Vec<_>>>()
+    })?;
+
     let f = || {
         THREAD_POOL.install(|| {
-            expression
+            physical_expressions
                 .par_iter()
                 .map(|expr| {
                     let cur = (0..rows)
@@ -649,7 +663,7 @@ fn do_check_expressions(
 fn check_expressions(
     arena: &Arenas,
     active_df_uuid: Uuid,
-    expression: &[&Arc<Expr>],
+    expression: &[&Arc<AExpr>],
     keep_old: bool, // Whether we need to alter the dataframe in the arena.
     udfs: &HashMap<String, Udf>,
     options: &ContextOptions,

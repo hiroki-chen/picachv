@@ -8,9 +8,8 @@ use arrow_array::{
     RecordBatch, StringArray, TimestampNanosecondArray, UInt16Array, UInt32Array, UInt8Array,
 };
 use arrow_schema::{DataType, TimeUnit};
-use picachv_error::{picachv_bail, picachv_ensure, PicachvError, PicachvResult};
-use picachv_message::binary_operator::Operator;
-use picachv_message::{binary_operator, ArithmeticBinaryOperator, ContextOptions};
+use picachv_error::{picachv_bail, PicachvResult};
+use picachv_message::binary_operator;
 use rayon::prelude::*;
 use spin::RwLock;
 use uuid::Uuid;
@@ -20,22 +19,20 @@ use crate::constants::GroupByMethod;
 use crate::dataframe::PolicyRef;
 use crate::policy::context::ExpressionEvalContext;
 use crate::policy::types::{AnyValue, ValueArrayRef};
-use crate::policy::{policy_ok, BinaryTransformType, Policy, TransformType};
-use crate::profiler::PROFILER;
+use crate::policy::{Policy, TransformType};
+use crate::policy_agg_label;
 use crate::thread_pool::THREAD_POOL;
 use crate::udf::Udf;
-use crate::{
-    build_unary_expr, cast, policy_agg_label, policy_binary_transform_label,
-    policy_unary_transform_label,
-};
 
 pub mod builder;
+pub mod check;
+pub mod pexpr;
 
 /// Stores the expressions.
-pub type ExprArena = Arena<Expr>;
+pub type ExprArena = Arena<AExpr>;
 
 #[derive(PartialEq, Hash, Clone)]
-pub enum AggExpr {
+pub enum AAggExpr {
     Min { input: Uuid, propagate_nans: bool },
     Max { input: Uuid, propagate_nans: bool },
     Median(Uuid),
@@ -53,8 +50,8 @@ pub enum AggExpr {
     Var(Uuid, u8),
 }
 
-impl AggExpr {
-    pub fn extract_expr(&self, expr_arena: &Arc<RwLock<ExprArena>>) -> PicachvResult<Arc<Expr>> {
+impl AAggExpr {
+    pub fn extract_expr(&self, expr_arena: &Arc<RwLock<ExprArena>>) -> PicachvResult<Arc<AExpr>> {
         let expr_uuid = match self {
             Self::Min { input, .. }
             | Self::Max { input, .. }
@@ -101,13 +98,23 @@ pub enum ColumnIdent {
     ColumnId(usize),
 }
 
-/// An expression type for describing a node in the query.
+/// An [`AExpr`] represents a logical expression that is temporarily stored inside an arena
+/// and has not yet been reified. This expression is created by the caller and serves as a
+/// placeholder before further processing.
+///
+/// When performing query execution and policy checks, this expression must be reified to
+/// enable proper evaluation. Reification converts an [`AExpr`] into a [`pexpr::PExpr`],
+/// where values and expressions are directly managed by Picachv, eliminating the need for
+/// a UUID as a pointer to reference the arena.
+///
+/// Performing policy checks on [`AExpr`] has a significant drawback: it requires intensive
+/// lookups in the arena, which is inefficient and unfriendly to parallelism.
 #[derive(Clone, Hash, PartialEq)]
-pub enum Expr {
+pub enum AExpr {
     /// Aggregation.
     Agg {
-        expr: AggExpr,
-        values: Option<Vec<ValueArrayRef>>,
+        expr: AAggExpr,
+        values: Option<Arc<Vec<ValueArrayRef>>>,
     },
     /// Select a column.
     Column(ColumnIdent),
@@ -130,7 +137,7 @@ pub enum Expr {
         left: Uuid,
         op: binary_operator::Operator,
         right: Uuid,
-        values: Option<Vec<ValueArrayRef>>,
+        values: Option<Arc<Vec<ValueArrayRef>>>,
     },
     UnaryExpr {
         arg: Uuid,
@@ -143,18 +150,18 @@ pub enum Expr {
         // This only takes one argument.
         args: Vec<Uuid>,
         // A type-erased array of values reified by the caller.
-        values: Option<Vec<ValueArrayRef>>,
+        values: Option<Arc<Vec<ValueArrayRef>>>,
     },
     /// a ? b : c
     Ternary {
         cond: Uuid,
-        cond_values: Option<Vec<bool>>, // should be boolean values.
+        cond_values: Option<Arc<Vec<bool>>>, // should be boolean values.
         then: Uuid,
         otherwise: Uuid,
     },
 }
 
-impl Expr {
+impl AExpr {
     pub fn needs_reify(&self) -> bool {
         matches!(
             self,
@@ -230,269 +237,19 @@ impl Expr {
         hasher.finish()
     }
 
-    /// This function checks the policy enforcement for the expression type in aggregation context.
-    ///
-    /// `eval_expr` in `expression.v`.
-    pub(crate) fn check_policy_in_group(
-        &self,
-        ctx: &ExpressionEvalContext,
-        options: &ContextOptions,
-    ) -> PicachvResult<Vec<PolicyRef>> {
-        let expr_arena = ctx.arena.expr_arena.read();
-
-        // Extract the groups as a sub-dataframe.
-        let groups = ctx.gi.ok_or(PicachvError::ComputeError(
-            "Group information not found, this is a fatal error.".into(),
-        ))?;
-
-        let groups = if options.enable_profiling {
-            PROFILER.profile(|| ctx.df.groups(groups), "grouping".into())
-        } else {
-            ctx.df.groups(groups)
-        }?;
-
-        match self {
-            Expr::Column(col) => {
-                let col = match col {
-                    ColumnIdent::ColumnId(id) => *id,
-                    ColumnIdent::ColumnName(name) => picachv_bail!(
-                        ComputeError: "Must reify column `{name}` into index"
-                    ),
-                };
-
-                Ok(THREAD_POOL.install(|| {
-                    (0..groups.shape().0)
-                        .into_par_iter()
-                        .map(|i| groups.columns[col][i].clone())
-                        .collect::<Vec<_>>()
-                }))
-            },
-
-            Expr::Apply {
-                udf_desc,
-                args,
-                values,
-            } => {
-                let values = values.clone().ok_or(PicachvError::ComputeError(
-                    format!("{udf_desc:?} does not have values reified.").into(),
-                ))?;
-
-                let args = THREAD_POOL.install(|| {
-                    args.par_iter()
-                        .map(|e| expr_arena.get(e))
-                        .collect::<PicachvResult<Vec<_>>>()
-                })?;
-
-                THREAD_POOL.install(|| {
-                    values
-                        .par_iter()
-                        .take(groups.shape().0)
-                        .enumerate()
-                        .map(|(i, value)| {
-                            let mut p = Default::default();
-                            for (j, arg) in args.iter().enumerate() {
-                                let arg = arg.check_policy_in_row(ctx, i)?;
-                                p = check_policy_binary_udf(
-                                    &groups.columns[j][i],
-                                    &arg,
-                                    &udf_desc.name,
-                                    value,
-                                )?;
-                            }
-
-                            Ok(p.into())
-                        })
-                        .collect::<PicachvResult<Vec<_>>>()
-                })
-            },
-
-            Expr::BinaryExpr {
-                left,
-                op,
-                right,
-                values,
-            } => {
-                let values = values.as_ref().ok_or(PicachvError::ComputeError(
-                    format!("{self:?} does not have values reified.").into(),
-                ))?;
-
-                let left = expr_arena.get(left)?;
-                let right = expr_arena.get(right)?;
-
-                THREAD_POOL.install(|| {
-                    values
-                        .par_iter()
-                        .take(groups.shape().0)
-                        .enumerate()
-                        .map(|(i, value)| {
-                            let (lhs, rhs) = rayon::join(
-                                || left.check_policy_in_row(ctx, i),
-                                || right.check_policy_in_row(ctx, i),
-                            );
-                            let (lhs, rhs) = (lhs?, rhs?);
-
-                            Ok(Arc::new(check_policy_binary(&lhs, &rhs, op, value)?))
-                        })
-                        .collect::<PicachvResult<Vec<_>>>()
-                })
-            },
-
-            _ => unimplemented!("{self:?} is not yet supported in aggregation context."),
-        }
-    }
-
-    /// This function checks the policy enforcement for the expression type (not within aggregation!).
-    ///
-    /// The formalized part is described in `pcd-proof/theories/expression.v`.
-    /// Note that since the check occurs at the tuple level!
-    pub(crate) fn check_policy_in_row(
-        &self,
-        ctx: &ExpressionEvalContext,
-        idx: usize,
-    ) -> PicachvResult<PolicyRef> {
-        let expr_arena = ctx.arena.expr_arena.read();
-
-        let p = match self {
-            // A literal expression is always allowed because it does not
-            // contain any sensitive information.
-            Expr::Literal => Ok(Default::default()),
-            // Deal with the UDF case.
-            Expr::Apply {
-                udf_desc: Udf { name },
-                args,
-                values,
-            } => match values {
-                Some(values) => Ok(Arc::new(check_policy_in_row_apply(
-                    ctx, name, args, values, idx,
-                )?)),
-                None => {
-                    picachv_bail!(ComputeError: "The values are not reified for {self:?}")
-                },
-            },
-
-            Expr::BinaryExpr {
-                left,
-                right,
-                op,
-                values,
-            } => {
-                let left = expr_arena.get(left)?;
-                let right = expr_arena.get(right)?;
-
-                let lhs = left.check_policy_in_row(ctx, idx)?;
-                let rhs = right.check_policy_in_row(ctx, idx)?;
-
-                if matches!(
-                    op,
-                    binary_operator::Operator::ComparisonOperator(_)
-                        | binary_operator::Operator::LogicalOperator(_)
-                ) {
-                    return Ok(Arc::new(lhs.join(&rhs)?));
-                }
-
-                let values = values.as_ref().ok_or(PicachvError::ComputeError(
-                    format!("The values are not reified for {self:?}").into(),
-                ))?;
-
-                picachv_ensure!(
-                    !values.is_empty() && values[0].len() == 2,
-                    InvalidOperation: "The argument to the binary expression is incorrect"
-                );
-
-                Ok(Arc::new(check_policy_binary(&lhs, &rhs, op, &values[idx])?))
-            },
-            // This is truly interesting.
-            //
-            // See `eval_unary_expression_in_cell`.
-            Expr::UnaryExpr { arg, op } => {
-                let arg = expr_arena.get(arg)?;
-                let policy = arg.check_policy_in_row(ctx, idx)?;
-                Ok(Arc::new(
-                    policy.downgrade(&Arc::new(build_unary_expr!(op.clone())))?,
-                ))
-            },
-            Expr::Column(col) => {
-                let col = match col {
-                    ColumnIdent::ColumnId(id) => *id,
-                    ColumnIdent::ColumnName(name) => picachv_bail!(
-                        ComputeError: "Must reify column `{name}` into index"
-                    ),
-                };
-
-                // For column expression this is an interesting undecidable case
-                // where we cannot determine what operation it will be applied.
-                //
-                // We neverthelss approve this operation per evaluation semantics.
-                //
-                // See `EvalColumnNotAgg` in `expression.v`.
-                Ok(ctx.df.row(idx)?[col].clone())
-            },
-            Expr::Alias { expr, .. } => {
-                let expr = expr_arena.get(expr)?;
-                expr.check_policy_in_row(ctx, idx)
-            },
-            Expr::Filter { input, filter } => {
-                let input = expr_arena.get(input)?;
-                let filter = expr_arena.get(filter)?;
-                input.check_policy_in_row(ctx, idx)?;
-                filter.check_policy_in_row(ctx, idx)
-            },
-            Expr::Agg { .. } => Err(PicachvError::ComputeError(
-                "Aggregation expression is not allowed in row context.".into(),
-            )),
-            Expr::Ternary {
-                cond_values,
-                then,
-                otherwise,
-                ..
-            } => {
-                picachv_ensure!(
-                    cond_values.is_some(),
-                    ComputeError: "The condition values are not reified"
-                );
-
-                let then = expr_arena.get(then)?;
-                let otherwise = expr_arena.get(otherwise)?;
-
-                let cond_values = cond_values.as_ref().ok_or(PicachvError::ComputeError(
-                    "The condition values are not reified".into(),
-                ))?;
-
-                let cond = if cond_values.len() == 1 {
-                    cond_values[0]
-                } else if idx >= cond_values.len() {
-                    false
-                } else {
-                    cond_values[idx]
-                };
-                let then = || then.check_policy_in_row(ctx, idx);
-                let otherwise = || otherwise.check_policy_in_row(ctx, idx);
-                let (then, otherwise) = THREAD_POOL.install(|| rayon::join(then, otherwise));
-                let (then, otherwise) = (then?, otherwise?);
-
-                Ok(if cond { then } else { otherwise })
-            },
-
-            _ => Ok(Default::default()),
-        }?;
-
-        Ok(p)
-    }
-
     /// Reifies the current expression with the provided `RecordBatch`.
     ///
     /// This operation prepares the expression for policy checking.
     pub fn reify(&mut self, values: RecordBatch) -> PicachvResult<()> {
         let values_mut = match self {
-            Expr::Apply { values, .. }
-            | Expr::BinaryExpr { values, .. }
-            | Expr::Agg { values, .. } => values,
+            AExpr::Apply { values, .. }
+            | AExpr::BinaryExpr { values, .. }
+            | AExpr::Agg { values, .. } => values,
             _ => picachv_bail!(ComputeError: "The expression does not need reification."),
         };
 
-        // I think we should not do this？
         let values = convert_record_batch(values)?;
-        values_mut.replace(values);
+        values_mut.replace(values.into());
 
         Ok(())
     }
@@ -592,7 +349,7 @@ pub(crate) fn convert_record_batch(rb: RecordBatch) -> PicachvResult<Vec<ValueAr
     Ok(rows)
 }
 
-impl fmt::Debug for AggExpr {
+impl fmt::Debug for AAggExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Min {
@@ -627,7 +384,7 @@ impl fmt::Debug for AggExpr {
     }
 }
 
-impl fmt::Debug for Expr {
+impl fmt::Debug for AExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Agg { expr, .. } => write!(f, "{expr:?}"),
@@ -659,157 +416,9 @@ impl fmt::Debug for Expr {
     }
 }
 
-impl fmt::Display for Expr {
+impl fmt::Display for AExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self:?}")
-    }
-}
-
-/// The checking logic seems identical to the one in `expr.rs`.
-/// FIXME: Optimize?
-fn check_policy_binary(
-    lhs: &Policy,
-    rhs: &Policy,
-    op: &Operator,
-    value: &ValueArrayRef,
-) -> PicachvResult<Policy> {
-    match op {
-        binary_operator::Operator::ComparisonOperator(_)
-        | binary_operator::Operator::LogicalOperator(_) => lhs.join(rhs),
-        binary_operator::Operator::ArithmeticOperator(op) => {
-            let op = ArithmeticBinaryOperator::try_from(*op).map_err(|_| {
-                PicachvError::ComputeError(
-                    "Cannot convert i32 into `ArithmeticBinaryOperator`.".into(),
-                )
-            })?;
-
-            let mut op = BinaryTransformType::try_from(op)?;
-
-            match (policy_ok(lhs), policy_ok(rhs)) {
-                (true, true) => Ok(Policy::PolicyClean),
-                // lhs = ∎
-                (true, _) => {
-                    op.arg = value[0].clone();
-                    let p_f = policy_binary_transform_label!(TransformType::Binary(op));
-
-                    // Check if we can downgrade.
-                    rhs.downgrade(&Arc::new(p_f))
-                },
-
-                // rhs = ∎
-                (_, true) => {
-                    op.arg = value[1].clone();
-                    let p_f = policy_binary_transform_label!(TransformType::Binary(op));
-
-                    // Check if we can downgrade.
-                    lhs.downgrade(&Arc::new(p_f))
-                },
-
-                _ => lhs.join(rhs),
-            }
-        },
-    }
-}
-
-fn check_policy_binary_udf(
-    lhs: &PolicyRef,
-    rhs: &PolicyRef,
-    udf_name: &str,
-    values: &ValueArrayRef,
-) -> PicachvResult<Policy> {
-    picachv_ensure!(
-        values.len() == 2,
-        ComputeError: "Checking policy for UDF requires two values."
-    );
-
-    tracing::debug!(
-        "lhs = {:?}, rhs = {:?}, udf_name = {:?}",
-        lhs,
-        rhs,
-        udf_name
-    );
-
-    match (policy_ok(lhs), policy_ok(rhs)) {
-        (true, true) => Ok(Policy::PolicyClean),
-        // lhs = ∎
-        (true, _) => {
-            let lhs_value = match udf_name {
-                "dt.offset_by" => cast::into_duration(&values[0]),
-                "+" => cast::into_i64(&values[0]),
-                _ => unimplemented!("{udf_name} is not yet supported."),
-            }?;
-
-            let pf = policy_binary_transform_label!(udf_name.to_string(), lhs_value);
-            rhs.downgrade(&Arc::new(pf))
-        },
-        // rhs = ∎
-        (_, true) => {
-            let rhs_value = match udf_name {
-                "dt.offset_by" => cast::into_duration(&values[1]),
-                "+" => cast::into_i64(&values[1]),
-                _ => unimplemented!("{udf_name} is not yet supported."),
-            }?;
-
-            let pf = policy_binary_transform_label!(udf_name.to_string(), rhs_value);
-            lhs.downgrade(&Arc::new(pf))
-        },
-
-        _ => lhs.join(rhs),
-    }
-}
-
-fn check_policy_unary_udf(arg: &PolicyRef, udf_name: &str) -> PicachvResult<Policy> {
-    match policy_ok(arg) {
-        true => Ok(Policy::PolicyClean),
-        false => {
-            let pf = policy_unary_transform_label!(udf_name.to_string());
-            arg.downgrade(&Arc::new(pf))
-        },
-    }
-}
-
-/// This function handles the UDF case.
-fn check_policy_in_row_apply(
-    ctx: &ExpressionEvalContext,
-    udf_name: &str,
-    args: &[Uuid],
-    values: &[ValueArrayRef],
-    idx: usize,
-) -> PicachvResult<Policy> {
-    let args = {
-        let expr_arena = ctx.arena.expr_arena.read();
-        args.par_iter()
-            .map(|e| expr_arena.get(e).cloned())
-            .collect::<PicachvResult<Vec<_>>>()?
-    };
-
-    match args.len() {
-        // Because a UDF does not have any argument, it is safe since it does not de-
-        // pend on any sensitive information.
-        //
-        // There is also no closure in relational algebra, so we do not need to worry
-        // about the closure that may have its own context.
-        0 => Ok(Default::default()),
-        // The unary case.
-        1 => {
-            let arg = args[0].check_policy_in_row(ctx, idx)?;
-
-            check_policy_unary_udf(&arg, udf_name)
-        },
-        // The binary case.
-        2 => {
-            let lhs = || args[0].check_policy_in_row(ctx, idx);
-            let rhs = || args[1].check_policy_in_row(ctx, idx);
-
-            let (lhs, rhs) = THREAD_POOL.install(|| rayon::join(lhs, rhs));
-            let (lhs, rhs) = (lhs?, rhs?);
-
-            match idx >= values.len() {
-                true => Ok(Default::default()),
-                false => check_policy_binary_udf(&lhs, &rhs, udf_name, &values[idx]),
-            }
-        },
-        _ => Err(PicachvError::Unimplemented("UDF not implemented.".into())),
     }
 }
 
@@ -818,6 +427,7 @@ fn check_policy_in_row_apply(
 /// See `eval_agg` in `expression.v`.
 pub(crate) fn fold_on_groups(groups: &[PolicyRef], how: GroupByMethod) -> PicachvResult<Policy> {
     // Construct the operator.
+    #[cfg(feature = "trace")]
     tracing::debug!("{how:?} {}", groups.len());
 
     let pf = Arc::new(policy_agg_label!(how, groups.len()));

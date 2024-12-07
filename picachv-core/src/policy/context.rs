@@ -20,7 +20,7 @@ use crate::{Arenas, GroupInformation};
 /// - No `step` is required since there is no termination check, and
 /// - Γ is not required here although we can add it (not necessary).
 #[allow(unused)]
-pub(crate) struct ExpressionEvalContext<'ctx> {
+pub struct ExpressionEvalContext<'ctx> {
     /// The current activate data frame.
     pub(crate) df: &'ctx PolicyGuardedDataFrame,
     /// Indicates whether the expression is in an aggregation context.
