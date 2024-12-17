@@ -47,7 +47,7 @@ fn timer(f: impl FnOnce() -> DataFrame) -> (Duration, DataFrame) {
     (end - begin, res)
 }
 
-fn do_query(qf: &QueryFactory, qn: usize, args: &Args) -> PolarsResult<Duration> {
+fn do_query(qf: &QueryFactory, qn: usize, args: &Args) -> PolarsResult<()> {
     let query = match qn {
         1 => qf.q1(),
         2 => qf.q2(),
@@ -84,9 +84,9 @@ fn do_query(qf: &QueryFactory, qn: usize, args: &Args) -> PolarsResult<Duration>
         query
     };
 
-    let (elapsed_time, _) = timer(|| query.collect().unwrap());
+    query.collect().unwrap();
 
-    Ok(elapsed_time)
+    Ok(()) // the elapsed time will be directly printed in the query.
 }
 
 fn main() -> PolarsResult<()> {
@@ -95,12 +95,10 @@ fn main() -> PolarsResult<()> {
 
     if args.run_all {
         for qn in QUERY_NUM {
-            let elapsed_time = do_query(&qf, qn, &args)?;
-            println!("Query {} took {:?}", qn, elapsed_time);
+            do_query(&qf, qn, &args)?;
         }
     } else {
-        let elapsed_time = do_query(&qf, args.query, &args)?;
-        println!("Query {} took {:?}", args.query, elapsed_time);
+        do_query(&qf, args.query, &args)?;
     }
 
     Ok(())

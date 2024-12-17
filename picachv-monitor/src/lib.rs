@@ -99,10 +99,9 @@ impl Context {
         selection: Option<&[bool]>,
         row_group: usize,
     ) -> PicachvResult<Uuid> {
-        let now = std::time::Instant::now();
         let df =
             PolicyGuardedDataFrame::from_parquet_row_group(path, projection, selection, row_group)?;
-        println!("read parquet took {:?}", now.elapsed());
+
         self.register_policy_dataframe(df)
     }
 
@@ -113,7 +112,6 @@ impl Context {
         projection: &[usize],
         selection: Option<&[bool]>,
     ) -> PicachvResult<Uuid> {
-        let now = std::time::Instant::now();
         let df = if self.options.read().enable_profiling {
             PROFILER.profile(
                 || PolicyGuardedDataFrame::from_parquet(path.as_ref(), projection, selection),
@@ -122,7 +120,6 @@ impl Context {
         } else {
             PolicyGuardedDataFrame::from_parquet(path.as_ref(), projection, selection)
         }?;
-        println!("read parquet took {:?}", now.elapsed());
 
         self.register_policy_dataframe(df)
     }

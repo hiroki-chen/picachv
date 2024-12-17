@@ -12,7 +12,7 @@ impl AExpr {
     /// Build expression from the arguments.
     pub fn from_args(arenas: &Arenas, arg: expr_argument::Argument) -> PicachvResult<Self> {
         use expr_argument::Argument;
-        
+
         #[cfg(feature = "trace")]
         tracing::debug!("Building expression from the arguments {arg:?}");
         let expr_arena = arenas.expr_arena.read();
