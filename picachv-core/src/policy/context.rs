@@ -21,6 +21,7 @@ use crate::{Arenas, GroupInformation};
 /// - Γ is not required here although we can add it (not necessary).
 #[allow(unused)]
 pub struct ExpressionEvalContext<'ctx> {
+    pub(crate) name: &'ctx str,
     /// The current activate data frame.
     pub(crate) df: &'ctx PolicyGuardedDataFrame,
     /// Indicates whether the expression is in an aggregation context.
@@ -37,12 +38,14 @@ pub struct ExpressionEvalContext<'ctx> {
 
 impl<'ctx> ExpressionEvalContext<'ctx> {
     pub fn new(
+        name: &'ctx str,
         df: &'ctx PolicyGuardedDataFrame,
         in_agg: bool,
         udfs: &'ctx HashMap<String, Udf>,
         arena: &'ctx Arenas,
     ) -> Self {
         ExpressionEvalContext {
+            name,
             df,
             in_agg,
             gi: None,

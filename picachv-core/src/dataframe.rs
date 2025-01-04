@@ -279,12 +279,7 @@ impl PolicyGuardedColumn {
         iter: impl IntoParallelIterator<Item = &'a PolicyRef>,
     ) -> PicachvResult<Self> {
         let vec = iter.into_par_iter().collect::<Vec<_>>();
-        // let mut policies = HashMap::new();
-        // let mut policy_count = HashMap::new();
-        // // for (i, &p) in vec.par_iter().enumerate() {
-        // //     policy_count.entry(p).and_modify(|e| *e += 1).or_insert(1);
-        // //     policies.insert(i, p.clone());
-        // // }
+
         let (policy_count, mut policies) = THREAD_POOL.install(|| {
             vec.par_iter()
                 .enumerate()
@@ -375,10 +370,10 @@ impl PolicyGuardedColumn {
         let policies = groups
             .groups
             .par_iter()
-            .map(|g| self[*g as usize].clone())
+            .map(|g| &self[*g as usize])
             .collect::<Vec<_>>();
 
-        Self::new_from_iter(policies.par_iter())
+        Self::new_from_iter(policies.into_par_iter())
     }
 
     /// Construct a new [`PolicyGuardedColumn`] from a slice of the original object.

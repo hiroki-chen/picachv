@@ -328,36 +328,27 @@ pub(crate) fn groupby_single(
     //
     // See the semantics for `eval_aggregate` as well as `eval_groupby_having` and
     // `apply_fold_in_groups` in `semantics.v`.
-    let first_part = || {
-        let df = do_check_expressions(arena, df, &keys, udfs, options)?;
+    let first_part = {
+        let df = do_check_expressions(arena, df, &keys, udfs, options, "groupby")?;
 
-        aggregate_keys(&df, gi)
-    };
+        aggregate_keys(&df, gi, options)
+    }?;
     // This is in fact `apply_fold_on_groups`, but for the sake of naming consistency
     // we use `check_expressions_agg`.
-    let second_part = || check_expressions_agg(arena, df, gi, &aggs, udfs, options);
-
-    // let (first_part, second_part) = if false && options.enable_profiling {
-    //     THREAD_POOL.install(|| {
-    //         rayon::join(
-    //             || PROFILER.profile(first_part, "groupby_keys".into()),
-    //             || PROFILER.profile(second_part, "check_expressions_agg".into()),
-    //         )
-    //     })
-    // } else {
-    //     THREAD_POOL.install(|| rayon::join(first_part, second_part))
-    // };
-    // let first_part = first_part?;
-    // let second_part = second_part?;
-
-    let first_part = first_part()?;
-    let second_part = second_part()?;
+    let second_part = check_expressions_agg(arena, df, gi, &aggs, udfs, options)?;
 
     // Combine the two parts.
     let df_arena = arena.df_arena.read();
     let second_part = df_arena.get(&second_part)?;
 
-    PolicyGuardedDataFrame::stitch(&first_part, second_part)
+    if options.enable_profiling {
+        PROFILER.profile(
+            || PolicyGuardedDataFrame::stitch(&first_part, &second_part),
+            "groupby_single: stitch".into(),
+        )
+    } else {
+        PolicyGuardedDataFrame::stitch(&first_part, &second_part)
+    }
 }
 
 /// Do the horizontal stack operation.
@@ -391,14 +382,15 @@ fn do_hstack(
 
     let f = || {
         let new_df = if cse_expressions.is_empty() {
-            do_check_expressions(arena, df, &expressions, udfs, options)?
+            do_check_expressions(arena, df, &expressions, udfs, options, "non-agg")?
         } else {
             // First let us collect the common subexpression part.
-            let cse_part = do_check_expressions(arena, df, &cse_expressions, udfs, options)?;
+            let cse_part =
+                do_check_expressions(arena, df, &cse_expressions, udfs, options, "non-agg")?;
             // We then stitch the common subexpression part with the dataframe.
             let cse_part = PolicyGuardedDataFrame::stitch(df, &cse_part)?;
             // We then evaluate the actual expressions.
-            do_check_expressions(arena, &cse_part, &expressions, udfs, options)?
+            do_check_expressions(arena, &cse_part, &expressions, udfs, options, "non-agg")?
         };
 
         // We then add new columns.
@@ -462,38 +454,52 @@ fn groupby_multiple(
 fn aggregate_keys(
     df: &PolicyGuardedDataFrame,
     gi: &[GroupInformation],
+    options: &ContextOptions,
 ) -> PicachvResult<PolicyGuardedDataFrame> {
     let columns = THREAD_POOL.install(|| {
         (0..df.shape().1)
             .into_par_iter()
             .map(|col_idx| {
-                let cur = gi
-                    .into_par_iter()
-                    .map(|group| {
-                        group
-                            .groups
-                            .par_iter()
-                            .fold(
-                                || Ok(Arc::new(Policy::PolicyClean)),
-                                |mut acc, idx| {
-                                    let p = &df.columns[col_idx][*idx as usize];
-                                    acc = Ok(Arc::new(acc?.join(p)?));
-                                    acc
-                                },
-                            )
-                            .reduce(
-                                || Ok(Arc::new(Policy::PolicyClean)),
-                                |mut acc, next| {
-                                    acc = Ok(Arc::new(acc?.join(next?.as_ref())?));
-                                    acc
-                                },
-                            )
-                    })
-                    .collect::<PicachvResult<Vec<_>>>()?;
+                let cur = || {
+                    gi.into_par_iter()
+                        .map(|group| {
+                            group
+                                .groups
+                                .par_iter()
+                                .fold(
+                                    || Ok(Arc::new(Policy::PolicyClean)),
+                                    |mut acc, idx| {
+                                        let p = &df.columns[col_idx][*idx as usize];
+                                        acc = Ok(Arc::new(acc?.join(p)?));
+                                        acc
+                                    },
+                                )
+                                .reduce(
+                                    || Ok(Arc::new(Policy::PolicyClean)),
+                                    |mut acc, next| {
+                                        acc = Ok(Arc::new(acc?.join(next?.as_ref())?));
+                                        acc
+                                    },
+                                )
+                        })
+                        .collect::<PicachvResult<Vec<_>>>()
+                };
 
-                Ok(Arc::new(PolicyGuardedColumn::new_from_iter(
-                    cur.par_iter(),
-                )?))
+                let cur = if options.enable_profiling {
+                    PROFILER.profile(cur, "aggregate: groupby".into())
+                } else {
+                    cur()
+                }?;
+
+                Ok(Arc::new({
+                    let f = || PolicyGuardedColumn::new_from_iter(cur.par_iter());
+
+                    if options.enable_profiling {
+                        PROFILER.profile(f, "aggregate: process".into())
+                    } else {
+                        f()
+                    }
+                }?))
             })
             .collect::<PicachvResult<Vec<_>>>()
     })?;
@@ -552,7 +558,13 @@ fn check_policy_agg(
     // We first check the policy enforcement for the inner expression.
     let inner = inner_expr.check_policy_in_group(ctx, options)?;
     // We then apply the `fold` thing on `inner`.
-    fold_on_groups(&inner, agg_expr.as_groupby_method())
+    let f = || fold_on_groups(&inner, agg_expr.as_groupby_method());
+
+    if options.enable_profiling {
+        PROFILER.profile(f, "check_policy_agg: fold_on_groups".into())
+    } else {
+        f()
+    }
 }
 
 /// Performs the aggregation on the dataframe; see `apply_fold_on_groups` in `semantics.v`.
@@ -574,7 +586,7 @@ fn check_expressions_agg(
                 .map(|agg| {
                     gi.par_iter()
                         .map(|group| {
-                            let mut ctx = ExpressionEvalContext::new(df, true, udfs, arena);
+                            let mut ctx = ExpressionEvalContext::new("agg", df, true, udfs, arena);
                             ctx.gi = Some(group);
 
                             Ok(Arc::new(check_policy_agg(agg, &ctx, options)?))
@@ -586,7 +598,7 @@ fn check_expressions_agg(
     };
 
     let res = if options.enable_profiling {
-        PROFILER.profile(f, "check_policy_agg_idx: check_policy_agg".into())
+        PROFILER.profile(f, "aggregate: policy_eval".into())
     } else {
         f()
     }?;
@@ -595,8 +607,8 @@ fn check_expressions_agg(
     tracing::debug!("check_expressions_agg: res = {res:?}");
 
     // Let us now construct a new dataframe.
-    let df = PolicyGuardedDataFrame {
-        columns: THREAD_POOL.install(|| {
+    let columns = || {
+        THREAD_POOL.install(|| {
             res.into_par_iter()
                 .map(|col| {
                     Ok(Arc::new(PolicyGuardedColumn::new_from_iter(
@@ -604,7 +616,17 @@ fn check_expressions_agg(
                     )?))
                 })
                 .collect::<PicachvResult<Vec<_>>>()
-        })?,
+        })
+    };
+
+    let columns = if options.enable_profiling {
+        PROFILER.profile(columns, "aggregate: process".into())
+    } else {
+        columns()
+    }?;
+
+    let df = PolicyGuardedDataFrame {
+        columns,
         ..Default::default()
     };
 
@@ -617,12 +639,10 @@ fn do_check_expressions(
     expression: &[&Arc<AExpr>],
     udfs: &HashMap<String, Udf>,
     options: &ContextOptions,
+    name: &str,
 ) -> PicachvResult<PolicyGuardedDataFrame> {
     let rows = df.shape().0;
-    let ctx = ExpressionEvalContext::new(df, false, udfs, arena);
-
-    // TODO: Convert here from AExpr into PExpr and do
-    // evalaution here.
+    let ctx = ExpressionEvalContext::new(name, df, false, udfs, arena);
 
     let physical_expressions = THREAD_POOL.install(|| {
         expression
@@ -640,16 +660,22 @@ fn do_check_expressions(
                         .into_par_iter()
                         .map(|idx| expr.check_policy_in_row(&ctx, idx))
                         .collect::<PicachvResult<Vec<_>>>()?;
-                    Ok(Arc::new(PolicyGuardedColumn::new_from_iter(
-                        cur.par_iter(),
-                    )?))
+                    Ok(Arc::new({
+                        let f = || PolicyGuardedColumn::new_from_iter(cur.par_iter());
+
+                        if options.enable_profiling {
+                            PROFILER.profile(f, format!("{name}: policy_eval").into())
+                        } else {
+                            f()
+                        }?
+                    }))
                 })
                 .collect::<PicachvResult<Vec<_>>>()
         })
     };
 
     let columns = if options.enable_profiling {
-        PROFILER.profile(f, "do_check_expressions".into())
+        PROFILER.profile(f, format!("{name}: process").into())
     } else {
         f()
     }?;
@@ -671,7 +697,9 @@ fn check_expressions(
     let new_df = {
         let df = arena.df_arena.read();
         let df = df.get(&active_df_uuid)?;
-        Arc::new(do_check_expressions(arena, df, expression, udfs, options)?)
+        Arc::new(do_check_expressions(
+            arena, df, expression, udfs, options, "non-agg",
+        )?)
     };
 
     let mut df_arena = arena.df_arena.write();

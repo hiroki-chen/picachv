@@ -91,7 +91,7 @@ table_columns = {
 }
 
 
-def dbgen() -> None:
+def dbgen(scale_factor: int) -> None:
     ret = subprocess.run(
         ["make", "-C", "dbgen", "dbgen"], stdout=subprocess.PIPE, check=True
     )
@@ -103,7 +103,7 @@ def dbgen() -> None:
     # Generate tables.
     os.chdir("dbgen")
     ret = subprocess.run(
-        ["./dbgen", "-vf", "-s", "1"], stdout=subprocess.PIPE, check=True
+        ["./dbgen", "-vf", "-s", str(scale_factor)], stdout=subprocess.PIPE, check=True
     )
     if ret.returncode != 0:
         print("Error running dbgen")
@@ -112,9 +112,9 @@ def dbgen() -> None:
     os.chdir("..")
 
 
-def main(percentage: float, skip_dbgen: bool) -> None:
+def main(percentage: float, skip_dbgen: bool, scale_factor: int) -> None:
     if not skip_dbgen:
-        dbgen()
+        dbgen(scale_factor)
 
     for table_name, columns in table_columns.items():
         print(f"Processing table: {table_name}")
@@ -157,6 +157,12 @@ if __name__ == "__main__":
         help="Percentage of data to generate",
     )
     parser.add_argument(
+        "--scale-factor",
+        type=int,
+        default=1,
+        help="Scale factor for dbgen",
+    )
+    parser.add_argument(
         "--skip-dbgen",
         action="store_true",
         help="Skip dbgen step",
@@ -164,4 +170,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    main(args.percentage, args.skip_dbgen)
+    main(args.percentage, args.skip_dbgen, args.scale_factor)

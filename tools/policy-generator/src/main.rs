@@ -158,16 +158,16 @@ impl PolicyGenerator {
                         //     label: PolicyLabel::PolicyTop.into(),
                         //     next: Policy::PolicyClean.into(),
                         // }
-                        let agg = Policy::PolicyDeclassify {
-                            label: PolicyLabel::PolicyAgg {
-                                ops: picachv_core::policy::AggOps(vec![AggType {
-                                    how: GroupByMethod::Max,
-                                    group_size: 5,
-                                }]),
-                            }
-                            .into(),
-                            next: Policy::PolicyClean.into(),
-                        };
+                        // let agg = Policy::PolicyDeclassify {
+                        //     label: PolicyLabel::PolicyAgg {
+                        //         ops: picachv_core::policy::AggOps(vec![AggType {
+                        //             how: GroupByMethod::Max,
+                        //             group_size: 5,
+                        //         }]),
+                        //     }
+                        //     .into(),
+                        //     next: Policy::PolicyClean.into(),
+                        // };
                         Policy::PolicyDeclassify {
                             label: PolicyLabel::PolicyTransform {
                                 ops: picachv_core::policy::TransformOps(vec![
@@ -178,7 +178,7 @@ impl PolicyGenerator {
                                 ]),
                             }
                             .into(),
-                            next: agg.into(),
+                            next: Policy::PolicyClean.into(),
                         }
                         // Policy::PolicyClean
 

@@ -1,0 +1,26 @@
+# Rust
+target
+
+# IDE
+.idea/
+.vscode/
+.vim
+
+# C
+**/build
+
+**/*.log
+
+# data
+**/*.csv
+**/*.tbl
+**/*.parquet
+**/*.avro
+**/*.xml
+**/*.yaml
+**/*.yml
+
+# pycache
+**/__pycache__/
+
+.git

@@ -22,9 +22,9 @@ fn main() {
 }
 
 fn q3(with_policy: bool) -> DataFrame {
-    let lineitem_path = "../../data/tables/lineitem.parquet";
-    let orders_path = "../../data/tables/orders.parquet";
-    let customer_path = "../../data/tables/customer.parquet";
+    let lineitem_path = "../../../data/tables/lineitem.parquet";
+    let orders_path = "../../../data/tables/orders.parquet";
+    let customer_path = "../../../data/tables/customer.parquet";
 
     let mut lineitem_scan_arg = ScanArgsParquet {
         ..Default::default()
@@ -38,11 +38,11 @@ fn q3(with_policy: bool) -> DataFrame {
 
     if with_policy {
         lineitem_scan_arg.with_policy =
-            Some("../../data/policies/micro/lineitem.parquet.policy.parquet".into());
+            Some("../../../data/policies/micro/lineitem.parquet.policy.parquet".into());
         orders_scan_arg.with_policy =
-            Some("../../data/policies/micro/orders.parquet.policy.parquet".into());
+            Some("../../../data/policies/micro/orders.parquet.policy.parquet".into());
         customer_scan_arg.with_policy =
-            Some("../../data/policies/micro/customer.parquet.policy.parquet".into());
+            Some("../../../data/policies/micro/customer.parquet.policy.parquet".into());
     }
 
     let lineitem = LazyFrame::scan_parquet(lineitem_path, lineitem_scan_arg).unwrap();
