@@ -18,8 +18,13 @@ fn main() {
 
     if !proto_files.is_empty() {
         let mut config = Config::new();
-        config.out_dir("./src");
-        match config.compile_protos(&proto_files, &["proto"]) {
+
+        match config
+            .type_attribute("PicachvMessages.BinaryOperator", "#[derive(Hash)]")
+            .type_attribute("PicachvMessages.BinaryOperator.operator", "#[derive(Hash)]")
+            .out_dir("./src")
+            .compile_protos(&proto_files, &["proto"])
+        {
             Ok(_) => (),
             Err(e) => panic!("Failed to compile protos: {}", e),
         }
