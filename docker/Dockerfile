@@ -21,8 +21,6 @@ RUN opam init --disable-sandboxing
 RUN eval $(opam env)
 RUN opam install --yes coq
 
-RUN pip3 install coloredlogs --break-system-packages
-
 ENV PATH="/root/.opam/default/bin:${PATH}"
 
 WORKDIR /picachv
@@ -40,3 +38,10 @@ RUN cmake --build build -j$(nproc)
 RUN cmake --build build --target install
 
 WORKDIR /picachv
+
+RUN pip3 install --break-system-packages \
+  polars \
+  coloredlogs \
+  pydantic \
+  pydantic_settings \
+  pyarrow
