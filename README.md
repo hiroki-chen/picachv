@@ -1,5 +1,13 @@
-# Picachv – Formally Verified Data Use Policy Enforcement for Secure Data Analytics 
+# Picachv – Formally Verified Data Use Policy Enforcement for Secure Data Analytics
+
+> :[!CAUTION]
+> Picachv is a research prototype and is still undergoing heavy construction and improvements. There might be broken links, packages, code that does not compile, etc. APIs may also be subject to change without notice in advance. Please do exercise your due diligence before using this prototype, especially for production environments.
+
+> :[!NOTE]
+> Pikachu is the intellectual property and copyright of The Pokémon Company International, Inc. This work is intended for informational, educational, or personal use only and is not intended for commercial purposes. All rights reserved by the original copyright holders.
+
 ---
+
 <img style="float:right" width=200 src="docs/pikachu.jpg">
 The rapid advancement of computational devices and the rise of big data present unparalleled opportunities to accelerate scientific progress and drive innovation through data-driven decision-making. While these opportunities are ground-breaking, they are accompanied by a critical challenge: ensuring proper data *usage* in compliance with complex privacy policies. Examples of these complex policies include NIH *All-of-Us* project where besides the HIPAA law, NIH adds some customized privacy policies to restrict researchers' ability to use the patient data. Researchers must aggregate the statistics with no less than 20 people in a given aggregation group.
 
@@ -38,6 +46,3 @@ Please see [TEEs](docs/TEEs.md).
 ## License
 
 The code is subject to the Apache-2.0 license.
-
----
-**Disclaimer:** Pikachu is the intellectual property and copyright of The Pokémon Company International, Inc. This work is intended for informational, educational, or personal use only and is not intended for commercial purposes. All rights reserved by the original copyright holders.
