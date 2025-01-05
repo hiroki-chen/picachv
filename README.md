@@ -1,9 +1,11 @@
 # Picachv – Formally Verified Data Use Policy Enforcement for Secure Data Analytics
 
-> :[!CAUTION]
+> [!CAUTION]
+>
 > Picachv is a research prototype and is still undergoing heavy construction and improvements. There might be broken links, packages, code that does not compile, etc. APIs may also be subject to change without notice in advance. Please do exercise your due diligence before using this prototype, especially for production environments.
 
-> :[!NOTE]
+> [!NOTE]
+>
 > Pikachu is the intellectual property and copyright of The Pokémon Company International, Inc. This work is intended for informational, educational, or personal use only and is not intended for commercial purposes. All rights reserved by the original copyright holders.
 
 ---
