@@ -1,49 +1,16 @@
-# High-Level Workflow of `Picachv`
 
-In this doc we briefly introduce the working mechanism of `Picachv`. We split the process into the following steps.
+# Workflow
+---
+![fig](picachv-overview.png)
 
-## Context Initialization
+The high-level workflow of Picachv is rather simple:
 
-For each data analytical session we will have an active context where all the relevant policies and data are stored. Besides we have a global monitor that remains active as long as there exists at least one active context. Interested readers are referred to the `picachv-monitor` crate for detailed information.
+1. The policymaker designs the policy and stores as separate files.
+2. The researcher submit analytical tasks that can be interpreted as query plans.
+3. The query plan is submitted to the query execution engines where Picachv will interact with query executors and enforce policies in the meantime.
+4. If the query conforms with the policy then Picachv releases the results to the researchers.
 
-Basically, for a task to be checked, one needs to do the following.
+What does query execution look like under the hood? We detail this process in the figure below.
 
-```rust
-// Initialize a global instance of security monitor.
-picachv_api::init_monitor();
-// Initialize a new context.
-let ctx_id = open_new().expect("fail to initialize new context");
-```
+![fig](query-execution.png)
 
-## Data and Policy Registration
-
-Next the for the dataframe being analyzed, its guardian policy must be registered into the context.
-
-```rust
-let policy = some_policy!();
-let uuid = register_policy_dataframe(ctx_id, policy).expect("fail!");
-```
-
-Afterwards, depending on the data analytical framework, this context ID must be stored somewhere. For example, we can directly store it into `df`.
-
-```rust
-df.set_uuid(uuid);
-```
-
-## Creates the Analytical Query
-
-Now everthing is set up, and we can issue queries.
-
-```rust
-let out = df
-    .lazy()
-    .select([col("a"), col("b")])
-    .filter(lit(1).lt(col("a")))
-    .group_by([col("b")])
-    .agg(vec![col("a").sum()])
-    .set_ctx_id(ctx_id)
-    .collect()?;
-
-// Error: invalid operation: Possible policy breach detected; abort early.
-// Because we do not apply the policy on the column "b".
-```

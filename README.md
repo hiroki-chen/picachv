@@ -1,42 +1,34 @@
-# Picachv – A Formally Verified Middleware For Your Data Analytical Frameworks!
-Both academia and industry are leveraging cloud-aided large-scale data analytics to aid in decision-making, market prediction, and research, whose success hinges upon the massive amount of data.
+# Picachv – Formally Verified Data Use Policy Enforcement for Secure Data Analytics
+---
 
-This abundance of data, however, raises significant privacy concerns especially when tech giants, researchers, and organizations nowadays collect billions of sensitive user data, necessitating stringent and multi-dimensional protection measures. The need is further underscored by emerging regulatory requirements and increased user concerns. While there are effective mechanisms like encrypting the data using strong cryptographic algorithms and applying access controls to restrict *who can see what data*, i.e., data confidentiality, but few work controls *how data is used*, i.e., data use policy, or *purpose limitation* per GDPR that protects user privacy.
+The rapid advancement of computational devices and the rise of big data present unparalleled opportunities to accelerate scientific progress and drive innovation through data-driven decision-making. While these opportunities are ground-breaking, they are accompanied by a critical challenge: ensuring proper data *usage* in compliance with complex privacy policies. Examples of these complex policies include NIH *All-of-Us* project where besides the HIPAA law, NIH adds some customized privacy policies to restrict researchers' ability to use the patient data. Researchers must aggregate the statistics with no less than 20 people in a given aggregation group.
 
-The status quo entails an efficient and secure approach to enforcing such data use policies to ensure a precise, automatic, and proactive protection.
+Yet, enforcing these policies poses a great challenge for us. First of all, manual checks in this scenario is generally infeasible due to the high error-rate of human audition in the face of the complexity of analytical tasks and the high cost of human effort. Relying on computers to automate policy enforcement seems a wise options; however, to the best of our knowledge, there is a lack of satisfatory solutions so far. Why? This is because *data use policies*, unlike access controls that restrict who can see what, they instead ensure that *already authorized personal*  must comply with the proper data use operations. Addressing this problem remains non-trivia, especially when one tries to offer verifiaible security guarantees to the stake holders.
 
-We thus present Picachv, which is a mechanically verified (using Coq), automatic, portable security monitor for transparently enforcing data-use policies for the state-of-the-art data analytical systems.
+We advance the research in this area by introducing Picachv, a lightweight runtime security monitor that can be seamlessly integrated into existing query execution engines, plus verifiable formal guarantees written in Coq.
 
-## Build the Project
+## Design and Workflow
 
-You must ensure you have installed the following dependencies on the computer:
+Please see [Workflow](docs/workflow.md).
 
-- Rust toolchain (can be obtained via rustup)
-- Protobuf (v3.21.0; must be built from *source*)
-- libarrow-dev (v53)
-- cmake
-- clang (we are using mold)
-- mold
-- libre2-dev
-- xsimd
-- Apache Arrow (Must be built from *source*)
+## Installation and Usage
 
-Please be rather careful about the protobuf versioning especially if you have Anaconda or equivalent installed on your system because this would cause confusion when cmake tries to identify the correct protobuf compiler, library, and header files. It is highly recommended that Anaconda3 is deactivated before building the project. Also, please install protobuf from source and never from any pre-built binary distribution (e.g., via `apt`). These binary distributions are either too old, or simply break the compilation.
+Please see [Installation](docs/installation.md).
 
-Then invoke cargo command in the root:
+## Citing the repo
 
-```sh
-$ cargo build -r
+This repository officially hosts the code for the paper accepted by USENIX Security Symposium 2025. To cite this work in your paper, please use the following bibtex format.
+
+```tex
+@inproceedings{chen2025picachv,
+  title={Picachv: Formally Verified Data Use Policy Enforcement for Secure Data Analytics},
+  author={Chen, Haobin Hiroki and Chen, Hongbo and Sun, Mingshen and Wang, Chenghong and Wang, XiaoFeng},
+  booktitle={34th USENIX Security Symposium (USENIX Security 25)},
+  year={2025},
+  location={Seattle, WA, USA}
+}
 ```
 
-## Integration with Other Systems
+## License
 
-We currently provide two unofficial modification on the codebase of Polars and DuckDB to support the policy-checking functionality. Other systems might be supported in the future. We also welcome community contributors to support more data analytical engines and systems on the market.
-
-- Polars.
-- DuckDB.
-
-## The Proofs
-
-The Coq formalization is hosted in another repo: https://github.com/hiroki-chen/pcd-proof Due to the upstream library restrctions, we can only use Coq 8.17.
-
+This product is subject to the Apache-2.0 license.
