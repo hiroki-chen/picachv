@@ -21,7 +21,6 @@ arrow-select = { workspace = true }
 bincode = { workspace = true, optional = true }
 bitmaps = { version = "3.2.1" }
 chrono = { workspace = true }
-jemallocator = { workspace = true }
 tabled = { version = "0.15.0" }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -36,6 +35,9 @@ uuid = { workspace = true, features = ["serde"] }
 
 typetag = "0.2.16"
 parse_duration = "2.1.1"
+
+[target.'cfg(unix)'.dependencies]
+jemallocator = "0.5.4"
 
 [features]
 default = ["arena_for_plan", "fast_bin", "use_parquet", "json"]

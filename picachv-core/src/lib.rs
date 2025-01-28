@@ -29,7 +29,7 @@ pub mod profiler;
 pub mod thread_pool;
 pub mod udf;
 
-#[global_allocator]
+#[cfg(not(target_arch = "wasm32"))]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 /// A unified group information that is used to tell Picachv how groups are formed.

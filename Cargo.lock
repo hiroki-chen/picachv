@@ -2146,11 +2146,23 @@ dependencies = [
 name = "picachv"
 version = "0.1.0"
 dependencies = [
- "picachv-api",
- "picachv-core",
- "picachv-error",
- "picachv-message",
- "picachv-monitor",
+ "picachv-api 0.1.0",
+ "picachv-core 0.1.0",
+ "picachv-error 0.1.0",
+ "picachv-message 0.1.0",
+ "picachv-monitor 0.1.0",
+]
+
+[[package]]
+name = "picachv"
+version = "0.1.0"
+source = "git+https://github.com/hiroki-chen/picachv#ebdd78c21e98ccd551ceaad7fb65bf224bd2920f"
+dependencies = [
+ "picachv-api 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
+ "picachv-core 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
+ "picachv-error 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
+ "picachv-message 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
+ "picachv-monitor 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
 ]
 
 [[package]]
@@ -2159,12 +2171,29 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "jni",
- "picachv-core",
- "picachv-error",
- "picachv-message",
- "picachv-monitor",
+ "picachv-core 0.1.0",
+ "picachv-error 0.1.0",
+ "picachv-message 0.1.0",
+ "picachv-monitor 0.1.0",
  "prost",
  "pyo3",
+ "spin",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "picachv-api"
+version = "0.1.0"
+source = "git+https://github.com/hiroki-chen/picachv#ebdd78c21e98ccd551ceaad7fb65bf224bd2920f"
+dependencies = [
+ "bytemuck",
+ "picachv-core 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
+ "picachv-error 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
+ "picachv-message 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
+ "picachv-monitor 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
+ "prost",
  "spin",
  "tracing",
  "tracing-subscriber",
@@ -2188,8 +2217,39 @@ dependencies = [
  "ordered-float 4.2.1",
  "parquet 51.0.0",
  "parse_duration",
- "picachv-error",
- "picachv-message",
+ "picachv-error 0.1.0",
+ "picachv-message 0.1.0",
+ "rayon",
+ "serde",
+ "serde_json",
+ "spin",
+ "tabled",
+ "tracing",
+ "tracing-subscriber",
+ "typetag",
+ "uuid",
+]
+
+[[package]]
+name = "picachv-core"
+version = "0.1.0"
+source = "git+https://github.com/hiroki-chen/picachv#ebdd78c21e98ccd551ceaad7fb65bf224bd2920f"
+dependencies = [
+ "ahash",
+ "arrow-array 51.0.0",
+ "arrow-ipc 51.0.0",
+ "arrow-schema 51.0.0",
+ "arrow-select 51.0.0",
+ "bincode",
+ "bitmaps",
+ "chrono",
+ "jemallocator",
+ "num_enum",
+ "ordered-float 4.2.1",
+ "parquet 51.0.0",
+ "parse_duration",
+ "picachv-error 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
+ "picachv-message 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
  "rayon",
  "serde",
  "serde_json",
@@ -2209,10 +2269,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "picachv-error"
+version = "0.1.0"
+source = "git+https://github.com/hiroki-chen/picachv#ebdd78c21e98ccd551ceaad7fb65bf224bd2920f"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "picachv-message"
 version = "0.1.0"
 dependencies = [
- "picachv-error",
+ "picachv-error 0.1.0",
+ "prost",
+ "prost-build",
+ "uuid",
+]
+
+[[package]]
+name = "picachv-message"
+version = "0.1.0"
+source = "git+https://github.com/hiroki-chen/picachv#ebdd78c21e98ccd551ceaad7fb65bf224bd2920f"
+dependencies = [
+ "picachv-error 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
  "prost",
  "prost-build",
  "uuid",
@@ -2224,14 +2303,30 @@ version = "0.1.0"
 dependencies = [
  "ahash",
  "arrow-array 51.0.0",
- "picachv-core",
- "picachv-error",
- "picachv-message",
+ "picachv-core 0.1.0",
+ "picachv-error 0.1.0",
+ "picachv-message 0.1.0",
  "prost",
  "readonly",
  "spin",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "picachv-monitor"
+version = "0.1.0"
+source = "git+https://github.com/hiroki-chen/picachv#ebdd78c21e98ccd551ceaad7fb65bf224bd2920f"
+dependencies = [
+ "ahash",
+ "arrow-array 51.0.0",
+ "picachv-core 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
+ "picachv-error 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
+ "picachv-message 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
+ "prost",
+ "readonly",
+ "spin",
  "uuid",
 ]
 
@@ -2594,7 +2689,7 @@ dependencies = [
  "bitflags 2.6.0",
  "glob",
  "once_cell",
- "picachv",
+ "picachv 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
  "polars-arrow 0.39.2",
  "polars-core 0.39.2",
  "polars-io 0.39.2",
@@ -2648,7 +2743,7 @@ dependencies = [
  "indexmap",
  "memchr",
  "num-traits",
- "picachv",
+ "picachv 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
  "polars-arrow 0.39.2",
  "polars-compute 0.39.2",
  "polars-core 0.39.2",
@@ -2800,7 +2895,7 @@ dependencies = [
  "hashbrown",
  "once_cell",
  "percent-encoding",
- "picachv",
+ "picachv 0.1.0 (git+https://github.com/hiroki-chen/picachv)",
  "polars-arrow 0.39.2",
  "polars-core 0.39.2",
  "polars-io 0.39.2",
@@ -3012,7 +3107,7 @@ dependencies = [
  "clap",
  "indicatif",
  "parquet 52.1.0",
- "picachv-core",
+ "picachv-core 0.1.0",
 ]
 
 [[package]]
