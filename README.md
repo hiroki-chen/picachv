@@ -11,6 +11,7 @@
 ---
 
 <img style="float:right" width=200 src="docs/pikachu.jpg">
+
 The rapid advancement of computational devices and the rise of big data present unparalleled opportunities to accelerate scientific progress and drive innovation through data-driven decision-making. While these opportunities are ground-breaking, they are accompanied by a critical challenge: ensuring proper data *usage* in compliance with complex privacy policies. Examples of these complex policies include NIH *All-of-Us* project where besides the HIPAA law, NIH adds some customized privacy policies to restrict researchers' ability to use the patient data. Researchers must aggregate the statistics with no less than 20 people in a given aggregation group.
 
 Yet, enforcing these policies poses a great challenge for us. First of all, manual checks in this scenario is generally infeasible due to the high error-rate of human audition in the face of the complexity of analytical tasks and the high cost of human effort. Relying on computers to automate policy enforcement seems a wise options; however, to the best of our knowledge, there is a lack of satisfatory solutions so far.
@@ -26,6 +27,8 @@ Please see [Workflow](docs/workflow.md).
 ## Installation and Usage
 
 Please see [Installation](docs/installation.md).
+
+Picachv is written in native Rust and supports other languages (e.g., C/C++) by offering dynamic libraries and corresponding FFI API declarations.
 
 ## Citing the repo
 

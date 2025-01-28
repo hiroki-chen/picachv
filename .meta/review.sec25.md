@@ -388,3 +388,17 @@ Open science compliance
 Questions for authors' response
 -------------------------------
 The limitations appear quite limiting indeed. How can we be more convinced of the strengths of the current contributions?
+
+Comment @A1 by Reviewer C
+---------------------------------------------------------------------------
+Dear authors,
+
+Thank you for submitting to Usenix. We have decided upon a major revision. Here is the list of required changes, which will be verified by the shepherd:
+
+1. Ensure that the operational semantics are self contained and well explained, and ensure that the paper is well-polished.
+2. Give a more intuitive explanation of how the runtime monitor works, motivated by the operational semantics
+3. Please make the formal Coq proofs open source.
+4. Expand the implementation / evaluation section to give a more thorough analysis of all performance bottlenecks.
+5. Significantly expand the discussion of the declassification policies to demonstrate that it is a useful abstraction in practice. In particular, show how policies can be dynamically determined and compositional, as alluded to in your response.
+
+If you have any specific questions about these requirements, we encourage you to reach out to the assigned shepherd for guidance.

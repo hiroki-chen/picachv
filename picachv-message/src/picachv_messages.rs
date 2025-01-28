@@ -181,6 +181,7 @@ pub mod primitive_value {
         Duration(Duration),
     }
 }
+#[derive(Hash)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BinaryOperator {
@@ -189,8 +190,9 @@ pub struct BinaryOperator {
 }
 /// Nested message and enum types in `BinaryOperator`.
 pub mod binary_operator {
+    #[derive(Hash)]
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, Hash, ::prost::Oneof)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Operator {
         #[prost(enumeration = "super::LogicalBinaryOperator", tag = "1")]
         LogicalOperator(i32),

@@ -27,3 +27,5 @@ build
 
 # pycache
 __pycache__/
+
+.meta

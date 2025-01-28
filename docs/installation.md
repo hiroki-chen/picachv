@@ -5,7 +5,7 @@ Before following the guide, please do note that Picachv is a standalone library 
 
 ## Polars + Picachv
 
-Luckily we have provided a modified version of Polars where we integrated Picachv. You can use this modified Polars framework as a start point to see how Picachv works.
+Luckily we have provided a modified version of Polars where we integrated Picachv. You can use this modified Polars framework as a start point to see how Picachv works. Please see [Integration](integration.md).
 
 ## Preparations
 
@@ -42,7 +42,7 @@ $ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s
 $ rustup -V
 ```
 
-3. Install Opam to install Coq.
+3. Install `opam` to get Coq.
 
 ```sh
 $ bash -c "sh <(curl -fsSL https://opam.ocaml.org/install.sh)"
@@ -81,12 +81,10 @@ to run the Coq compiler to type check the source code. If no error is thrown the
 
 ## Building Picachv
 
-It is quite simple to build Picachv.
-
-In the root directory, running
+It is quite simple to build Picachv. In the root directory, running
 
 ```sh
 $ cargo build --release
 ```
 
-is all you need.
+is all you need. This command generates two dynamic libraries `libpicachv_core.so` and `libpicachv_api.so` in `target/release` and also a Rust library if you are targeting a Rust-based analytical framework like Polars. To know how to use the former C-style libraries, please kindly refer to [Integration](integration.md).

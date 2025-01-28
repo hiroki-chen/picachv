@@ -31,7 +31,7 @@ in proxy_to_arg: gb GroupsIdx { sorted: false, first: [2, 0, 1, 3], all: [UnitVe
 [x] Parallelism
 ## Misc
 [ ] Add a licence?
-[ ] There is a conflict between polars' thread pool and picachv's thread pool.
+[x] There is a conflict between polars' thread pool and picachv's thread pool.
 
 Two interfaces causing major overhead:
 
@@ -39,6 +39,19 @@ Two interfaces causing major overhead:
   - `get_ctx_mut` that locks the global context which seems unnecessary.
   - `expr_arena` lock and unlock stuff (writer waiting other writer but writers always modify different ).
 
-[ ] `convert_record_batch` introduces extra overhead which seems unnecessary.
+[x] `convert_record_batch` introduces extra overhead which seems unnecessary.
   - Or, we simply don't convert but rather maintains a `Arc<RecordBatch>` to it.
-    
+
+[x] Our performance is even better than Polars. This is weird.
+    This is due to the calculation error.
+    ```
+    [     Task A     ]
+        [       Task B    ]
+    ```
+
+    In the above case if we want to substract the time used for fulfillign task b from the total time then we might get the wrong information; however, we don't want to
+    include the time used for Task B.
+
+# USENIX Security Artifact Evaluation
+
+Prepare for the documentation for reproducing the results in the paper.
