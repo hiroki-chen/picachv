@@ -1,4 +1,4 @@
-# Artifact Evaluation for USENIX Security
+# Instructions for Artifact Evaluation for USENIX Security
 
 This Zedono repo hosts the artifacts for Picachv. The layout of this repo is:
 

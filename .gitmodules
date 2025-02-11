@@ -1,3 +1,6 @@
 [submodule "picachv-proof"]
 	path = picachv-proof-lib
 	url = https://github.com/hiroki-chen/pcd-proof.git
+[submodule "picachv-case-study"]
+	path = picachv-case-study
+	url = https://github.com/hiroki-chen/picachv-case-study.git
