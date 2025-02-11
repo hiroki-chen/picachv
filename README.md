@@ -20,6 +20,10 @@ Why? This is because *data use policies*, unlike access controls that restrict w
 
 We advance the research in this area by introducing Picachv, a lightweight runtime security monitor that can be seamlessly integrated into existing query execution engines, plus verifiable formal guarantees written in Coq.
 
+## Artifact Evaluations
+
+Please refer to [AE Readme](docs/AE-README.md).
+
 ## Design and Workflow
 
 Please see [Workflow](docs/workflow.md).
