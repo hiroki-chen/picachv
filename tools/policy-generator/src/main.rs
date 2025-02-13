@@ -1,3 +1,4 @@
+use std::cell::LazyCell;
 use std::error::Error;
 use std::fmt::Display;
 use std::fs::{self, File};
@@ -12,6 +13,38 @@ use picachv_core::dataframe::{PolicyGuardedColumn, PolicyGuardedDataFrame};
 use picachv_core::io::{BinIo, JsonIO};
 use picachv_core::policy::types::AnyValue;
 use picachv_core::policy::{AggType, BinaryTransformType, Policy, PolicyLabel, TransformType};
+
+const POLICY_A: Policy = Policy::PolicyClean;
+const POLICY_B: LazyCell<Policy> = LazyCell::new(|| Policy::PolicyDeclassify {
+    label: PolicyLabel::PolicyAgg {
+        ops: picachv_core::policy::AggOps(vec![AggType {
+            how: GroupByMethod::Max,
+            group_size: 5,
+        }]),
+    }
+    .into(),
+    next: Arc::new(POLICY_A),
+});
+const POLICY_C: LazyCell<Policy> = LazyCell::new(|| Policy::PolicyDeclassify {
+    label: PolicyLabel::PolicyTransform {
+        ops: picachv_core::policy::TransformOps(vec![TransformType::Binary(BinaryTransformType {
+            name: "+".into(),
+            arg: AnyValue::Float64(1.0.into()).into(),
+        })]),
+    }
+    .into(),
+    next: Arc::new(POLICY_A),
+});
+const POLICY_D: LazyCell<Policy> = LazyCell::new(|| Policy::PolicyDeclassify {
+    label: PolicyLabel::PolicyTransform {
+        ops: picachv_core::policy::TransformOps(vec![TransformType::Binary(BinaryTransformType {
+            name: "+".into(),
+            arg: AnyValue::Float64(1.0.into()).into(),
+        })]),
+    }
+    .into(),
+    next: Arc::new((*POLICY_B).clone().into()),
+});
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub enum Format {
@@ -61,6 +94,9 @@ pub struct Args {
     format: Format,
     #[clap(long)]
     is_micro: bool,
+
+    #[clap(long, default_value = "A")]
+    policy_type: String,
 }
 
 /// A simple generator that produces dummy policies for testing.
@@ -154,45 +190,13 @@ impl PolicyGenerator {
             for _ in 0..row_num {
                 let p = if self.args.is_micro {
                     if col.name() == "l_discount" {
-                        // Policy::PolicyDeclassify {
-                        //     label: PolicyLabel::PolicyTop.into(),
-                        //     next: Policy::PolicyClean.into(),
-                        // }
-                        // let agg = Policy::PolicyDeclassify {
-                        //     label: PolicyLabel::PolicyAgg {
-                        //         ops: picachv_core::policy::AggOps(vec![AggType {
-                        //             how: GroupByMethod::Max,
-                        //             group_size: 5,
-                        //         }]),
-                        //     }
-                        //     .into(),
-                        //     next: Policy::PolicyClean.into(),
-                        // };
-                        Policy::PolicyDeclassify {
-                            label: PolicyLabel::PolicyTransform {
-                                ops: picachv_core::policy::TransformOps(vec![
-                                    TransformType::Binary(BinaryTransformType {
-                                        name: "+".into(),
-                                        arg: AnyValue::Float64(1.0.into()).into(),
-                                    }),
-                                ]),
-                            }
-                            .into(),
-                            next: Policy::PolicyClean.into(),
+                        match self.args.policy_type.as_str() {
+                            "A" => POLICY_A.clone(),
+                            "B" => (*POLICY_B).clone(),
+                            "C" => (*POLICY_C).clone(),
+                            "D" => (*POLICY_D).clone(),
+                            pt => panic!("Invalid policy type {pt}"),
                         }
-                        // Policy::PolicyClean
-
-                        // } else if col.name() == "l_discount" {
-                        //     Policy::PolicyDeclassify {
-                        //         label: PolicyLabel::PolicyAgg {
-                        //             ops: picachv_core::policy::AggOps(vec![AggType {
-                        //                 how: GroupByMethod::Max,
-                        //                 group_size: 5,
-                        //             }]),
-                        //         }
-                        //         .into(),
-                        //         next: Policy::PolicyClean.into(),
-                        //     }
                     } else {
                         Policy::PolicyClean
                     }
@@ -205,8 +209,6 @@ impl PolicyGenerator {
                 pb.inc(1);
             }
             pb.finish_with_message("done");
-
-            // TODO: Fixme.
             columns.push(Arc::new(PolicyGuardedColumn::new_from_iter(
                 c.iter().collect::<Vec<_>>(),
             )?));
